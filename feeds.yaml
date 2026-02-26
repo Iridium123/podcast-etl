@@ -1,0 +1,6 @@
+feeds: []
+settings:
+  poll_interval: 3600
+  output_dir: ./output
+  pipeline:
+    - download

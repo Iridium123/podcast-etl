@@ -1,0 +1,137 @@
+from __future__ import annotations
+
+import json
+import re
+from dataclasses import dataclass, field
+from datetime import datetime
+from pathlib import Path
+from typing import Any
+
+
+def slugify(text: str) -> str:
+    """Convert text to a URL-safe slug."""
+    text = text.lower().strip()
+    text = re.sub(r"[^\w\s-]", "", text)
+    text = re.sub(r"[-\s]+", "-", text)
+    return text.strip("-")
+
+
+@dataclass
+class StepStatus:
+    completed_at: str
+    result: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"completed_at": self.completed_at, "result": self.result}
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> StepStatus:
+        return cls(completed_at=data["completed_at"], result=data.get("result", {}))
+
+
+@dataclass
+class Episode:
+    title: str
+    guid: str
+    published: str | None
+    audio_url: str | None
+    duration: str | None
+    description: str | None
+    slug: str
+    status: dict[str, StepStatus | None] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        status_dict = {}
+        for step_name, step_status in self.status.items():
+            status_dict[step_name] = step_status.to_dict() if step_status else None
+        return {
+            "title": self.title,
+            "guid": self.guid,
+            "published": self.published,
+            "audio_url": self.audio_url,
+            "duration": self.duration,
+            "description": self.description,
+            "slug": self.slug,
+            "status": status_dict,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> Episode:
+        status = {}
+        for step_name, step_data in data.get("status", {}).items():
+            status[step_name] = StepStatus.from_dict(step_data) if step_data else None
+        return cls(
+            title=data["title"],
+            guid=data["guid"],
+            published=data.get("published"),
+            audio_url=data.get("audio_url"),
+            duration=data.get("duration"),
+            description=data.get("description"),
+            slug=data["slug"],
+            status=status,
+        )
+
+    def save(self, podcast_dir: Path) -> None:
+        episodes_dir = podcast_dir / "episodes"
+        episodes_dir.mkdir(parents=True, exist_ok=True)
+        path = episodes_dir / f"{self.slug}.json"
+        path.write_text(json.dumps(self.to_dict(), indent=2) + "\n")
+
+    @classmethod
+    def load(cls, path: Path) -> Episode:
+        data = json.loads(path.read_text())
+        return cls.from_dict(data)
+
+
+@dataclass
+class Podcast:
+    title: str
+    url: str
+    description: str | None
+    image_url: str | None
+    slug: str
+    last_fetched: str | None = None
+    episodes: list[Episode] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "title": self.title,
+            "url": self.url,
+            "description": self.description,
+            "image_url": self.image_url,
+            "slug": self.slug,
+            "last_fetched": self.last_fetched,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> Podcast:
+        return cls(
+            title=data["title"],
+            url=data["url"],
+            description=data.get("description"),
+            image_url=data.get("image_url"),
+            slug=data["slug"],
+            last_fetched=data.get("last_fetched"),
+        )
+
+    def podcast_dir(self, output_dir: Path) -> Path:
+        return output_dir / self.slug
+
+    def save(self, output_dir: Path) -> None:
+        podcast_dir = self.podcast_dir(output_dir)
+        podcast_dir.mkdir(parents=True, exist_ok=True)
+        path = podcast_dir / "podcast.json"
+        self.last_fetched = datetime.now().isoformat()
+        path.write_text(json.dumps(self.to_dict(), indent=2) + "\n")
+        for episode in self.episodes:
+            episode.save(podcast_dir)
+
+    @classmethod
+    def load(cls, podcast_dir: Path) -> Podcast:
+        data = json.loads((podcast_dir / "podcast.json").read_text())
+        podcast = cls.from_dict(data)
+        episodes_dir = podcast_dir / "episodes"
+        if episodes_dir.exists():
+            for ep_path in sorted(episodes_dir.glob("*.json")):
+                podcast.episodes.append(Episode.load(ep_path))
+        return podcast
