@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+# Suppress hashlib blake2 errors from pyenv Python builds missing OpenSSL support.
+# Must run before importing dependencies that trigger hashlib import.
 import logging
+logging.disable(logging.ERROR)
+
 import sys
 from pathlib import Path
 
@@ -38,6 +42,7 @@ def get_pipeline_steps(config: dict) -> list[str]:
 
 
 def setup_logging(verbose: bool) -> None:
+    logging.disable(logging.NOTSET)
     level = logging.DEBUG if verbose else logging.INFO
     logging.basicConfig(
         level=level,
