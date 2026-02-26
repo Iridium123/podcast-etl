@@ -37,7 +37,8 @@ class DownloadStep:
             return StepResult(data={"path": f"audio/{filename}", "size_bytes": size})
 
         logger.info("Downloading %s -> %s", episode.audio_url, filepath)
-        with httpx.stream("GET", episode.audio_url, follow_redirects=True, timeout=120) as response:
+        headers = {"User-Agent": "podcast-etl/0.1"}
+        with httpx.stream("GET", episode.audio_url, headers=headers, follow_redirects=True, timeout=120) as response:
             response.raise_for_status()
             with open(filepath, "wb") as f:
                 for chunk in response.iter_bytes(chunk_size=8192):
