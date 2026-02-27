@@ -11,3 +11,6 @@ wheels/
 
 # Pipeline output
 output/
+*.DS_Store
+feeds.yaml
+.claude/
