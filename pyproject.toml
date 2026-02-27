@@ -14,6 +14,9 @@ dependencies = [
 [project.scripts]
 podcast-etl = "podcast_etl.cli:main"
 
+[dependency-groups]
+dev = ["pytest>=8.0"]
+
 [build-system]
 requires = ["uv_build>=0.10.6,<0.11.0"]
 build-backend = "uv_build"
