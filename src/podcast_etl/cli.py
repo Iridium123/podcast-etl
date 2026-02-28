@@ -15,9 +15,11 @@ from podcast_etl.feed import parse_feed
 from podcast_etl.models import Podcast
 from podcast_etl.pipeline import Pipeline, PipelineContext, get_step, register_step
 from podcast_etl.steps.download import DownloadStep
+from podcast_etl.steps.tag import TagStep
 
 # Register built-in steps
 register_step(DownloadStep())
+register_step(TagStep())
 
 DEFAULT_CONFIG_PATH = Path("feeds.yaml")
 DEFAULT_OUTPUT_DIR = Path("output")

@@ -1,6 +1,8 @@
-feeds: []
+feeds:
+- url: https://feeds.soundcloud.com/users/soundcloud:users:1472908503/sounds.rss
 settings:
   poll_interval: 3600
   output_dir: ./output
   pipeline:
-    - download
+  - download
+  - tag
