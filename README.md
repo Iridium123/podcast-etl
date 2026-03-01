@@ -59,16 +59,33 @@ Fetches and processes all feeds on a loop. Shuts down cleanly on SIGTERM/SIGINT.
 
 ## Docker
 
+A pre-built image is published to `ghcr.io/iridium123/podcast-etl:latest` on every push to `main`.
+
+### Docker Compose (recommended)
+
 ```sh
-docker build -t podcast-etl .
-docker run -v ./feeds.yaml:/config/feeds.yaml -v ./output:/output podcast-etl
+docker compose up -d
+```
+
+Place your `feeds.yaml` in a `config/` directory alongside `docker-compose.yaml`. Output lands in `./output`.
+
+### Manual docker run
+
+```sh
+docker run -v ./config:/config -v ./output:/output ghcr.io/iridium123/podcast-etl:latest
 ```
 
 Override the default poll mode to run a one-off command:
 
 ```sh
-docker run -v ./feeds.yaml:/config/feeds.yaml -v ./output:/output podcast-etl \
+docker run -v ./config:/config -v ./output:/output ghcr.io/iridium123/podcast-etl:latest \
   podcast-etl -c /config/feeds.yaml run --all
+```
+
+### Build locally
+
+```sh
+docker build -t podcast-etl .
 ```
 
 ## Configuration

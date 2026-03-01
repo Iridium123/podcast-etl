@@ -19,7 +19,7 @@ Tests live in `tests/` and use pytest. Three test files cover the core modules:
 - `test_pipeline.py` — `Pipeline` step execution, skipping already-completed steps, step filters
 - `test_tag_step.py` — `TagStep` MP3/MP4 tagging, audio file discovery, error cases
 
-**After making changes**, check whether tests need updating and whether new behaviour should be tested. Also check whether `CLAUDE.md` itself needs updating (e.g. new steps, changed commands, architectural changes).
+**After making changes**, check whether tests need updating and whether new behaviour should be tested. Also check whether `CLAUDE.md` itself needs updating (e.g. new steps, changed commands, architectural changes, deployment changes).
 
 ## Architecture
 
