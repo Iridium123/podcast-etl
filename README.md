@@ -11,6 +11,8 @@ A step-based pipeline that ingests podcast RSS feeds, downloads audio, and track
 
 ```sh
 uv sync
+cp feeds.yaml.example feeds.yaml
+# edit feeds.yaml with your feeds
 ```
 
 ## Usage
