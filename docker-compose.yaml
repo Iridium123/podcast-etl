@@ -7,5 +7,6 @@ services:
     volumes:
       - ./config:/config
       - ./output:/output
+      - /path/to/torrent-data:/torrent-data   # shared with qBittorrent container
     environment:
       - TZ=America/Los_Angeles
