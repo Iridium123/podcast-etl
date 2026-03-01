@@ -67,7 +67,8 @@ class TagStep:
         except ID3NoHeaderError:
             tags = ID3()
         tags.add(TIT2(encoding=3, text=[title]))
-        tags.add(TPE1(encoding=3, text=[artist]))
+        if "TPE1" not in tags:
+            tags.add(TPE1(encoding=3, text=[artist]))
         if description:
             tags.add(COMM(encoding=3, lang="eng", desc="", text=[description]))
         tags.add(TDRL(encoding=3, text=[date_str]))
@@ -77,7 +78,8 @@ class TagStep:
     def _tag_mp4(self, path: Path, title: str, artist: str, description: str, date_str: str) -> None:
         tags = MP4(path)
         tags["©nam"] = title
-        tags["©ART"] = artist
+        if "©ART" not in tags:
+            tags["©ART"] = artist
         if description:
             tags["©cmt"] = description
         tags["©day"] = date_str

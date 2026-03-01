@@ -3,7 +3,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-from mutagen.id3 import ID3
+from mutagen.id3 import ID3, TPE1
 
 from podcast_etl.models import Episode, Podcast, StepStatus
 from podcast_etl.pipeline import PipelineContext
@@ -89,6 +89,7 @@ def test_tag_step_mp4_writes_release_date(tmp_path: Path):
     ep = _make_episode(status=_download_status("audio/ep-1.m4a"))
 
     mock_tags = MagicMock()
+    mock_tags.__contains__ = MagicMock(return_value=False)
     with patch("podcast_etl.steps.tag.MP4", return_value=mock_tags):
         result = TagStep().process(ep, ctx)
 
@@ -97,6 +98,35 @@ def test_tag_step_mp4_writes_release_date(tmp_path: Path):
     mock_tags.__setitem__.assert_any_call("©ART", "Test Podcast")
     mock_tags.__setitem__.assert_any_call("©day", "2024-01-01")
     mock_tags.save.assert_called_once()
+
+
+def test_tag_step_mp3_does_not_overwrite_existing_artist(tmp_path: Path):
+    ctx = _make_context(tmp_path)
+    audio_path = _make_audio_file(ctx, "ep-1", ".mp3")
+    # Pre-write an existing artist tag
+    existing = ID3()
+    existing.add(TPE1(encoding=3, text=["Original Artist"]))
+    existing.save(audio_path)
+    ep = _make_episode(status=_download_status("audio/ep-1.mp3"))
+
+    TagStep().process(ep, ctx)
+
+    tags = ID3(audio_path)
+    assert str(tags["TPE1"]) == "Original Artist"
+
+
+def test_tag_step_mp4_does_not_overwrite_existing_artist(tmp_path: Path):
+    ctx = _make_context(tmp_path)
+    _make_audio_file(ctx, "ep-1", ".m4a")
+    ep = _make_episode(status=_download_status("audio/ep-1.m4a"))
+
+    mock_tags = MagicMock()
+    mock_tags.__contains__ = MagicMock(return_value=True)  # all tags already present
+    with patch("podcast_etl.steps.tag.MP4", return_value=mock_tags):
+        TagStep().process(ep, ctx)
+
+    calls = [c.args[0] for c in mock_tags.__setitem__.call_args_list]
+    assert "©ART" not in calls
 
 
 # --- Audio file discovery ---
