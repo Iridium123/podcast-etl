@@ -1,0 +1,11 @@
+services:
+  podcast-etl:
+    image: ghcr.io/iridium123/podcast-etl:latest
+    # Uncomment to build locally instead:
+    # build: .
+    restart: unless-stopped
+    volumes:
+      - ./config:/config
+      - ./output:/output
+    environment:
+      - TZ=America/Los_Angeles
