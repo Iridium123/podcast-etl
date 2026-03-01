@@ -267,10 +267,10 @@ services:
   - Call `tracker.upload()`
 - [x] Write `tests/test_upload_step.py` (mock ModifiedUnit3dTracker; test skip, missing category_id error, success)
 
-### Phase 8: Registration & Config
-- [ ] Register all four steps in `src/podcast_etl/cli.py`
-- [ ] Update `feeds.yaml.example` with full clients/trackers config blocks and example feed pipeline
-- [ ] Update `README.md` and `CLAUDE.md` with new steps, config fields, and Docker setup
+### Phase 8: Registration & Config ✅
+- [x] Register all four steps in `src/podcast_etl/cli.py`
+- [x] Update `feeds.yaml.example` with full clients/trackers config blocks and example feed pipeline
+- [x] Update `README.md` and `CLAUDE.md` with new steps, config fields, and Docker setup
 
 ### Phase 9: Verification
 - [ ] Run `uv run pytest tests/ -v` — all tests pass
