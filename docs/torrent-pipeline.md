@@ -242,14 +242,14 @@ services:
   - Skip if destination file already exists
 - [x] Write `tests/test_stage_step.py` (mock filesystem; test copy, idempotency, missing download status)
 
-### Phase 5: `torrent` Step
-- [ ] Implement `TorrentStep` in `src/podcast_etl/steps/torrent.py`
+### Phase 5: `torrent` Step ✅
+- [x] Implement `TorrentStep` in `src/podcast_etl/steps/torrent.py`
   - Resolve audio file path from stage result
   - Create `output/<podcast>/torrents/` directory
   - Call `mktorrent` via `subprocess.run` targeting the audio file
   - Read created `.torrent` with `torf.Torrent.read()` to extract `info_hash`
   - Skip if `.torrent` already exists
-- [ ] Write `tests/test_torrent_step.py` (mock `subprocess.run`; mock `torf.Torrent.read`; test flags, idempotency, subprocess failure)
+- [x] Write `tests/test_torrent_step.py` (mock `subprocess.run`; mock `torf.Torrent.read`; test flags, idempotency, subprocess failure)
 
 ### Phase 6: `seed` Step
 - [ ] Implement `SeedStep` in `src/podcast_etl/steps/seed.py`
