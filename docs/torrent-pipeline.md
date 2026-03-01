@@ -251,13 +251,13 @@ services:
   - Skip if `.torrent` already exists
 - [x] Write `tests/test_torrent_step.py` (mock `subprocess.run`; mock `torf.Torrent.read`; test flags, idempotency, subprocess failure)
 
-### Phase 6: `seed` Step
-- [ ] Implement `SeedStep` in `src/podcast_etl/steps/seed.py`
+### Phase 6: `seed` Step ✅
+- [x] Implement `SeedStep` in `src/podcast_etl/steps/seed.py`
   - Instantiate `QBittorrentClient` from `context.config["settings"]["clients"]["qbittorrent"]`
   - Use `info_hash` from torrent step result
   - Skip if `has_torrent()` returns True
   - Call `add_torrent()` with .torrent path and client-side episode dir
-- [ ] Write `tests/test_seed_step.py` (mock QBittorrentClient; test skip-if-exists, success, client error)
+- [x] Write `tests/test_seed_step.py` (mock QBittorrentClient; test skip-if-exists, success, client error)
 
 ### Phase 7: `upload` Step
 - [ ] Implement `UploadStep` in `src/podcast_etl/steps/upload.py`
