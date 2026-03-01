@@ -58,13 +58,15 @@ def _download_status(path: str) -> dict:
 def test_tag_step_mp3_writes_release_date(tmp_path: Path):
     ctx = _make_context(tmp_path)
     audio_path = _make_audio_file(ctx, "ep-1", ".mp3")
-    ep = _make_episode(status=_download_status("audio/ep-1.mp3"))
+    ep = _make_episode(description="A great episode.", status=_download_status("audio/ep-1.mp3"))
 
     result = TagStep().process(ep, ctx)
 
     assert result.data["release_date"] == "2024-01-01"
     tags = ID3(audio_path)
     assert str(tags["TIT2"]) == "Episode 1"
+    assert str(tags["TPE1"]) == "Test Podcast"
+    assert str(tags["COMM::eng"]) == "A great episode."
     assert str(tags["TDRL"]) == "2024-01-01"
     assert str(tags["TDRC"]) == "2024"
 
@@ -92,6 +94,7 @@ def test_tag_step_mp4_writes_release_date(tmp_path: Path):
 
     assert result.data["release_date"] == "2024-01-01"
     mock_tags.__setitem__.assert_any_call("©nam", "Episode 1")
+    mock_tags.__setitem__.assert_any_call("©ART", "Test Podcast")
     mock_tags.__setitem__.assert_any_call("©day", "2024-01-01")
     mock_tags.save.assert_called_once()
 
