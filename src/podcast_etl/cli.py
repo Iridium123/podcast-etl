@@ -75,7 +75,7 @@ def fetch_feed(url: str, output_dir: Path) -> Podcast:
 def run_pipeline(podcast: Podcast, output_dir: Path, config: dict, feed_config: dict | None = None, step_filter: str | None = None, last: int | None = None, overwrite: bool = False) -> None:
     step_names = get_pipeline_steps(config, feed_config)
     steps = [get_step(name) for name in step_names]
-    context = PipelineContext(output_dir=output_dir, podcast=podcast, config=config)
+    context = PipelineContext(output_dir=output_dir, podcast=podcast, config=config, feed_config=feed_config or {})
     pipeline = Pipeline(steps=steps, context=context)
     episodes = podcast.episodes[:last] if last is not None else podcast.episodes
     pipeline.run(episodes, step_filter=step_filter, overwrite=overwrite)
