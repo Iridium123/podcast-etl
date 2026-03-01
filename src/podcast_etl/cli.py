@@ -77,7 +77,7 @@ def run_pipeline(podcast: Podcast, output_dir: Path, config: dict, feed_config: 
     steps = [get_step(name) for name in step_names]
     context = PipelineContext(output_dir=output_dir, podcast=podcast, config=config)
     pipeline = Pipeline(steps=steps, context=context)
-    episodes = podcast.episodes[-last:] if last is not None else podcast.episodes
+    episodes = podcast.episodes[:last] if last is not None else podcast.episodes
     pipeline.run(episodes, step_filter=step_filter)
 
 
