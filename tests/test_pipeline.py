@@ -104,6 +104,17 @@ def test_pipeline_step_filter_unknown_raises(tmp_path: Path):
         Pipeline(steps=[step], context=ctx).run([ep], step_filter="nonexistent")
 
 
+def test_pipeline_overwrite_reruns_completed_step(tmp_path: Path):
+    step = FakeStep()
+    completed = StepStatus(completed_at="2024-01-01T00:00:00", result={})
+    ep = _make_episode(status={"fake": completed})
+    ctx = _make_context(tmp_path)
+
+    Pipeline(steps=[step], context=ctx).run([ep], overwrite=True)
+
+    assert step.call_count == 1
+
+
 def test_pipeline_runs_multiple_episodes(tmp_path: Path):
     step = FakeStep()
     episodes = [_make_episode(slug=f"ep-{i}") for i in range(3)]

@@ -40,13 +40,15 @@ This writes `podcast.json` and per-episode JSON files to `output/<podcast-slug>/
 uv run podcast-etl run --all
 # by name or URL
 uv run podcast-etl run --feed my-podcast
-# or run a specific step only
+# only run a specific step
 uv run podcast-etl run --feed my-podcast --step download
 # only process the last N episodes
 uv run podcast-etl run --feed my-podcast --last 5
+# re-process even if already completed
+uv run podcast-etl run --feed my-podcast --overwrite
 ```
 
-Fetches feeds then runs configured pipeline steps (downloads audio by default). Episodes that have already been processed are skipped.
+Fetches feeds then runs configured pipeline steps (downloads audio by default). Episodes that have already been processed are skipped unless `--overwrite` is passed.
 
 Downloaded audio files are named `YYYY-MM-DD <Episode Title>.mp3` using the episode's release date and a sanitized version of its title. Characters forbidden on Windows/macOS (`/:*?"<>|`) are removed, and `": "` is replaced with `" - "` (e.g. `2024-03-15 Ep 3 - God Picked a Loser.mp3`).
 
@@ -58,6 +60,8 @@ uv run podcast-etl reset --feed my-podcast
 uv run podcast-etl reset --feed my-podcast --yes
 # by URL
 uv run podcast-etl reset --feed "https://example.com/feed.xml" --yes
+# reset all feeds
+uv run podcast-etl reset --all --yes
 ```
 
 Deletes the feed's entire output directory (podcast.json, episode JSON files, and downloaded audio) so it can be reprocessed from scratch. Prompts for confirmation unless `--yes` / `-y` is passed.

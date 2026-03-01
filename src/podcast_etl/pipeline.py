@@ -51,7 +51,7 @@ class Pipeline:
         self.steps = steps
         self.context = context
 
-    def run(self, episodes: list[Episode], step_filter: str | None = None) -> None:
+    def run(self, episodes: list[Episode], step_filter: str | None = None, overwrite: bool = False) -> None:
         steps = self.steps
         if step_filter:
             steps = [s for s in steps if s.name == step_filter]
@@ -60,6 +60,8 @@ class Pipeline:
 
         for episode in episodes:
             for step in steps:
+                if overwrite:
+                    episode.status.pop(step.name, None)
                 if step.name in episode.status and episode.status[step.name] is not None:
                     logger.debug("Skipping %s for %s (already done)", step.name, episode.slug)
                     continue

@@ -72,13 +72,13 @@ def fetch_feed(url: str, output_dir: Path) -> Podcast:
     return podcast
 
 
-def run_pipeline(podcast: Podcast, output_dir: Path, config: dict, feed_config: dict | None = None, step_filter: str | None = None, last: int | None = None) -> None:
+def run_pipeline(podcast: Podcast, output_dir: Path, config: dict, feed_config: dict | None = None, step_filter: str | None = None, last: int | None = None, overwrite: bool = False) -> None:
     step_names = get_pipeline_steps(config, feed_config)
     steps = [get_step(name) for name in step_names]
     context = PipelineContext(output_dir=output_dir, podcast=podcast, config=config)
     pipeline = Pipeline(steps=steps, context=context)
     episodes = podcast.episodes[:last] if last is not None else podcast.episodes
-    pipeline.run(episodes, step_filter=step_filter)
+    pipeline.run(episodes, step_filter=step_filter, overwrite=overwrite)
 
 
 @click.group()
@@ -152,8 +152,9 @@ def fetch(ctx: click.Context, feed_url: str | None, fetch_all: bool) -> None:
 @click.option("--all", "run_all", is_flag=True, help="Run pipeline for all configured feeds")
 @click.option("--step", "step_filter", help="Only run a specific step")
 @click.option("--last", "last", type=int, default=None, help="Only process the last N episodes")
+@click.option("--overwrite", is_flag=True, help="Re-process episodes even if already completed")
 @click.pass_context
-def run(ctx: click.Context, feed_url: str | None, run_all: bool, step_filter: str | None, last: int | None) -> None:
+def run(ctx: click.Context, feed_url: str | None, run_all: bool, step_filter: str | None, last: int | None, overwrite: bool) -> None:
     """Fetch feeds and run the processing pipeline."""
     config = ctx.obj["config"]
     output_dir = get_output_dir(config)
@@ -175,7 +176,7 @@ def run(ctx: click.Context, feed_url: str | None, run_all: bool, step_filter: st
         click.echo(f"Processing {url}...")
         podcast = fetch_feed(url, output_dir)
         click.echo(f"  {podcast.title}: {len(podcast.episodes)} episodes")
-        run_pipeline(podcast, output_dir, config, feed_config=feed_config, step_filter=step_filter, last=last)
+        run_pipeline(podcast, output_dir, config, feed_config=feed_config, step_filter=step_filter, last=last, overwrite=overwrite)
 
 
 @main.command()
@@ -192,39 +193,47 @@ def poll(ctx: click.Context, interval: int | None) -> None:
 
 
 @main.command()
-@click.option("--feed", "feed_identifier", required=True, help="Feed name or URL to reset")
+@click.option("--feed", "feed_identifier", default=None, help="Feed name or URL to reset")
+@click.option("--all", "reset_all", is_flag=True, help="Reset all feeds")
 @click.option("-y", "--yes", is_flag=True, help="Skip confirmation prompt")
 @click.pass_context
-def reset(ctx: click.Context, feed_identifier: str, yes: bool) -> None:
+def reset(ctx: click.Context, feed_identifier: str | None, reset_all: bool, yes: bool) -> None:
     """Delete all data for a feed so it can be reprocessed from scratch."""
     import shutil
 
     config = ctx.obj["config"]
     output_dir = get_output_dir(config)
 
-    feed_config = find_feed_config(config, feed_identifier)
-    resolved_url = feed_config["url"] if feed_config else feed_identifier
+    if not feed_identifier and not reset_all:
+        click.echo("Specify --feed NAME or --all")
+        sys.exit(1)
 
-    target_dir: Path | None = None
+    target_dirs: list[Path] = []
     if output_dir.exists():
-        for d in output_dir.iterdir():
-            if not d.is_dir():
+        for d in sorted(output_dir.iterdir()):
+            if not d.is_dir() or not (d / "podcast.json").exists():
                 continue
-            if (d / "podcast.json").exists():
+            if reset_all:
+                target_dirs.append(d)
+            else:
                 podcast = Podcast.load(d)
+                feed_config = find_feed_config(config, feed_identifier)  # type: ignore[arg-type]
+                resolved_url = feed_config["url"] if feed_config else feed_identifier
                 if podcast.url == resolved_url:
-                    target_dir = d
+                    target_dirs.append(d)
                     break
 
-    if target_dir is None:
-        click.echo(f"No data found for feed: {feed_identifier}")
+    if not target_dirs:
+        click.echo(f"No data found for {'all feeds' if reset_all else feed_identifier}")
         return
 
     if not yes:
-        click.confirm(f"Delete all data in {target_dir}? This cannot be undone.", abort=True)
+        dirs_display = ", ".join(str(d) for d in target_dirs)
+        click.confirm(f"Delete all data in {dirs_display}? This cannot be undone.", abort=True)
 
-    shutil.rmtree(target_dir)
-    click.echo(f"Deleted {target_dir}")
+    for d in target_dirs:
+        shutil.rmtree(d)
+        click.echo(f"Deleted {d}")
 
 
 @main.command()
