@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from podcast_etl.models import Episode, Podcast, StepStatus, slugify
+from podcast_etl.models import Episode, Podcast, StepStatus, sanitize_filename, slugify
 
 
 # --- slugify ---
@@ -23,6 +23,30 @@ def test_slugify_numbers():
 
 def test_slugify_extra_spaces_and_dashes():
     assert slugify("  foo  --  bar  ") == "foo-bar"
+
+
+# --- sanitize_filename ---
+
+def test_sanitize_filename_colon_becomes_dash():
+    assert sanitize_filename("Ep 1: Title") == "Ep 1 - Title"
+
+def test_sanitize_filename_removes_quotes():
+    assert sanitize_filename('Ep 3: "God Picked a Loser"') == "Ep 3 - God Picked a Loser"
+
+def test_sanitize_filename_removes_question_mark():
+    assert sanitize_filename("Ep 0: What Is the Meaning of This?") == "Ep 0 - What Is the Meaning of This"
+
+def test_sanitize_filename_removes_windows_forbidden_chars():
+    assert sanitize_filename('a\\b/c*d?e"f<g>h|i') == "abcdefghi"
+
+def test_sanitize_filename_collapses_extra_spaces():
+    assert sanitize_filename("Ep  1   Title") == "Ep 1 Title"
+
+def test_sanitize_filename_preserves_case_and_punctuation():
+    assert sanitize_filename("Ep 2: To Suffer or Take Arms") == "Ep 2 - To Suffer or Take Arms"
+
+def test_sanitize_filename_strips_leading_trailing_whitespace():
+    assert sanitize_filename("  Hello  ") == "Hello"
 
 
 # --- StepStatus roundtrip ---

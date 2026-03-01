@@ -54,7 +54,7 @@ class TagStep:
         # Fall back to scanning the audio directory
         audio_dir = context.podcast_dir / "audio"
         if audio_dir.exists():
-            for f in audio_dir.glob(f"{episode.slug}.*"):
+            for f in audio_dir.glob(f"*{episode.slug}.*"):
                 return f
 
         raise FileNotFoundError(f"Audio file not found for episode {episode.slug}")

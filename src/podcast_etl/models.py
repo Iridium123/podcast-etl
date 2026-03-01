@@ -16,6 +16,19 @@ def slugify(text: str) -> str:
     return text.strip("-")
 
 
+def sanitize_filename(title: str) -> str:
+    """Sanitize a title for use as a filename across Windows, macOS, and Linux.
+
+    Replaces ': ' with ' - ' before stripping ':' so that 'Ep 1: Title'
+    becomes 'Ep 1 - Title' rather than 'Ep 1 Title'. Removes all characters
+    forbidden on Windows (\\/:*?"<>|) and collapses extra whitespace.
+    """
+    name = title.replace(": ", " - ")
+    name = re.sub(r'[\\/:*?"<>|]', "", name)
+    name = re.sub(r" {2,}", " ", name)
+    return name.strip()
+
+
 @dataclass
 class StepStatus:
     completed_at: str

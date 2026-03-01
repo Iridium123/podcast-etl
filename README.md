@@ -46,6 +46,8 @@ uv run podcast-etl run --feed my-podcast --step download
 
 Fetches feeds then runs configured pipeline steps (downloads audio by default). Episodes that have already been processed are skipped.
 
+Downloaded audio files are named `YYYY-MM-DD <Episode Title>.mp3` using the episode's release date and a sanitized version of its title. Characters forbidden on Windows/macOS (`/:*?"<>|`) are removed, and `": "` is replaced with `" - "` (e.g. `2024-03-15 Ep 3 - God Picked a Loser.mp3`).
+
 ### Reset a feed
 
 ```sh
