@@ -42,6 +42,8 @@ uv run podcast-etl run --all
 uv run podcast-etl run --feed my-podcast
 # or run a specific step only
 uv run podcast-etl run --feed my-podcast --step download
+# only process the last N episodes
+uv run podcast-etl run --feed my-podcast --last 5
 ```
 
 Fetches feeds then runs configured pipeline steps (downloads audio by default). Episodes that have already been processed are skipped.
