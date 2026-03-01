@@ -1,5 +1,5 @@
 feeds:
-- url: https://feeds.soundcloud.com/users/soundcloud:users:1472908503/sounds.rss
+- url: https://test.com/feed.rss
   name: my-podcast
   pipeline:
   - download
