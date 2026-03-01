@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from email.utils import parsedate_to_datetime
 from pathlib import Path
 
-from mutagen.id3 import ID3, ID3NoHeaderError, TDRC, TDRL
+from mutagen.id3 import ID3, ID3NoHeaderError, TDRC, TDRL, TIT2
 from mutagen.mp4 import MP4
 
 from podcast_etl.models import Episode
@@ -34,9 +34,9 @@ class TagStep:
 
         suffix = audio_path.suffix.lower()
         if suffix == ".mp3":
-            self._tag_mp3(audio_path, date_str, year_str)
+            self._tag_mp3(audio_path, episode.title, date_str, year_str)
         elif suffix in (".m4a", ".mp4", ".m4b", ".aac"):
-            self._tag_mp4(audio_path, date_str)
+            self._tag_mp4(audio_path, episode.title, date_str)
         else:
             raise ValueError(f"Unsupported audio format for tagging: {suffix}")
 
@@ -59,16 +59,18 @@ class TagStep:
 
         raise FileNotFoundError(f"Audio file not found for episode {episode.slug}")
 
-    def _tag_mp3(self, path: Path, date_str: str, year_str: str) -> None:
+    def _tag_mp3(self, path: Path, title: str, date_str: str, year_str: str) -> None:
         try:
             tags = ID3(path)
         except ID3NoHeaderError:
             tags = ID3()
+        tags.add(TIT2(encoding=3, text=[title]))
         tags.add(TDRL(encoding=3, text=[date_str]))
         tags.add(TDRC(encoding=3, text=[year_str]))
         tags.save(path)
 
-    def _tag_mp4(self, path: Path, date_str: str) -> None:
+    def _tag_mp4(self, path: Path, title: str, date_str: str) -> None:
         tags = MP4(path)
+        tags["©nam"] = title
         tags["©day"] = date_str
         tags.save()
