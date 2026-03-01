@@ -148,6 +148,7 @@ dependencies = [
     { name = "httpx" },
     { name = "mutagen" },
     { name = "pyyaml" },
+    { name = "torf" },
 ]
 
 [package.dev-dependencies]
@@ -162,6 +163,7 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.28" },
     { name = "mutagen", specifier = ">=1.47" },
     { name = "pyyaml", specifier = ">=6.0" },
+    { name = "torf", specifier = ">=4.3.1" },
 ]
 
 [package.metadata.requires-dev]
@@ -233,3 +235,12 @@ name = "sgmllib3k"
 version = "1.0.0"
 source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/9e/bd/3704a8c3e0942d711c1299ebf7b9091930adae6675d7c8f476a7ce48653c/sgmllib3k-1.0.0.tar.gz", hash = "sha256:7868fb1c8bfa764c1ac563d3cf369c381d1325d36124933a726f29fcdaa812e9", size = 5750, upload-time = "2010-08-24T14:33:52.445Z" }
+
+[[package]]
+name = "torf"
+version = "4.3.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/85/1f/152db30a4f60142766ea7b16af2cae86b648359f300179d06eb06b079270/torf-4.3.1.tar.gz", hash = "sha256:5c17656b2ad379122f2ec97a057398d1ec6a6bfce6f0b6f8ec0799b142493c5a", size = 109185, upload-time = "2026-01-13T10:55:29.501Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/88/86/eef1af063d4dcf60f8602cedfff6b6ea8b88b9542fd9cb3496d66e8ed108/torf-4.3.1-py3-none-any.whl", hash = "sha256:c76e5f6efda8c6b92c588df56e3e1a8ecf6a5377bd075ea60ca3ab997bd83a61", size = 67942, upload-time = "2026-01-13T10:55:27.635Z" },
+]

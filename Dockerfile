@@ -11,10 +11,14 @@ RUN uv sync --no-dev
 
 FROM python:3.13-slim
 
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    mktorrent \
+ && rm -rf /var/lib/apt/lists/*
+
 COPY --from=builder /app/.venv /app/.venv
 ENV PATH="/app/.venv/bin:$PATH"
 
 WORKDIR /app
-VOLUME ["/config", "/output"]
+VOLUME ["/config", "/output", "/torrent-data"]
 
 CMD ["podcast-etl", "-c", "/config/feeds.yaml", "poll"]
