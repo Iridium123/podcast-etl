@@ -35,7 +35,7 @@ uv run podcast-etl fetch --feed my-podcast
 uv run podcast-etl fetch --feed "https://example.com/feed.xml"
 ```
 
-This writes `podcast.json` and per-episode JSON files to `output/<podcast-slug>/`.
+Writes `podcast.json` and per-episode JSON files to `output/<podcast-slug>/`.
 
 ### Run the pipeline
 
@@ -51,7 +51,7 @@ uv run podcast-etl run --feed my-podcast --last 5
 uv run podcast-etl run --feed my-podcast --overwrite
 ```
 
-Fetches feeds then runs configured pipeline steps (downloads audio by default). Episodes that have already been processed are skipped unless `--overwrite` is passed.
+Fetches feeds then runs configured pipeline steps. Episodes that have already completed a step are skipped unless `--overwrite` is passed.
 
 Downloaded audio files are named `YYYY-MM-DD <Episode Title>.mp3` using the episode's release date and a sanitized version of its title. Characters forbidden on Windows/macOS (`/:*?"<>|`) are removed, and `": "` is replaced with `" - "` (e.g. `2024-03-15 Ep 3 - God Picked a Loser.mp3`).
 
@@ -77,7 +77,7 @@ uv run podcast-etl status
 uv run podcast-etl status --feed my-podcast
 ```
 
-Shows per-episode step completion for all feeds.
+Shows per-episode step completion for all feeds (or a specific feed).
 
 ### Long-running poll mode
 
@@ -171,17 +171,19 @@ settings:
 
 ## Pipeline Steps
 
-| Step | Description |
-|------|-------------|
-| `download` | Fetch audio from RSS `audio_url` → `output/<podcast>/audio/` |
-| `tag` | Write ID3/MP4 metadata (title, artist, date) to the downloaded file |
-| `stage` | Copy audio to `torrent_data_dir/<podcast>/<episode>/` for seeding |
-| `torrent` | Create `.torrent` via `mktorrent`; output in `output/<podcast>/torrents/` |
-| `seed` | Add torrent to qBittorrent via Web API with the correct save path |
-| `upload` | Upload `.torrent` + metadata to UNIT3D tracker REST API |
+Steps run in the order listed in `pipeline`. Each step requires the previous steps in its chain to have completed.
+
+| Step | Requires | Description |
+|------|----------|-------------|
+| `download` | — | Fetch audio from RSS `audio_url` → `output/<podcast>/audio/` |
+| `tag` | `download` | Write ID3/MP4 metadata (title, artist, date) to the downloaded file |
+| `stage` | `download` | Copy audio to `torrent_data_dir/<podcast>/<episode>/` for seeding; computes client-side path |
+| `torrent` | `stage` | Create `.torrent` via `mktorrent`; extract `info_hash` via `torf`; output in `output/<podcast>/torrents/` |
+| `seed` | `torrent`, `stage` | Add torrent to qBittorrent via Web API with the correct save path |
+| `upload` | `torrent` | Upload `.torrent` + metadata to UNIT3D tracker REST API |
 
 ## Adding a new pipeline step
 
-1. Create `src/podcast_etl/steps/your_step.py` implementing the `Step` protocol
+1. Create `src/podcast_etl/steps/your_step.py` implementing the `Step` protocol (`name: str`, `process(episode, context) -> StepResult`)
 2. Register it in `cli.py` with `register_step(YourStep())`
 3. Add `your_step` to the `pipeline` list in `feeds.yaml` (globally or per-feed)
