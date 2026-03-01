@@ -259,13 +259,13 @@ services:
   - Call `add_torrent()` with .torrent path and client-side episode dir
 - [x] Write `tests/test_seed_step.py` (mock QBittorrentClient; test skip-if-exists, success, client error)
 
-### Phase 7: `upload` Step
-- [ ] Implement `UploadStep` in `src/podcast_etl/steps/upload.py`
+### Phase 7: `upload` Step ✅
+- [x] Implement `UploadStep` in `src/podcast_etl/steps/upload.py`
   - Instantiate `ModifiedUnit3dTracker` from tracker config
   - Validate `category_id` and `type_id` are present in feed config (raise clear error if missing)
   - Skip if `torrent_id` already in step status result
   - Call `tracker.upload()`
-- [ ] Write `tests/test_upload_step.py` (mock ModifiedUnit3dTracker; test skip, missing category_id error, success)
+- [x] Write `tests/test_upload_step.py` (mock ModifiedUnit3dTracker; test skip, missing category_id error, success)
 
 ### Phase 8: Registration & Config
 - [ ] Register all four steps in `src/podcast_etl/cli.py`
