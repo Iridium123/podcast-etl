@@ -72,12 +72,13 @@ def fetch_feed(url: str, output_dir: Path) -> Podcast:
     return podcast
 
 
-def run_pipeline(podcast: Podcast, output_dir: Path, config: dict, feed_config: dict | None = None, step_filter: str | None = None) -> None:
+def run_pipeline(podcast: Podcast, output_dir: Path, config: dict, feed_config: dict | None = None, step_filter: str | None = None, last: int | None = None) -> None:
     step_names = get_pipeline_steps(config, feed_config)
     steps = [get_step(name) for name in step_names]
     context = PipelineContext(output_dir=output_dir, podcast=podcast, config=config)
     pipeline = Pipeline(steps=steps, context=context)
-    pipeline.run(podcast.episodes, step_filter=step_filter)
+    episodes = podcast.episodes[-last:] if last is not None else podcast.episodes
+    pipeline.run(episodes, step_filter=step_filter)
 
 
 @click.group()
@@ -150,8 +151,9 @@ def fetch(ctx: click.Context, feed_url: str | None, fetch_all: bool) -> None:
 @click.option("--feed", "feed_url", help="Run pipeline for a specific feed URL")
 @click.option("--all", "run_all", is_flag=True, help="Run pipeline for all configured feeds")
 @click.option("--step", "step_filter", help="Only run a specific step")
+@click.option("--last", "last", type=int, default=None, help="Only process the last N episodes")
 @click.pass_context
-def run(ctx: click.Context, feed_url: str | None, run_all: bool, step_filter: str | None) -> None:
+def run(ctx: click.Context, feed_url: str | None, run_all: bool, step_filter: str | None, last: int | None) -> None:
     """Fetch feeds and run the processing pipeline."""
     config = ctx.obj["config"]
     output_dir = get_output_dir(config)
@@ -173,7 +175,7 @@ def run(ctx: click.Context, feed_url: str | None, run_all: bool, step_filter: st
         click.echo(f"Processing {url}...")
         podcast = fetch_feed(url, output_dir)
         click.echo(f"  {podcast.title}: {len(podcast.episodes)} episodes")
-        run_pipeline(podcast, output_dir, config, feed_config=feed_config, step_filter=step_filter)
+        run_pipeline(podcast, output_dir, config, feed_config=feed_config, step_filter=step_filter, last=last)
 
 
 @main.command()
