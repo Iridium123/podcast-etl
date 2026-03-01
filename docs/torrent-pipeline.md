@@ -272,9 +272,9 @@ services:
 - [x] Update `feeds.yaml.example` with full clients/trackers config blocks and example feed pipeline
 - [x] Update `README.md` and `CLAUDE.md` with new steps, config fields, and Docker setup
 
-### Phase 9: Verification
-- [ ] Run `uv run pytest tests/ -v` — all tests pass
-- [ ] Integration test `stage` step on a real episode (verify file appears in torrent_data_dir with correct name)
-- [ ] Integration test `torrent` step (verify .torrent created and info_hash returned)
-- [ ] Integration test `seed` step (verify torrent visible in qBittorrent)
-- [ ] Integration test `upload` step (verify torrent appears on tracker)
+### Phase 9: Verification ✅
+- [x] Run `uv run pytest tests/ -v` — 150 tests pass
+- [x] Integration test `stage` step — real file copied to torrent_data_dir with correct name; idempotent
+- [x] Integration test `torrent` step — real mktorrent invoked; .torrent created; 40-char info_hash returned; idempotent
+- [ ] Integration test `seed` step (requires live qBittorrent)
+- [ ] Integration test `upload` step (requires live tracker)
