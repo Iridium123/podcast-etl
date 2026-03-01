@@ -1,5 +1,9 @@
 feeds:
 - url: https://feeds.soundcloud.com/users/soundcloud:users:1472908503/sounds.rss
+  name: my-podcast
+  pipeline:
+  - download
+  - tag
 settings:
   poll_interval: 3600
   output_dir: ./output

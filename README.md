@@ -19,13 +19,16 @@ uv sync
 
 ```sh
 uv run podcast-etl add "https://example.com/feed.xml"
+# with an optional short name and custom pipeline steps
+uv run podcast-etl add "https://example.com/feed.xml" --name my-podcast --step download --step tag
 ```
 
 ### Fetch feed metadata
 
 ```sh
 uv run podcast-etl fetch --all
-# or a specific feed
+# by name or URL
+uv run podcast-etl fetch --feed my-podcast
 uv run podcast-etl fetch --feed "https://example.com/feed.xml"
 ```
 
@@ -35,8 +38,10 @@ This writes `podcast.json` and per-episode JSON files to `output/<podcast-slug>/
 
 ```sh
 uv run podcast-etl run --all
+# by name or URL
+uv run podcast-etl run --feed my-podcast
 # or run a specific step only
-uv run podcast-etl run --all --step download
+uv run podcast-etl run --feed my-podcast --step download
 ```
 
 Fetches feeds then runs configured pipeline steps (downloads audio by default). Episodes that have already been processed are skipped.
@@ -45,6 +50,8 @@ Fetches feeds then runs configured pipeline steps (downloads audio by default). 
 
 ```sh
 uv run podcast-etl status
+# by name or URL
+uv run podcast-etl status --feed my-podcast
 ```
 
 Shows per-episode step completion for all feeds.
@@ -95,15 +102,22 @@ Edit `feeds.yaml` to manage feeds and pipeline settings:
 ```yaml
 feeds:
   - url: "https://example.com/feed.xml"
+    name: my-podcast       # optional; enables --feed my-podcast
+    pipeline:              # optional; overrides settings.pipeline for this feed
+      - download
+      - tag
 settings:
   poll_interval: 3600
   output_dir: ./output
-  pipeline:
+  pipeline:                # default for feeds without their own pipeline
     - download
+    - tag
 ```
+
+Feeds without a `name` or `pipeline` continue to work — both fields are optional.
 
 ## Adding a new pipeline step
 
 1. Create `src/podcast_etl/steps/your_step.py` implementing the `Step` protocol
 2. Register it in `cli.py` with `register_step(YourStep())`
-3. Add `your_step` to the `pipeline` list in `feeds.yaml`
+3. Add `your_step` to the `pipeline` list in `feeds.yaml` (globally or per-feed)

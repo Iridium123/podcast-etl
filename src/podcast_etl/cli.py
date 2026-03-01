@@ -39,7 +39,20 @@ def get_output_dir(config: dict) -> Path:
     return Path(config.get("settings", {}).get("output_dir", "./output"))
 
 
-def get_pipeline_steps(config: dict) -> list[str]:
+def find_feed_config(config: dict, identifier: str) -> dict | None:
+    """Find a feed config by name or URL."""
+    for feed in config.get("feeds", []):
+        if feed.get("name") == identifier:
+            return feed
+    for feed in config.get("feeds", []):
+        if feed.get("url") == identifier:
+            return feed
+    return None
+
+
+def get_pipeline_steps(config: dict, feed_config: dict | None = None) -> list[str]:
+    if feed_config and feed_config.get("pipeline"):
+        return feed_config["pipeline"]
     return config.get("settings", {}).get("pipeline", ["download"])
 
 
@@ -59,8 +72,8 @@ def fetch_feed(url: str, output_dir: Path) -> Podcast:
     return podcast
 
 
-def run_pipeline(podcast: Podcast, output_dir: Path, config: dict, step_filter: str | None = None) -> None:
-    step_names = get_pipeline_steps(config)
+def run_pipeline(podcast: Podcast, output_dir: Path, config: dict, feed_config: dict | None = None, step_filter: str | None = None) -> None:
+    step_names = get_pipeline_steps(config, feed_config)
     steps = [get_step(name) for name in step_names]
     context = PipelineContext(output_dir=output_dir, podcast=podcast, config=config)
     pipeline = Pipeline(steps=steps, context=context)
@@ -81,8 +94,10 @@ def main(ctx: click.Context, config_path: Path, verbose: bool) -> None:
 
 @main.command()
 @click.argument("feed_url")
+@click.option("--name", help="Short name for the feed")
+@click.option("--step", "steps", multiple=True, help="Pipeline steps for this feed (repeatable)")
 @click.pass_context
-def add(ctx: click.Context, feed_url: str) -> None:
+def add(ctx: click.Context, feed_url: str, name: str | None, steps: tuple[str, ...]) -> None:
     """Add a feed URL to the config."""
     config = ctx.obj["config"]
     config.setdefault("feeds", [])
@@ -93,7 +108,12 @@ def add(ctx: click.Context, feed_url: str) -> None:
             click.echo(f"Feed already exists: {feed_url}")
             return
 
-    config["feeds"].append({"url": feed_url})
+    entry: dict = {"url": feed_url}
+    if name:
+        entry["name"] = name
+    if steps:
+        entry["pipeline"] = list(steps)
+    config["feeds"].append(entry)
     save_config(config, ctx.obj["config_path"])
     click.echo(f"Added feed: {feed_url}")
 
@@ -108,7 +128,8 @@ def fetch(ctx: click.Context, feed_url: str | None, fetch_all: bool) -> None:
     output_dir = get_output_dir(config)
 
     if feed_url:
-        urls = [feed_url]
+        feed_config = find_feed_config(config, feed_url)
+        urls = [feed_config["url"] if feed_config else feed_url]
     elif fetch_all:
         urls = [f["url"] for f in config.get("feeds", [])]
     else:
@@ -136,22 +157,23 @@ def run(ctx: click.Context, feed_url: str | None, run_all: bool, step_filter: st
     output_dir = get_output_dir(config)
 
     if feed_url:
-        urls = [feed_url]
+        feed_config = find_feed_config(config, feed_url)
+        feeds_to_run = [(feed_config["url"] if feed_config else feed_url, feed_config)]
     elif run_all:
-        urls = [f["url"] for f in config.get("feeds", [])]
+        feeds_to_run = [(f["url"], f) for f in config.get("feeds", [])]
     else:
         click.echo("Specify --feed URL or --all")
         sys.exit(1)
 
-    if not urls:
+    if not feeds_to_run:
         click.echo("No feeds configured. Use 'podcast-etl add <url>' first.")
         return
 
-    for url in urls:
+    for url, feed_config in feeds_to_run:
         click.echo(f"Processing {url}...")
         podcast = fetch_feed(url, output_dir)
         click.echo(f"  {podcast.title}: {len(podcast.episodes)} episodes")
-        run_pipeline(podcast, output_dir, config, step_filter=step_filter)
+        run_pipeline(podcast, output_dir, config, feed_config=feed_config, step_filter=step_filter)
 
 
 @main.command()
@@ -180,7 +202,10 @@ def status(ctx: click.Context, feed_url: str | None) -> None:
         return
 
     podcast_dirs = sorted(output_dir.iterdir()) if not feed_url else []
+    resolved_feed_config: dict | None = None
     if feed_url:
+        resolved_feed_config = find_feed_config(config, feed_url)
+        resolved_url = resolved_feed_config["url"] if resolved_feed_config else feed_url
         # Find the podcast dir matching this feed URL
         for d in output_dir.iterdir():
             if not d.is_dir():
@@ -188,14 +213,14 @@ def status(ctx: click.Context, feed_url: str | None) -> None:
             podcast_json = d / "podcast.json"
             if podcast_json.exists():
                 podcast = Podcast.load(d)
-                if podcast.url == feed_url:
+                if podcast.url == resolved_url:
                     podcast_dirs = [d]
                     break
         if not podcast_dirs:
             click.echo(f"No data found for feed: {feed_url}")
             return
 
-    step_names = get_pipeline_steps(config)
+    step_names = get_pipeline_steps(config, resolved_feed_config)
 
     for podcast_dir in podcast_dirs:
         if not podcast_dir.is_dir():

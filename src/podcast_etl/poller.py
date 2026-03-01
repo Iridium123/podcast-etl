@@ -49,7 +49,8 @@ def run_poll_loop(config: dict, config_path: Path) -> None:
                     podcast = parse_feed(url, output_dir=output_dir)
                     podcast.save(output_dir)
 
-                    steps = [get_step(name) for name in step_names]
+                    feed_step_names = feed_config.get("pipeline") or step_names
+                    steps = [get_step(name) for name in feed_step_names]
                     context = PipelineContext(output_dir=output_dir, podcast=podcast, config=config)
                     pipeline = Pipeline(steps=steps, context=context)
                     pipeline.run(podcast.episodes)
