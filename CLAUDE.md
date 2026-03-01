@@ -8,9 +8,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 uv sync                          # install dependencies
 uv run podcast-etl --help        # CLI entry point
 uv run podcast-etl -v run --all  # run pipeline with verbose logging
+uv run pytest tests/ -v          # run tests
 ```
 
-There are no tests yet. The `tests/` directory exists but is empty.
+## Tests
+
+Tests live in `tests/` and use pytest. Three test files cover the core modules:
+
+- `test_models.py` — `slugify`, `StepStatus`, `Episode`, `Podcast` (dict roundtrips, save/load)
+- `test_pipeline.py` — `Pipeline` step execution, skipping already-completed steps, step filters
+- `test_tag_step.py` — `TagStep` MP3/MP4 tagging, audio file discovery, error cases
+
+**After making changes**, check whether tests need updating and whether new behaviour should be tested. Also check whether `CLAUDE.md` itself needs updating (e.g. new steps, changed commands, architectural changes).
 
 ## Architecture
 
