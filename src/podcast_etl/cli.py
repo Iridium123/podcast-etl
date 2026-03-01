@@ -190,6 +190,42 @@ def poll(ctx: click.Context, interval: int | None) -> None:
 
 
 @main.command()
+@click.option("--feed", "feed_identifier", required=True, help="Feed name or URL to reset")
+@click.option("-y", "--yes", is_flag=True, help="Skip confirmation prompt")
+@click.pass_context
+def reset(ctx: click.Context, feed_identifier: str, yes: bool) -> None:
+    """Delete all data for a feed so it can be reprocessed from scratch."""
+    import shutil
+
+    config = ctx.obj["config"]
+    output_dir = get_output_dir(config)
+
+    feed_config = find_feed_config(config, feed_identifier)
+    resolved_url = feed_config["url"] if feed_config else feed_identifier
+
+    target_dir: Path | None = None
+    if output_dir.exists():
+        for d in output_dir.iterdir():
+            if not d.is_dir():
+                continue
+            if (d / "podcast.json").exists():
+                podcast = Podcast.load(d)
+                if podcast.url == resolved_url:
+                    target_dir = d
+                    break
+
+    if target_dir is None:
+        click.echo(f"No data found for feed: {feed_identifier}")
+        return
+
+    if not yes:
+        click.confirm(f"Delete all data in {target_dir}? This cannot be undone.", abort=True)
+
+    shutil.rmtree(target_dir)
+    click.echo(f"Deleted {target_dir}")
+
+
+@main.command()
 @click.option("--feed", "feed_url", help="Show status for a specific feed")
 @click.pass_context
 def status(ctx: click.Context, feed_url: str | None) -> None:

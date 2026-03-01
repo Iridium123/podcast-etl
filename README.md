@@ -46,6 +46,18 @@ uv run podcast-etl run --feed my-podcast --step download
 
 Fetches feeds then runs configured pipeline steps (downloads audio by default). Episodes that have already been processed are skipped.
 
+### Reset a feed
+
+```sh
+uv run podcast-etl reset --feed my-podcast
+# skip confirmation prompt
+uv run podcast-etl reset --feed my-podcast --yes
+# by URL
+uv run podcast-etl reset --feed "https://example.com/feed.xml" --yes
+```
+
+Deletes the feed's entire output directory (podcast.json, episode JSON files, and downloaded audio) so it can be reprocessed from scratch. Prompts for confirmation unless `--yes` / `-y` is passed.
+
 ### Check status
 
 ```sh
