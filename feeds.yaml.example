@@ -4,9 +4,37 @@ feeds:
   pipeline:
   - download
   - tag
+  - stage
+  - torrent
+  - seed
+  - upload
+  client: qbittorrent       # optional; falls back to first configured client
+  tracker: unit3d           # optional; falls back to first configured tracker
+  category_id: 14           # required when using the upload step
+  type_id: 9                # required when using the upload step
+  cover_image: /config/cover.jpg    # optional
+  banner_image: /config/banner.jpg  # optional
+
 settings:
   poll_interval: 3600
   output_dir: ./output
+  torrent_data_dir: /torrent-data   # staging dir readable by both this app and the torrent client
   pipeline:
   - download
   - tag
+
+  clients:
+    qbittorrent:
+      url: http://localhost:8080
+      username: admin
+      password: secret
+      save_path: /data      # path to torrent_data_dir as seen by qBittorrent
+
+  trackers:
+    unit3d:
+      url: https://tracker.example.com
+      api_key: your-api-key
+      announce_url: https://tracker.example.com/announce/your-passkey/announce
+      anonymous: 0
+      personal_release: 0
+      mod_queue_opt_in: 0
