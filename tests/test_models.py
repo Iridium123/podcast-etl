@@ -127,3 +127,33 @@ def test_podcast_save_and_load(tmp_path: Path):
     assert loaded.slug == p.slug
     assert len(loaded.episodes) == 1
     assert loaded.episodes[0].slug == ep.slug
+
+
+def test_podcast_load_no_episodes_dir(tmp_path: Path):
+    # Save a podcast with no episodes — episodes dir is never created
+    p = _make_podcast()
+    p.save(tmp_path)
+    assert not (tmp_path / "my-podcast" / "episodes").exists()
+
+    loaded = Podcast.load(tmp_path / "my-podcast")
+    assert loaded.title == p.title
+    assert loaded.episodes == []
+
+
+# --- Edge cases ---
+
+def test_slugify_empty_string():
+    assert slugify("") == ""
+
+
+def test_step_status_from_dict_missing_result_defaults_to_empty():
+    s = StepStatus.from_dict({"completed_at": "2024-01-01T00:00:00"})
+    assert s.result == {}
+
+
+def test_episode_from_dict_with_none_status_value():
+    ep = _make_episode()
+    d = ep.to_dict()
+    d["status"]["download"] = None
+    loaded = Episode.from_dict(d)
+    assert loaded.status["download"] is None

@@ -123,3 +123,51 @@ def test_pipeline_runs_multiple_episodes(tmp_path: Path):
     Pipeline(steps=[step], context=ctx).run(episodes)
 
     assert step.call_count == 3
+
+
+def test_pipeline_continues_after_step_exception(tmp_path: Path):
+    """A failing step should be caught; subsequent episodes still run."""
+    call_log = []
+
+    class BoomStep:
+        name = "boom"
+
+        def process(self, episode: Episode, context: PipelineContext) -> StepResult:
+            call_log.append(episode.slug)
+            if episode.slug == "ep-0":
+                raise RuntimeError("simulated failure")
+            return StepResult()
+
+    episodes = [_make_episode(slug=f"ep-{i}") for i in range(3)]
+    ctx = _make_context(tmp_path)
+
+    Pipeline(steps=[BoomStep()], context=ctx).run(episodes)
+
+    # All three episodes were attempted despite the first failing
+    assert call_log == ["ep-0", "ep-1", "ep-2"]
+    # Only the successful ones have status set
+    assert "boom" not in episodes[0].status
+    assert "boom" in episodes[1].status
+    assert "boom" in episodes[2].status
+
+
+def test_get_step_unknown_raises():
+    from podcast_etl.pipeline import get_step
+    with pytest.raises(ValueError, match="Unknown step"):
+        get_step("nonexistent-step-xyz")
+
+
+def test_register_and_get_step(tmp_path: Path):
+    from podcast_etl.pipeline import STEP_REGISTRY, get_step, register_step
+
+    step = FakeStep(name="test-register-step")
+    register_step(step)
+    try:
+        assert get_step("test-register-step") is step
+    finally:
+        STEP_REGISTRY.pop("test-register-step", None)
+
+
+def test_pipeline_context_podcast_dir(tmp_path: Path):
+    ctx = _make_context(tmp_path)
+    assert ctx.podcast_dir == tmp_path / "test-podcast"
