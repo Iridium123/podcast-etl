@@ -16,6 +16,7 @@ class PipelineContext:
     output_dir: Path
     podcast: Podcast
     config: dict[str, Any] = field(default_factory=dict)
+    feed_config: dict[str, Any] = field(default_factory=dict)
 
     @property
     def podcast_dir(self) -> Path:
