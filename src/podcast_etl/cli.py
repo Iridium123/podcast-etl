@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 logging.disable(logging.ERROR)
 
+import shutil
 import sys
 from pathlib import Path
 
@@ -207,8 +208,6 @@ def poll(ctx: click.Context, interval: int | None) -> None:
 @click.pass_context
 def reset(ctx: click.Context, feed_identifier: str | None, reset_all: bool, yes: bool) -> None:
     """Delete all data for a feed so it can be reprocessed from scratch."""
-    import subprocess
-
     config = ctx.obj["config"]
     output_dir = get_output_dir(config)
 
@@ -240,7 +239,7 @@ def reset(ctx: click.Context, feed_identifier: str | None, reset_all: bool, yes:
         click.confirm(f"Delete all data in {dirs_display}? This cannot be undone.", abort=True)
 
     for d in target_dirs:
-        subprocess.run(["rm", "-rf", str(d)], check=True)
+        shutil.rmtree(d)
         click.echo(f"Deleted {d}")
 
 
