@@ -63,21 +63,23 @@ class Pipeline:
             if not steps:
                 raise ValueError(f"Step {step_filter!r} not found in pipeline")
 
-        for episode in episodes:
+        total = len(episodes)
+        for i, episode in enumerate(episodes, 1):
+            logger.info("[%d/%d] %s", i, total, episode.title or episode.slug)
             for step in steps:
                 if overwrite:
                     episode.status.pop(step.name, None)
                 if step.name in episode.status and episode.status[step.name] is not None:
-                    logger.debug("Skipping %s for %s (already done)", step.name, episode.slug)
+                    logger.debug("  skip %s", step.name)
                     continue
                 try:
-                    logger.info("Running step %s on %s", step.name, episode.slug)
+                    logger.info("  -> %s", step.name)
                     result = step.process(episode, self.context)
                     episode.status[step.name] = StepStatus(
                         completed_at=datetime.now().isoformat(),
                         result=result.data,
                     )
                     episode.save(self.context.podcast_dir)
-                    logger.info("Completed %s for %s", step.name, episode.slug)
+                    logger.debug("  done %s", step.name)
                 except Exception:
-                    logger.exception("Step %s failed for %s", step.name, episode.slug)
+                    logger.exception("  %s failed for %s", step.name, episode.slug)

@@ -49,6 +49,9 @@ uv run podcast-etl run --feed my-podcast --step download
 uv run podcast-etl run --feed my-podcast --last 5
 # re-process even if already completed
 uv run podcast-etl run --feed my-podcast --overwrite
+# control log verbosity (-v is shorthand for DEBUG)
+uv run podcast-etl -v run --all
+uv run podcast-etl --log-level WARNING run --all
 ```
 
 Fetches feeds then runs configured pipeline steps. Episodes that have already completed a step are skipped unless `--overwrite` is passed.

@@ -7,7 +7,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ```sh
 uv sync                          # install dependencies
 uv run podcast-etl --help        # CLI entry point
-uv run podcast-etl -v run --all  # run pipeline with verbose logging
+uv run podcast-etl -v run --all              # run pipeline with verbose (DEBUG) logging
+uv run podcast-etl --log-level WARNING run --all  # suppress INFO messages
 uv run pytest tests/ -v          # run tests
 ```
 

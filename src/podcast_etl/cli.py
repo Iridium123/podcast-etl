@@ -65,11 +65,11 @@ def get_pipeline_steps(config: dict, feed_config: dict | None = None) -> list[st
     return config.get("settings", {}).get("pipeline", ["download"])
 
 
-def setup_logging(verbose: bool) -> None:
+def setup_logging(level: str) -> None:
     logging.disable(logging.NOTSET)
-    level = logging.DEBUG if verbose else logging.INFO
     logging.basicConfig(
-        level=level,
+        force=True,
+        level=getattr(logging, level.upper()),
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
         datefmt="%H:%M:%S",
     )
@@ -92,11 +92,14 @@ def run_pipeline(podcast: Podcast, output_dir: Path, config: dict, feed_config: 
 
 @click.group()
 @click.option("-c", "--config", "config_path", type=click.Path(path_type=Path), default=DEFAULT_CONFIG_PATH)
-@click.option("-v", "--verbose", is_flag=True)
+@click.option("-v", "--verbose", is_flag=True, help="Shorthand for --log-level DEBUG")
+@click.option("--log-level", type=click.Choice(["DEBUG", "INFO", "WARNING", "ERROR"], case_sensitive=False), default="INFO", show_default=True, help="Set log verbosity")
 @click.pass_context
-def main(ctx: click.Context, config_path: Path, verbose: bool) -> None:
+def main(ctx: click.Context, config_path: Path, verbose: bool, log_level: str) -> None:
     """Podcast ETL pipeline — ingest, download, and process podcast feeds."""
-    setup_logging(verbose)
+    if verbose:
+        log_level = "DEBUG"
+    setup_logging(log_level)
     ctx.ensure_object(dict)
     ctx.obj["config_path"] = config_path
     ctx.obj["config"] = load_config(config_path)
