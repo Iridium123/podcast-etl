@@ -32,7 +32,7 @@ class TagStep:
         date_str = dt.strftime("%Y-%m-%d")
         year_str = dt.strftime("%Y")
 
-        podcast_title = context.podcast.title
+        podcast_title = context.effective_title
         description = episode.description or ""
         suffix = audio_path.suffix.lower()
         if suffix == ".mp3":

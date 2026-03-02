@@ -38,7 +38,7 @@ class DownloadStep:
         if "." in url_path.split("/")[-1]:
             ext = "." + url_path.split("/")[-1].rsplit(".", 1)[-1]
 
-        filename = self._make_filename(episode, ext, context.podcast.title)
+        filename = self._make_filename(episode, ext, context.effective_title)
         filepath = audio_dir / filename
 
         if filepath.exists():

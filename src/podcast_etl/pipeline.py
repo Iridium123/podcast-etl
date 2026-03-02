@@ -22,6 +22,10 @@ class PipelineContext:
     def podcast_dir(self) -> Path:
         return self.podcast.podcast_dir(self.output_dir)
 
+    @property
+    def effective_title(self) -> str:
+        return self.feed_config.get("title_override") or self.podcast.title
+
 
 @dataclass
 class StepResult:

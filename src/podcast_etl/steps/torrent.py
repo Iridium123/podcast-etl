@@ -37,7 +37,7 @@ class TorrentStep:
             logger.info("Torrent already exists: %s", torrent_path)
         else:
             tracker_config, announce_url = _get_tracker_info(context)
-            comment = f"{episode.title} \u2014 {context.podcast.title}"
+            comment = f"{episode.title} \u2014 {context.effective_title}"
             private = tracker_config.get("private", True)
             _run_mktorrent(audio_path, torrent_path, announce_url, comment, private=private)
 

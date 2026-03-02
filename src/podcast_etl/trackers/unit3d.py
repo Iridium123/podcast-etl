@@ -39,7 +39,7 @@ class ModifiedUnit3dTracker:
         if episode.published:
             date_str = f" ({episode.published[:10]})"
 
-        name = f"{podcast.title} - {episode.title}{date_str}"
+        name = f"{feed_config.get('title_override') or podcast.title} - {episode.title}{date_str}"
         description = episode.description or ""
 
         fields: dict[str, Any] = {
