@@ -34,7 +34,7 @@ class StageStep:
 
         dest = episode_dir / source.name
 
-        if dest.exists():
+        if dest.exists() and not context.overwrite:
             logger.info("Stage already exists: %s", dest)
         else:
             logger.info("Staging %s -> %s", source, dest)

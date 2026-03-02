@@ -17,6 +17,7 @@ class PipelineContext:
     podcast: Podcast
     config: dict[str, Any] = field(default_factory=dict)
     feed_config: dict[str, Any] = field(default_factory=dict)
+    overwrite: bool = False
 
     @property
     def podcast_dir(self) -> Path:

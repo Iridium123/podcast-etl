@@ -146,6 +146,25 @@ class TestStageStep:
 
         assert result.data["client_path"] == result.data["local_path"]
 
+    def test_overwrites_dest_when_overwrite_true(self, tmp_path):
+        context = _make_context(tmp_path)
+        context.overwrite = True
+        episode = _make_episode()
+
+        source = context.podcast_dir / "audio" / "2024-01-15 Episode One.mp3"
+        source.parent.mkdir(parents=True, exist_ok=True)
+        source.write_bytes(b"new audio data")
+
+        # Pre-create destination with stale content
+        torrent_data_dir = Path(context.config["settings"]["torrent_data_dir"])
+        dest = torrent_data_dir / "my-podcast" / "episode-one" / "2024-01-15 Episode One.mp3"
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(b"stale data")
+
+        StageStep().process(episode, context)
+
+        assert dest.read_bytes() == b"new audio data"
+
     def test_raises_if_no_download_status(self, tmp_path):
         context = _make_context(tmp_path)
         episode = _make_episode(download_path=None)
