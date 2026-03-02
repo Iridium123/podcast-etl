@@ -147,6 +147,44 @@ class TestTorrentStep:
         mock_run.assert_not_called()
         assert result.data["torrent_path"] == str(torrent_file)
 
+    def test_source_flag_included_when_configured(self, tmp_path):
+        audio = _make_audio_file(tmp_path)
+        context = _make_context(tmp_path, tracker_config={
+            "url": "https://tracker.example.com",
+            "api_key": "key",
+            "announce_url": "https://tracker.example.com/announce/passkey/announce",
+            "source": "MyTracker",
+        })
+        episode = _make_episode(local_path=str(audio))
+
+        mock_result = MagicMock(returncode=0)
+        mock_torrent = MagicMock()
+        mock_torrent.infohash = "abcdef1234567890abcdef1234567890abcdef12"
+
+        with patch("podcast_etl.steps.torrent.subprocess.run", return_value=mock_result) as mock_run, \
+             patch("torf.Torrent.read", return_value=mock_torrent):
+            TorrentStep().process(episode, context)
+
+        cmd = mock_run.call_args[0][0]
+        assert "-s" in cmd
+        assert "MyTracker" in cmd
+
+    def test_source_flag_excluded_when_not_configured(self, tmp_path):
+        audio = _make_audio_file(tmp_path)
+        context = _make_context(tmp_path)
+        episode = _make_episode(local_path=str(audio))
+
+        mock_result = MagicMock(returncode=0)
+        mock_torrent = MagicMock()
+        mock_torrent.infohash = "abcdef1234567890abcdef1234567890abcdef12"
+
+        with patch("podcast_etl.steps.torrent.subprocess.run", return_value=mock_result) as mock_run, \
+             patch("torf.Torrent.read", return_value=mock_torrent):
+            TorrentStep().process(episode, context)
+
+        cmd = mock_run.call_args[0][0]
+        assert "-s" not in cmd
+
     def test_private_flag_excluded_when_disabled(self, tmp_path):
         audio = _make_audio_file(tmp_path)
         context = _make_context(tmp_path, tracker_config={

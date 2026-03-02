@@ -170,6 +170,8 @@ settings:
       anonymous: 0
       personal_release: 0
       mod_queue_opt_in: 0
+      private: true             # optional; sets -p flag in mktorrent (default: true)
+      source: MyTracker         # optional; sets -s flag in mktorrent
 ```
 
 ## Pipeline Steps

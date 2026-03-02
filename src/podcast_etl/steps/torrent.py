@@ -4,6 +4,7 @@ import logging
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from podcast_etl.models import Episode
 from podcast_etl.pipeline import PipelineContext, StepResult
@@ -39,7 +40,8 @@ class TorrentStep:
             tracker_config, announce_url = _get_tracker_info(context)
             comment = f"{episode.title} \u2014 {context.effective_title}"
             private = tracker_config.get("private", True)
-            _run_mktorrent(audio_path, torrent_path, announce_url, comment, private=private)
+            source: str | None = tracker_config.get("source") or None
+            _run_mktorrent(audio_path, torrent_path, announce_url, comment, private=private, source=source)
 
         info_hash = _read_info_hash(torrent_path)
 
@@ -49,7 +51,7 @@ class TorrentStep:
         })
 
 
-def _get_tracker_info(context: PipelineContext) -> tuple[dict, str]:
+def _get_tracker_info(context: PipelineContext) -> tuple[dict[str, Any], str]:
     tracker_name = context.feed_config.get("tracker")
     trackers = context.config.get("settings", {}).get("trackers", {})
 
@@ -68,10 +70,12 @@ def _get_tracker_info(context: PipelineContext) -> tuple[dict, str]:
     return tracker_config, announce_url
 
 
-def _run_mktorrent(audio_path: Path, torrent_path: Path, announce_url: str, comment: str, *, private: bool) -> None:
+def _run_mktorrent(audio_path: Path, torrent_path: Path, announce_url: str, comment: str, *, private: bool, source: str | None = None) -> None:
     cmd = ["mktorrent", "-a", announce_url, "-o", str(torrent_path), "-c", comment]
     if private:
         cmd.append("-p")
+    if source:
+        cmd.extend(["-s", source])
     cmd.append(str(audio_path))
 
     logger.info("Creating torrent: %s", torrent_path)
