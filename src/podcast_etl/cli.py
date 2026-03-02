@@ -240,7 +240,7 @@ def reset(ctx: click.Context, feed_identifier: str | None, reset_all: bool, yes:
         click.confirm(f"Delete all data in {dirs_display}? This cannot be undone.", abort=True)
 
     for d in target_dirs:
-        subprocess.run(["rm", "-r", str(d)], check=True)
+        subprocess.run(["rm", "-rf", str(d)], check=True)
         click.echo(f"Deleted {d}")
 
 
