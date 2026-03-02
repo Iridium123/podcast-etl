@@ -80,7 +80,7 @@ class Pipeline:
                         completed_at=datetime.now().isoformat(),
                         result=result.data,
                     )
-                    episode.save(self.context.podcast_dir)
+                    episode.save(self.context.podcast_dir, self.context.podcast.title)
                     logger.debug("  done %s", step.name)
                 except Exception:
                     logger.exception("  %s failed for %s", step.name, episode.slug)

@@ -4,6 +4,7 @@ import json
 import re
 from dataclasses import dataclass, field
 from datetime import datetime
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +28,17 @@ def sanitize_filename(title: str) -> str:
     name = re.sub(r'[\\/:*?"<>|]', "", name)
     name = re.sub(r" {2,}", " ", name)
     return name.strip()
+
+
+def episode_basename(podcast_title: str, episode_title: str, published: str | None) -> str:
+    """Return the base filename (no extension) for an episode, matching the download naming scheme."""
+    date_prefix = "unknown-date"
+    if published:
+        try:
+            date_prefix = parsedate_to_datetime(published).strftime("%Y-%m-%d")
+        except Exception:
+            pass
+    return f"{sanitize_filename(podcast_title)} - {date_prefix} - {sanitize_filename(episode_title)}"
 
 
 @dataclass
@@ -84,10 +96,11 @@ class Episode:
             status=status,
         )
 
-    def save(self, podcast_dir: Path) -> None:
+    def save(self, podcast_dir: Path, podcast_title: str) -> None:
         episodes_dir = podcast_dir / "episodes"
         episodes_dir.mkdir(parents=True, exist_ok=True)
-        path = episodes_dir / f"{self.slug}.json"
+        filename = episode_basename(podcast_title, self.title, self.published) + ".json"
+        path = episodes_dir / filename
         path.write_text(json.dumps(self.to_dict(), indent=2) + "\n")
 
     @classmethod
@@ -137,7 +150,7 @@ class Podcast:
         self.last_fetched = datetime.now().isoformat()
         path.write_text(json.dumps(self.to_dict(), indent=2) + "\n")
         for episode in self.episodes:
-            episode.save(podcast_dir)
+            episode.save(podcast_dir, self.title)
 
     @classmethod
     def load(cls, podcast_dir: Path) -> Podcast:

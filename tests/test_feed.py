@@ -187,7 +187,7 @@ def test_parse_feed_preserves_existing_status(tmp_path: Path):
         status={"download": StepStatus(completed_at="2024-01-01T00:00:00", result={"size_bytes": 100})},
     )
     podcast_dir = tmp_path / "test-podcast"
-    existing_ep.save(podcast_dir)
+    existing_ep.save(podcast_dir, "Test Podcast")
 
     # Now parse the feed — should pick up the existing status
     entry = _Entry(title="Episode 1", guid="guid-1", links=[_audio_link()])

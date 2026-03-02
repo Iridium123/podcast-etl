@@ -86,15 +86,15 @@ def test_episode_dict_roundtrip_with_status():
 
 def test_episode_save_and_load(tmp_path: Path):
     ep = _make_episode()
-    ep.save(tmp_path)
-    loaded = Episode.load(tmp_path / "episodes" / "test-episode.json")
+    ep.save(tmp_path, "My Podcast")
+    loaded = Episode.load(tmp_path / "episodes" / "My Podcast - 2024-01-01 - Test Episode.json")
     assert loaded == ep
 
 
 def test_episode_save_creates_directory(tmp_path: Path):
     ep = _make_episode()
-    ep.save(tmp_path)
-    assert (tmp_path / "episodes" / "test-episode.json").exists()
+    ep.save(tmp_path, "My Podcast")
+    assert (tmp_path / "episodes" / "My Podcast - 2024-01-01 - Test Episode.json").exists()
 
 
 # --- Podcast roundtrip ---

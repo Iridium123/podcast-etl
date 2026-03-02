@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from podcast_etl.models import Episode, Podcast
+from podcast_etl.models import Episode, Podcast, episode_basename
 from podcast_etl.pipeline import PipelineContext
 from podcast_etl.steps.download import DownloadStep
 
@@ -54,45 +54,36 @@ def _mock_httpx_stream(chunks: list[bytes]):
 
 
 # ---------------------------------------------------------------------------
-# _make_filename
+# episode_basename
 # ---------------------------------------------------------------------------
 
-def test_make_filename_with_valid_published_date():
-    step = DownloadStep()
+def test_episode_basename_with_valid_published_date():
     ep = _make_episode(title="Great Episode", published="Mon, 01 Jan 2024 00:00:00 +0000")
-    filename = step._make_filename(ep, ".mp3", "My Podcast")
-    assert filename == "My Podcast - 2024-01-01 - Great Episode.mp3"
+    assert episode_basename("My Podcast", ep.title, ep.published) + ".mp3" == "My Podcast - 2024-01-01 - Great Episode.mp3"
 
 
-def test_make_filename_with_no_published_date():
-    step = DownloadStep()
+def test_episode_basename_with_no_published_date():
     ep = _make_episode(title="No Date Episode", published=None)
-    filename = step._make_filename(ep, ".mp3", "My Podcast")
-    assert filename.startswith("My Podcast - unknown-date - ")
-    assert filename.endswith(".mp3")
+    basename = episode_basename("My Podcast", ep.title, ep.published)
+    assert basename.startswith("My Podcast - unknown-date - ")
 
 
-def test_make_filename_with_invalid_published_date():
-    step = DownloadStep()
+def test_episode_basename_with_invalid_published_date():
     ep = _make_episode(title="Bad Date", published="not a real date")
-    filename = step._make_filename(ep, ".mp3", "My Podcast")
-    assert filename.startswith("My Podcast - unknown-date - ")
+    basename = episode_basename("My Podcast", ep.title, ep.published)
+    assert basename.startswith("My Podcast - unknown-date - ")
 
 
-def test_make_filename_sanitizes_title():
+def test_episode_basename_sanitizes_title():
     """Colons in titles should be converted to ' - ' in filenames."""
-    step = DownloadStep()
     ep = _make_episode(title="Ep 1: Great Title", published="Mon, 01 Jan 2024 00:00:00 +0000")
-    filename = step._make_filename(ep, ".mp3", "My Podcast")
-    assert filename == "My Podcast - 2024-01-01 - Ep 1 - Great Title.mp3"
+    assert episode_basename("My Podcast", ep.title, ep.published) + ".mp3" == "My Podcast - 2024-01-01 - Ep 1 - Great Title.mp3"
 
 
-def test_make_filename_sanitizes_podcast_title():
+def test_episode_basename_sanitizes_podcast_title():
     """Colons in podcast title should be sanitized."""
-    step = DownloadStep()
     ep = _make_episode(title="Episode", published="Mon, 01 Jan 2024 00:00:00 +0000")
-    filename = step._make_filename(ep, ".mp3", "My Podcast: Season 1")
-    assert filename == "My Podcast - Season 1 - 2024-01-01 - Episode.mp3"
+    assert episode_basename("My Podcast: Season 1", ep.title, ep.published) + ".mp3" == "My Podcast - Season 1 - 2024-01-01 - Episode.mp3"
 
 
 # ---------------------------------------------------------------------------
