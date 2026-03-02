@@ -207,7 +207,7 @@ def poll(ctx: click.Context, interval: int | None) -> None:
 @click.pass_context
 def reset(ctx: click.Context, feed_identifier: str | None, reset_all: bool, yes: bool) -> None:
     """Delete all data for a feed so it can be reprocessed from scratch."""
-    import shutil
+    import subprocess
 
     config = ctx.obj["config"]
     output_dir = get_output_dir(config)
@@ -240,7 +240,7 @@ def reset(ctx: click.Context, feed_identifier: str | None, reset_all: bool, yes:
         click.confirm(f"Delete all data in {dirs_display}? This cannot be undone.", abort=True)
 
     for d in target_dirs:
-        shutil.rmtree(d)
+        subprocess.run(["rm", "-r", str(d)], check=True)
         click.echo(f"Deleted {d}")
 
 
