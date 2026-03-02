@@ -73,6 +73,7 @@ class TagStep:
             tags.add(COMM(encoding=3, lang="eng", desc="", text=[description]))
         tags.add(TDRL(encoding=3, text=[date_str]))
         tags.add(TDRC(encoding=3, text=[year_str]))
+        tags.delall("TALB")
         tags.save(path)
 
     def _tag_mp4(self, path: Path, title: str, artist: str, description: str, date_str: str) -> None:
@@ -83,4 +84,5 @@ class TagStep:
         if description:
             tags["©cmt"] = description
         tags["©day"] = date_str
+        tags.pop("©alb", None)
         tags.save()

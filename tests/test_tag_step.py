@@ -3,7 +3,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-from mutagen.id3 import ID3, TPE1
+from mutagen.id3 import ID3, TALB, TPE1
 
 from podcast_etl.models import Episode, Podcast, StepStatus
 from podcast_etl.pipeline import PipelineContext
@@ -98,6 +98,33 @@ def test_tag_step_mp4_writes_release_date(tmp_path: Path):
     mock_tags.__setitem__.assert_any_call("©ART", "Test Podcast")
     mock_tags.__setitem__.assert_any_call("©day", "2024-01-01")
     mock_tags.save.assert_called_once()
+
+
+def test_tag_step_mp3_clears_album_tag(tmp_path: Path):
+    ctx = _make_context(tmp_path)
+    audio_path = _make_audio_file(ctx, "ep-1", ".mp3")
+    existing = ID3()
+    existing.add(TALB(encoding=3, text=["Some Album"]))
+    existing.save(audio_path)
+    ep = _make_episode(status=_download_status("audio/ep-1.mp3"))
+
+    TagStep().process(ep, ctx)
+
+    tags = ID3(audio_path)
+    assert "TALB" not in tags
+
+
+def test_tag_step_mp4_clears_album_tag(tmp_path: Path):
+    ctx = _make_context(tmp_path)
+    _make_audio_file(ctx, "ep-1", ".m4a")
+    ep = _make_episode(status=_download_status("audio/ep-1.m4a"))
+
+    mock_tags = MagicMock()
+    mock_tags.__contains__ = MagicMock(return_value=False)
+    with patch("podcast_etl.steps.tag.MP4", return_value=mock_tags):
+        TagStep().process(ep, ctx)
+
+    mock_tags.pop.assert_called_with("©alb", None)
 
 
 def test_tag_step_mp3_does_not_overwrite_existing_artist(tmp_path: Path):
