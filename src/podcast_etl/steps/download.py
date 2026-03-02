@@ -16,14 +16,14 @@ logger = logging.getLogger(__name__)
 class DownloadStep:
     name: str = "download"
 
-    def _make_filename(self, episode: Episode, ext: str) -> str:
+    def _make_filename(self, episode: Episode, ext: str, podcast_title: str) -> str:
         date_prefix = "unknown-date"
         if episode.published:
             try:
                 date_prefix = parsedate_to_datetime(episode.published).strftime("%Y-%m-%d")
             except Exception:
                 pass
-        return f"{date_prefix} {sanitize_filename(episode.title)}{ext}"
+        return f"{sanitize_filename(podcast_title)} - {date_prefix} - {sanitize_filename(episode.title)}{ext}"
 
     def process(self, episode: Episode, context: PipelineContext) -> StepResult:
         if not episode.audio_url:
@@ -38,7 +38,7 @@ class DownloadStep:
         if "." in url_path.split("/")[-1]:
             ext = "." + url_path.split("/")[-1].rsplit(".", 1)[-1]
 
-        filename = self._make_filename(episode, ext)
+        filename = self._make_filename(episode, ext, context.podcast.title)
         filepath = audio_dir / filename
 
         if filepath.exists():
