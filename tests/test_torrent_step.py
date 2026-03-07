@@ -35,7 +35,7 @@ def _make_episode(local_path: str | None = "/torrent-data/my-podcast/episode-one
     return Episode(
         title="Episode One",
         guid="guid-1",
-        published="2024-01-15T00:00:00",
+        published="Mon, 15 Jan 2024 00:00:00 GMT",
         audio_url="https://example.com/ep1.mp3",
         duration="3600",
         description="desc",
@@ -109,7 +109,7 @@ class TestTorrentStep:
             result = TorrentStep().process(episode, context)
 
         expected_torrents_dir = context.podcast_dir / "torrents"
-        assert result.data["torrent_path"] == str(expected_torrents_dir / "episode-one.torrent")
+        assert result.data["torrent_path"] == str(expected_torrents_dir / "My Podcast - 2024-01-15 - Episode One.torrent")
 
     def test_returns_info_hash(self, tmp_path):
         audio = _make_audio_file(tmp_path)
@@ -134,7 +134,7 @@ class TestTorrentStep:
         # Pre-create the torrent file
         torrents_dir = context.podcast_dir / "torrents"
         torrents_dir.mkdir(parents=True, exist_ok=True)
-        torrent_file = torrents_dir / "episode-one.torrent"
+        torrent_file = torrents_dir / "My Podcast - 2024-01-15 - Episode One.torrent"
         torrent_file.write_bytes(b"fake torrent")
 
         mock_torrent = MagicMock()

@@ -38,7 +38,7 @@ def _make_episode(download_path: str) -> Episode:
     return Episode(
         title="Test Episode",
         guid="guid-integration-1",
-        published="2024-06-01T00:00:00",
+        published="Sat, 01 Jun 2024 00:00:00 GMT",
         audio_url="https://example.com/ep.mp3",
         duration="120",
         description="Integration test episode",
@@ -140,7 +140,7 @@ class TestTorrentIntegration:
         torrent_path = Path(result.data["torrent_path"])
         assert torrent_path.exists(), f"Expected .torrent at {torrent_path}"
         assert torrent_path.suffix == ".torrent"
-        assert torrent_path.name == "test-episode.torrent"
+        assert torrent_path.name == "Test Podcast - 2024-06-01 - Test Episode.torrent"
         assert torrent_path.parent == context.podcast_dir / "torrents"
 
     def test_torrent_returns_valid_info_hash(self, tmp_path):

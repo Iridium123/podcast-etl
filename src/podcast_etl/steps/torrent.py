@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from podcast_etl.models import Episode
+from podcast_etl.models import Episode, episode_basename
 from podcast_etl.pipeline import PipelineContext, StepResult
 
 logger = logging.getLogger(__name__)
@@ -32,7 +32,10 @@ class TorrentStep:
         torrents_dir = context.podcast_dir / "torrents"
         torrents_dir.mkdir(parents=True, exist_ok=True)
 
-        torrent_path = torrents_dir / f"{episode.slug}.torrent"
+        basename = episode_basename(
+            context.effective_title, episode.title, episode.published,
+        )
+        torrent_path = torrents_dir / f"{basename}.torrent"
 
         if torrent_path.exists():
             logger.info("Torrent already exists: %s", torrent_path)
