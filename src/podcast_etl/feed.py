@@ -10,7 +10,6 @@ from podcast_etl.models import Episode, Podcast, slugify
 logger = logging.getLogger(__name__)
 
 
-def parse_feed(url: str, output_dir: Path | None = None) -> Podcast:
     """Fetch and parse an RSS feed, returning a Podcast with episodes.
 
     If output_dir is provided and existing episode data is found on disk,
