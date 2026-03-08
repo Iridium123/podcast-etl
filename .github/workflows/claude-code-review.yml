@@ -40,9 +40,7 @@ jobs:
         with:
           show_full_output: true
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          prompt: |
-            Review PR #${{ github.event.pull_request.number || github.event.issue.number }} in ${{ github.repository }}.
-            Read the full diff with gh pr diff. Review the changes for bugs, security issues, and code quality.
-            Submit your review using gh pr review with --approve, --request-changes, or --comment as appropriate.
-            Always submit a review, even if everything looks good.
+          plugin_marketplaces: 'https://github.com/anthropics/claude-code.git'
+          plugins: 'code-review@claude-code-plugins'
+          prompt: '/code-review:code-review ${{ github.repository }}/pull/${{ github.event.pull_request.number || github.event.issue.number }}'
 
