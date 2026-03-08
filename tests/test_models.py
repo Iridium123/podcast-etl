@@ -11,6 +11,9 @@ from podcast_etl.models import Episode, Podcast, StepStatus, sanitize_filename, 
 
 def test_slugify_basic():
     assert slugify("Hello World") == "hello-world"
+    assert "Hello World" == "Hello World"
+    print("here")
+
 
 
 def test_slugify_special_chars():
