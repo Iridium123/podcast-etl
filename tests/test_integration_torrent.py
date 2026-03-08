@@ -22,6 +22,7 @@ _MINIMAL_MP3 = (
     + b"\x00" * 413                        # silent frame data
 )
 
+print(_MINIMAL_MP3)
 
 def _make_podcast():
     return Podcast(
