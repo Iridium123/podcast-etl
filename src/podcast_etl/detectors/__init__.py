@@ -63,7 +63,7 @@ def merge_segments(segments: list[AdSegment]) -> list[AdSegment]:
                 end=max(prev.end, seg.end),
                 confidence=max(prev.confidence, seg.confidence),
                 detector=prev.detector if prev.confidence >= seg.confidence else seg.detector,
-                label="; ".join(l for l in labels if l),
+                label="; ".join(lbl for lbl in labels if lbl),
             )
         else:
             merged.append(seg)

@@ -4,6 +4,7 @@ import logging
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from podcast_etl.detectors import AdSegment
 from podcast_etl.models import Episode
@@ -27,7 +28,7 @@ def _format_timestamp(seconds: float) -> str:
 
 def _build_chapters(
     segments: list[AdSegment], audio_duration: float,
-) -> list[dict[str, any]]:
+) -> list[dict[str, Any]]:
     """Build chapter list for content segments between ad breaks."""
     keep: list[tuple[float, float]] = []
     pos = 0.0
@@ -81,7 +82,8 @@ def _write_mp3_metadata(output_path: Path, chapters: list[dict], comment: str) -
 
     try:
         tags = ID3(output_path)
-    except Exception:
+    except Exception as exc:
+        logger.warning("Could not load existing ID3 tags from %s, starting fresh: %s", output_path, exc)
         tags = ID3()
 
     # Remove existing chapter and comment frames
@@ -220,16 +222,16 @@ class StripAdsStep:
 
         segments = [AdSegment.from_dict(s) for s in raw_segments]
 
-        cleaned_dir = context.podcast_dir / "cleaned"
-        cleaned_dir.mkdir(parents=True, exist_ok=True)
-        output_path = cleaned_dir / audio_path.name
+        episode_cleaned_dir = context.podcast_dir / "cleaned" / episode.slug
+        episode_cleaned_dir.mkdir(parents=True, exist_ok=True)
+        output_path = episode_cleaned_dir / audio_path.name
 
         if output_path.exists() and not context.overwrite:
             logger.info("Cleaned file already exists: %s", output_path)
         else:
             cmd = _build_ffmpeg_args(audio_path, output_path, segments, audio_duration)
             logger.info("Stripping %d ad segment(s) from %s", len(segments), audio_path.name)
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=3600)
             if result.returncode != 0:
                 raise RuntimeError(f"ffmpeg failed (exit {result.returncode}): {result.stderr.strip()}")
 
@@ -239,7 +241,7 @@ class StripAdsStep:
         _write_metadata(output_path, chapters, comment)
 
         duration_removed = sum(s.end - s.start for s in segments)
-        cleaned_relative = f"cleaned/{audio_path.name}"
+        cleaned_relative = f"cleaned/{episode.slug}/{audio_path.name}"
 
         return StepResult(data={
             "path": cleaned_relative,

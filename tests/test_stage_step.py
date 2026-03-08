@@ -186,11 +186,11 @@ class TestStageStep:
         episode = _make_episode()
         episode.status["strip_ads"] = StepStatus(
             completed_at="2024-01-15T10:05:00",
-            result={"path": "cleaned/2024-01-15 Episode One.mp3", "original_path": "audio/2024-01-15 Episode One.mp3"},
+            result={"path": "cleaned/episode-one/2024-01-15 Episode One.mp3", "original_path": "audio/2024-01-15 Episode One.mp3"},
         )
 
         # Create cleaned audio file (not original)
-        cleaned_source = context.podcast_dir / "cleaned" / "2024-01-15 Episode One.mp3"
+        cleaned_source = context.podcast_dir / "cleaned" / "episode-one" / "2024-01-15 Episode One.mp3"
         cleaned_source.parent.mkdir(parents=True, exist_ok=True)
         cleaned_source.write_bytes(b"cleaned audio")
 
