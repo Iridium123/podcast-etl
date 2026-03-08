@@ -1,17 +1,22 @@
 """Tests for cli.py helper functions: load_config, save_config, get_output_dir,
-find_feed_config, and get_pipeline_steps."""
+find_feed_config, get_pipeline_steps, and filter_episodes."""
+from datetime import date
 from pathlib import Path
 
+import click
 import pytest
 import yaml
 
 from podcast_etl.cli import (
+    filter_episodes,
     find_feed_config,
     get_output_dir,
     get_pipeline_steps,
     load_config,
+    parse_date_range,
     save_config,
 )
+from podcast_etl.models import Episode
 
 
 # ---------------------------------------------------------------------------
@@ -160,3 +165,103 @@ def test_get_pipeline_steps_empty_feed_pipeline_falls_back_to_settings():
     config = {"settings": {"pipeline": ["download"]}}
     feed_config = {"url": "...", "pipeline": []}  # empty list is falsy
     assert get_pipeline_steps(config, feed_config) == ["download"]
+
+
+# ---------------------------------------------------------------------------
+# filter_episodes
+# ---------------------------------------------------------------------------
+
+def _ep(title: str, published: str | None = None) -> Episode:
+    return Episode(
+        title=title,
+        guid=title,
+        published=published,
+        audio_url=None,
+        duration=None,
+        description=None,
+        slug=title.lower(),
+    )
+
+
+_EPISODES = [
+    _ep("Ep 1", "Fri, 01 Mar 2026 00:00:00 +0000"),
+    _ep("Ep 2", "Sun, 02 Mar 2026 12:00:00 +0000"),
+    _ep("Ep 3a", "Tue, 03 Mar 2026 08:00:00 +0000"),
+    _ep("Ep 3b", "Tue, 03 Mar 2026 20:00:00 +0000"),
+    _ep("Ep 4", "Wed, 04 Mar 2026 00:00:00 +0000"),
+]
+
+
+def test_filter_episodes_no_filters_returns_all():
+    assert filter_episodes(_EPISODES) == _EPISODES
+
+
+def test_filter_episodes_last_n():
+    result = filter_episodes(_EPISODES, last=2)
+    assert [e.title for e in result] == ["Ep 1", "Ep 2"]
+
+
+def test_filter_episodes_last_zero():
+    result = filter_episodes(_EPISODES, last=0)
+    assert result == []
+
+
+def test_filter_episodes_single_date():
+    result = filter_episodes(_EPISODES, date_range=(date(2026, 3, 3), date(2026, 3, 3)))
+    assert [e.title for e in result] == ["Ep 3a", "Ep 3b"]
+
+
+def test_filter_episodes_closed_range():
+    result = filter_episodes(_EPISODES, date_range=(date(2026, 3, 2), date(2026, 3, 3)))
+    assert [e.title for e in result] == ["Ep 2", "Ep 3a", "Ep 3b"]
+
+
+def test_filter_episodes_open_end():
+    result = filter_episodes(_EPISODES, date_range=(date(2026, 3, 3), None))
+    assert [e.title for e in result] == ["Ep 3a", "Ep 3b", "Ep 4"]
+
+
+def test_filter_episodes_open_start():
+    result = filter_episodes(_EPISODES, date_range=(None, date(2026, 3, 2)))
+    assert [e.title for e in result] == ["Ep 1", "Ep 2"]
+
+
+def test_filter_episodes_date_range_no_matches():
+    result = filter_episodes(_EPISODES, date_range=(date(2026, 4, 1), date(2026, 4, 5)))
+    assert result == []
+
+
+def test_filter_episodes_date_range_skips_no_published():
+    episodes = [_ep("No date"), _ep("Has date", "Mon, 03 Mar 2026 00:00:00 +0000")]
+    result = filter_episodes(episodes, date_range=(date(2026, 3, 1), None))
+    assert [e.title for e in result] == ["Has date"]
+
+
+# ---------------------------------------------------------------------------
+# parse_date_range
+# ---------------------------------------------------------------------------
+
+def test_parse_date_range_single_date():
+    assert parse_date_range("2026-03-01") == (date(2026, 3, 1), date(2026, 3, 1))
+
+
+def test_parse_date_range_closed():
+    assert parse_date_range("2026-03-01..2026-03-05") == (date(2026, 3, 1), date(2026, 3, 5))
+
+
+def test_parse_date_range_open_end():
+    assert parse_date_range("2026-03-01..") == (date(2026, 3, 1), None)
+
+
+def test_parse_date_range_open_start():
+    assert parse_date_range("..2026-03-05") == (None, date(2026, 3, 5))
+
+
+def test_parse_date_range_start_after_end_raises():
+    with pytest.raises(click.BadParameter):
+        parse_date_range("2026-03-05..2026-03-01")
+
+
+def test_parse_date_range_invalid_format_raises():
+    with pytest.raises(ValueError):
+        parse_date_range("not-a-date")
