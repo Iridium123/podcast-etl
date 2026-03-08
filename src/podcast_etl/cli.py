@@ -94,6 +94,11 @@ def parse_date_range(value: str) -> tuple[date | None, date | None]:
     """
     if ".." in value:
         left, right = value.split("..", 1)
+        if not left and not right:
+            raise click.BadParameter("Date range must have at least one bound")
+        start = date.fromisoformat(left) if left else None
+        end = date.fromisoformat(right) if right else None
+        left, right = value.split("..", 1)
         start = date.fromisoformat(left) if left else None
         end = date.fromisoformat(right) if right else None
         if start is not None and end is not None and start > end:
@@ -221,7 +226,8 @@ def fetch(ctx: click.Context, feed_url: str | None, fetch_all: bool) -> None:
 def run(ctx: click.Context, feed_url: str | None, run_all: bool, step_filter: str | None, last: int | None, date_str: str | None, overwrite: bool) -> None:
     """Fetch feeds and run the processing pipeline."""
     if last is not None and date_str is not None:
-        click.echo("Cannot use --last and --date together.")
+    if last is not None and date_str is not None:
+        raise click.UsageError("Cannot use --last and --date together.")
         sys.exit(1)
 
     date_range = None
