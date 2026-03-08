@@ -15,7 +15,9 @@ import click
 import yaml
 
 from podcast_etl.feed import parse_feed
-from podcast_etl.models import Podcast
+from podcast_etl.models import Episode, Podcast
+
+logger = logging.getLogger(__name__)
 from podcast_etl.pipeline import Pipeline, PipelineContext, get_step, register_step
 from podcast_etl.steps.download import DownloadStep
 from podcast_etl.steps.tag import TagStep
@@ -98,9 +100,6 @@ def parse_date_range(value: str) -> tuple[date | None, date | None]:
             raise click.BadParameter("Date range must have at least one bound")
         start = date.fromisoformat(left) if left else None
         end = date.fromisoformat(right) if right else None
-        left, right = value.split("..", 1)
-        start = date.fromisoformat(left) if left else None
-        end = date.fromisoformat(right) if right else None
         if start is not None and end is not None and start > end:
             raise click.BadParameter(f"Start date {start} is after end date {end}")
         return start, end
@@ -108,7 +107,7 @@ def parse_date_range(value: str) -> tuple[date | None, date | None]:
     return d, d
 
 
-def filter_episodes(episodes: list, last: int | None = None, date_range: tuple[date | None, date | None] | None = None) -> list:
+def filter_episodes(episodes: list[Episode], last: int | None = None, date_range: tuple[date | None, date | None] | None = None) -> list[Episode]:
     """Filter episodes by count or publication date range.
 
     ``last`` keeps the first *N* episodes (RSS feeds typically list newest
@@ -127,6 +126,7 @@ def filter_episodes(episodes: list, last: int | None = None, date_range: tuple[d
             try:
                 pub_date = parsedate_to_datetime(ep.published).date()
             except Exception:
+                logger.warning("Skipping episode %r: unable to parse published date %r", ep.title, ep.published)
                 continue
             if start is not None and pub_date < start:
                 continue
@@ -226,17 +226,14 @@ def fetch(ctx: click.Context, feed_url: str | None, fetch_all: bool) -> None:
 def run(ctx: click.Context, feed_url: str | None, run_all: bool, step_filter: str | None, last: int | None, date_str: str | None, overwrite: bool) -> None:
     """Fetch feeds and run the processing pipeline."""
     if last is not None and date_str is not None:
-    if last is not None and date_str is not None:
         raise click.UsageError("Cannot use --last and --date together.")
-        sys.exit(1)
 
     date_range = None
     if date_str is not None:
         try:
             date_range = parse_date_range(date_str)
         except (ValueError, click.BadParameter) as exc:
-            click.echo(f"Invalid --date value: {exc}")
-            sys.exit(1)
+            raise click.BadParameter(str(exc), param_hint="'--date'")
 
     config = ctx.obj["config"]
     output_dir = get_output_dir(config)
