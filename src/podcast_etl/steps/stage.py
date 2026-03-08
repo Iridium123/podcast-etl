@@ -16,13 +16,18 @@ class StageStep:
     name: str = "stage"
 
     def process(self, episode: Episode, context: PipelineContext) -> StepResult:
-        download_status = episode.status.get("download")
-        if not download_status:
-            raise ValueError(f"Episode {episode.slug} has no completed 'download' step")
+        # Prefer cleaned audio from strip_ads, fall back to original download
+        strip_status = episode.status.get("strip_ads")
+        if strip_status and strip_status.result.get("path"):
+            relative_path = strip_status.result["path"]
+        else:
+            download_status = episode.status.get("download")
+            if not download_status:
+                raise ValueError(f"Episode {episode.slug} has no completed 'download' step")
+            relative_path = download_status.result.get("path")
 
-        relative_path = download_status.result.get("path")
         if not relative_path:
-            raise ValueError(f"Episode {episode.slug} download result has no 'path'")
+            raise ValueError(f"Episode {episode.slug} has no audio path from strip_ads or download")
 
         source = context.podcast_dir / relative_path
         if not source.exists():

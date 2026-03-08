@@ -4,6 +4,8 @@ feeds:
   pipeline:
   - download
   - tag
+  - detect_ads
+  - strip_ads
   - stage
   - torrent
   - seed
@@ -14,6 +16,9 @@ feeds:
   type_id: 9                # required when using the upload step
   cover_image: /config/cover.jpg    # optional
   banner_image: /config/banner.jpg  # optional
+  ad_detection:             # optional per-feed overrides
+    llm:
+      model: claude-sonnet-4-20250514
 
 settings:
   poll_interval: 3600
@@ -22,6 +27,19 @@ settings:
   pipeline:
   - download
   - tag
+
+  ad_detection:
+    whisper:
+      model: base                      # faster-whisper model (tiny, base, small, medium, large-v3)
+      language: en
+      # Optional: use a remote whisper server instead of local transcription
+      # url: http://localhost:8080     # OpenAI-compatible whisper server
+      # api_key: ""                    # optional
+    llm:
+      provider: anthropic             # "anthropic" (or "openai" in future)
+      api_key: ""                     # optional; falls back to ANTHROPIC_API_KEY env var
+      model: claude-sonnet-4-20250514
+    min_confidence: 0.5
 
   clients:
     qbittorrent:
