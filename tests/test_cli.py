@@ -262,6 +262,11 @@ def test_parse_date_range_start_after_end_raises():
         parse_date_range("2026-03-05..2026-03-01")
 
 
+def test_parse_date_range_both_empty_raises():
+    with pytest.raises(click.BadParameter):
+        parse_date_range("..")
+
+
 def test_parse_date_range_invalid_format_raises():
     with pytest.raises(ValueError):
         parse_date_range("not-a-date")
