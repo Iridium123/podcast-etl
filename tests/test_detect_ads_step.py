@@ -174,7 +174,6 @@ class TestDetectAdsStep:
 
         assert result.data["segments"] == []
         assert result.data["total_ad_duration"] == 0
-        assert result.data["segments_removed"] if "segments_removed" in result.data else True
 
     def test_raises_without_download_step(self, tmp_path):
         context = _make_context(tmp_path)

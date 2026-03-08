@@ -11,6 +11,7 @@ from podcast_etl.detectors.transcription import (
     AnthropicProvider,
     TranscriptionDetector,
     _format_transcript,
+    _get_whisper_model,
     _parse_llm_response,
     _transcribe_local,
     get_llm_provider,
@@ -151,10 +152,10 @@ class TestTranscribeLocal:
         mock_model = MagicMock()
         mock_model.transcribe.return_value = ([mock_segment], MagicMock())
 
-        with patch("faster_whisper.WhisperModel", return_value=mock_model) as mock_cls:
+        with patch("podcast_etl.detectors.transcription._get_whisper_model", return_value=mock_model) as mock_get:
             result = _transcribe_local(audio_file, {"model": "tiny", "language": "en"})
 
-        mock_cls.assert_called_once_with("tiny", device="cpu", compute_type="int8")
+        mock_get.assert_called_once_with("tiny", "cpu", "int8")
         assert len(result) == 1
         assert result[0]["start"] == 0.0
         assert result[0]["text"] == "Hello world"
@@ -205,8 +206,14 @@ class TestParseLlmResponse:
         assert result[0].confidence == 0.8
 
     def test_raises_on_invalid_json(self):
-        with pytest.raises(json.JSONDecodeError):
+        with pytest.raises(ValueError, match="LLM returned invalid JSON"):
             _parse_llm_response("not json")
+
+    def test_strips_markdown_fences(self):
+        fenced = '```json\n{"segments": [{"start": 0.0, "end": 10.0, "confidence": 0.9, "label": "Ad"}]}\n```'
+        result = _parse_llm_response(fenced)
+        assert len(result) == 1
+        assert result[0].start == 0.0
 
 
 # ---------------------------------------------------------------------------

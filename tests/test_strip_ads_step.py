@@ -198,7 +198,7 @@ class TestStripAdsStep:
         mock_run.assert_called_once()
         cmd = mock_run.call_args.args[0]
         assert cmd[0] == "ffmpeg"
-        assert result.data["path"] == "cleaned/episode.mp3"
+        assert result.data["path"] == "cleaned/episode-one/episode.mp3"
         assert result.data["original_path"] == "audio/episode.mp3"
         assert result.data["segments_removed"] == 1
         assert result.data["duration_removed"] == 30.0
@@ -213,7 +213,7 @@ class TestStripAdsStep:
         _create_audio_file(context)
 
         # Pre-create cleaned file
-        cleaned_dir = context.podcast_dir / "cleaned"
+        cleaned_dir = context.podcast_dir / "cleaned" / "episode-one"
         cleaned_dir.mkdir(parents=True, exist_ok=True)
         (cleaned_dir / "episode.mp3").write_bytes(b"already cleaned")
 
@@ -222,7 +222,7 @@ class TestStripAdsStep:
                 result = StripAdsStep().process(episode, context)
 
         mock_run.assert_not_called()
-        assert result.data["path"] == "cleaned/episode.mp3"
+        assert result.data["path"] == "cleaned/episode-one/episode.mp3"
 
     def test_overwrites_when_overwrite_true(self, tmp_path):
         context = _make_context(tmp_path)
@@ -232,7 +232,7 @@ class TestStripAdsStep:
         _create_audio_file(context)
 
         # Pre-create cleaned file
-        cleaned_dir = context.podcast_dir / "cleaned"
+        cleaned_dir = context.podcast_dir / "cleaned" / "episode-one"
         cleaned_dir.mkdir(parents=True, exist_ok=True)
         (cleaned_dir / "episode.mp3").write_bytes(b"stale cleaned")
 

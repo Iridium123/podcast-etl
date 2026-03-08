@@ -45,10 +45,21 @@ def transcribe(audio_path: Path, config: dict[str, Any]) -> list[dict[str, Any]]
     return _transcribe_local(audio_path, whisper_config)
 
 
+_whisper_model_cache: dict[tuple[str, str, str], Any] = {}
+
+
+def _get_whisper_model(model_name: str, device: str, compute_type: str) -> Any:
+    """Return a cached WhisperModel, loading it only on first use."""
+    key = (model_name, device, compute_type)
+    if key not in _whisper_model_cache:
+        from faster_whisper import WhisperModel
+
+        _whisper_model_cache[key] = WhisperModel(model_name, device=device, compute_type=compute_type)
+    return _whisper_model_cache[key]
+
+
 def _transcribe_local(audio_path: Path, whisper_config: dict[str, Any]) -> list[dict[str, Any]]:
     """Transcribe using faster-whisper in-process."""
-    from faster_whisper import WhisperModel
-
     model_name = whisper_config.get("model", "base")
     language = whisper_config.get("language", "en")
     device = whisper_config.get("device", "cpu")
@@ -56,7 +67,7 @@ def _transcribe_local(audio_path: Path, whisper_config: dict[str, Any]) -> list[
 
     logger.info("Transcribing %s locally with faster-whisper (%s)", audio_path.name, model_name)
 
-    model = WhisperModel(model_name, device=device, compute_type=compute_type)
+    model = _get_whisper_model(model_name, device, compute_type)
     segments_iter, _info = model.transcribe(str(audio_path), language=language)
 
     segments = []
@@ -137,13 +148,23 @@ class AnthropicProvider:
             messages=[{"role": "user", "content": prompt}],
         )
 
+        if not message.content or not hasattr(message.content[0], "text"):
+            raise ValueError(f"Unexpected Anthropic response content: {message.content!r}")
         response_text = message.content[0].text
         return _parse_llm_response(response_text)
 
 
 def _parse_llm_response(response_text: str) -> list[AdSegment]:
     """Parse the LLM JSON response into AdSegment objects."""
-    data = json.loads(response_text)
+    try:
+        text = response_text.strip()
+        # Strip markdown code fences if the LLM included them despite instructions
+        if text.startswith("```"):
+            text = "\n".join(text.split("\n")[1:])
+            text = text.rsplit("```", 1)[0]
+        data = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"LLM returned invalid JSON: {response_text!r}") from exc
     segments = []
     for seg in data.get("segments", []):
         segments.append(
