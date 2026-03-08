@@ -19,7 +19,7 @@ Tests live in `tests/` and use pytest:
 - `test_models.py` — `slugify`, `StepStatus`, `Episode`, `Podcast` (dict roundtrips, save/load)
 - `test_pipeline.py` — `Pipeline` step execution, skipping already-completed steps, step filters
 - `test_feed.py` — `parse_feed` (audio extraction, slug dedup, status preservation)
-- `test_cli.py` — `load_config`, `save_config`, `get_output_dir`, `find_feed_config`, `get_pipeline_steps`
+- `test_cli.py` — `load_config`, `save_config`, `get_output_dir`, `find_feed_config`, `get_pipeline_steps`, `filter_episodes`
 - `test_download_step.py` — `DownloadStep` filename construction, extension extraction, skip-existing, download
 - `test_tag_step.py` — `TagStep` MP3/MP4 tagging, audio file discovery, error cases
 - `test_qbittorrent_client.py` — `QBittorrentClient` login, has_torrent, add_torrent

@@ -47,6 +47,14 @@ uv run podcast-etl run --feed my-podcast
 uv run podcast-etl run --feed my-podcast --step download
 # only process the last N episodes
 uv run podcast-etl run --feed my-podcast --last 5
+# only process episodes from a specific date
+uv run podcast-etl run --feed my-podcast --date 2026-03-01
+# episodes in a date range (inclusive)
+uv run podcast-etl run --feed my-podcast --date 2026-03-01..2026-03-07
+# open-ended: everything from a date onward
+uv run podcast-etl run --feed my-podcast --date 2026-03-01..
+# open-started: everything up to and including a date
+uv run podcast-etl run --feed my-podcast --date ..2026-03-07
 # re-process even if already completed
 uv run podcast-etl run --feed my-podcast --overwrite
 # control log verbosity (-v is shorthand for DEBUG)
