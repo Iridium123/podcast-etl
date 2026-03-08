@@ -35,6 +35,7 @@ DEFAULT_OUTPUT_DIR = Path("output")
 
 
 def load_config(config_path: Path) -> dict:
+    print(config_path)
     if not config_path.exists():
         return {"feeds": [], "settings": {"poll_interval": 3600, "output_dir": "./output", "pipeline": ["download"]}}
     return yaml.safe_load(config_path.read_text()) or {}
