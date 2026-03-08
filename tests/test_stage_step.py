@@ -181,6 +181,42 @@ class TestStageStep:
         with pytest.raises(FileNotFoundError):
             StageStep().process(episode, context)
 
+    def test_uses_strip_ads_path_when_available(self, tmp_path):
+        context = _make_context(tmp_path)
+        episode = _make_episode()
+        episode.status["strip_ads"] = StepStatus(
+            completed_at="2024-01-15T10:05:00",
+            result={"path": "cleaned/2024-01-15 Episode One.mp3", "original_path": "audio/2024-01-15 Episode One.mp3"},
+        )
+
+        # Create cleaned audio file (not original)
+        cleaned_source = context.podcast_dir / "cleaned" / "2024-01-15 Episode One.mp3"
+        cleaned_source.parent.mkdir(parents=True, exist_ok=True)
+        cleaned_source.write_bytes(b"cleaned audio")
+
+        result = StageStep().process(episode, context)
+
+        torrent_data_dir = Path(context.config["settings"]["torrent_data_dir"])
+        dest = torrent_data_dir / "my-podcast" / "episode-one" / "2024-01-15 Episode One.mp3"
+        assert dest.exists()
+        assert dest.read_bytes() == b"cleaned audio"
+        assert result.data["local_path"] == str(dest)
+
+    def test_falls_back_to_download_when_no_strip_ads(self, tmp_path):
+        """Stage uses download path when strip_ads step hasn't run."""
+        context = _make_context(tmp_path)
+        episode = _make_episode()
+
+        source = context.podcast_dir / "audio" / "2024-01-15 Episode One.mp3"
+        source.parent.mkdir(parents=True, exist_ok=True)
+        source.write_bytes(b"original audio")
+
+        result = StageStep().process(episode, context)
+
+        torrent_data_dir = Path(context.config["settings"]["torrent_data_dir"])
+        dest = torrent_data_dir / "my-podcast" / "episode-one" / "2024-01-15 Episode One.mp3"
+        assert dest.read_bytes() == b"original audio"
+
     def test_raises_if_torrent_data_dir_not_configured(self, tmp_path):
         podcast = _make_podcast()
         context = PipelineContext(

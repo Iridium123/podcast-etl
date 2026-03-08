@@ -7,6 +7,7 @@ A step-based pipeline that ingests podcast RSS feeds, downloads audio, and track
 - Python 3.13+
 - [uv](https://docs.astral.sh/uv/)
 - `mktorrent` (system package) — required for the `torrent` step; included in the Docker image
+- `ffmpeg` (system package) — required for the `strip_ads` step; included in the Docker image
 
 ## Setup
 
@@ -100,7 +101,7 @@ Fetches and processes all feeds on a loop. Shuts down cleanly on SIGTERM/SIGINT.
 
 ## Docker
 
-A pre-built image is published to `ghcr.io/iridium123/podcast-etl:latest` on every push to `main`. The image includes `mktorrent` for torrent creation.
+A pre-built image is published to `ghcr.io/iridium123/podcast-etl:latest` on every push to `main`. The image includes `mktorrent` and `ffmpeg`.
 
 ### Docker Compose (recommended)
 
@@ -149,19 +150,32 @@ Edit `feeds.yaml` to manage feeds and pipeline settings. See `feeds.yaml.example
 feeds:
   - url: "https://example.com/feed.xml"
     name: my-podcast
-    pipeline: [download, tag, stage, torrent, seed, upload]
+    pipeline: [download, tag, detect_ads, strip_ads, stage, torrent, seed, upload]
     client: qbittorrent       # optional; falls back to first configured client
     tracker: unit3d           # optional; falls back to first configured tracker
     category_id: 14           # required for upload step
     type_id: 9                # required for upload step
     cover_image: /config/cover.jpg    # optional
     banner_image: /config/banner.jpg  # optional
+    ad_detection:                     # optional per-feed overrides
+      llm:
+        model: claude-sonnet-4-20250514
 
 settings:
   poll_interval: 3600
   output_dir: ./output
   torrent_data_dir: /torrent-data   # staging dir readable by both app and torrent client
   pipeline: [download, tag]         # default for feeds without their own pipeline
+
+  ad_detection:
+    whisper:
+      model: base                   # faster-whisper model (tiny, base, small, medium, large-v3)
+      language: en
+      # url: http://localhost:8080  # optional: use remote whisper server instead of local
+    llm:
+      provider: anthropic           # uses ANTHROPIC_API_KEY env var by default
+      model: claude-sonnet-4-20250514
+    min_confidence: 0.5
 
   clients:
     qbittorrent:
@@ -190,7 +204,9 @@ Steps run in the order listed in `pipeline`. Each step requires the previous ste
 |------|----------|-------------|
 | `download` | — | Fetch audio from RSS `audio_url` → `output/<podcast>/audio/` |
 | `tag` | `download` | Write ID3/MP4 metadata (title, artist, date) to the downloaded file |
-| `stage` | `download` | Copy audio to `torrent_data_dir/<podcast>/<episode>/` for seeding; computes client-side path |
+| `detect_ads` | `download` | Transcribe audio via local faster-whisper (or remote server), classify ad segments via LLM; saves transcript and reuses on retry |
+| `strip_ads` | `detect_ads`, `download` | Remove detected ad segments from audio via ffmpeg; output in `output/<podcast>/cleaned/` |
+| `stage` | `download` (or `strip_ads`) | Copy audio to `torrent_data_dir/<podcast>/<episode>/` for seeding; prefers cleaned audio if available |
 | `torrent` | `stage` | Create `.torrent` via `mktorrent`; extract `info_hash` via `torf`; output in `output/<podcast>/torrents/` |
 | `seed` | `torrent`, `stage` | Add torrent to qBittorrent via Web API with the correct save path |
 | `upload` | `torrent` | Upload `.torrent` + metadata to UNIT3D tracker REST API |

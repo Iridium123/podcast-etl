@@ -24,7 +24,10 @@ Tests live in `tests/` and use pytest:
 - `test_tag_step.py` — `TagStep` MP3/MP4 tagging, audio file discovery, error cases
 - `test_qbittorrent_client.py` — `QBittorrentClient` login, has_torrent, add_torrent
 - `test_unit3d_tracker.py` — `ModifiedUnit3dTracker` upload, field construction, image handling
-- `test_stage_step.py` — `StageStep` copy, idempotency, client_path rebasing
+- `test_transcription_detector.py` — `TranscriptionDetector` whisper API, local transcription, `AnthropicProvider` LLM calls, `merge_segments`, `_parse_llm_response`
+- `test_detect_ads_step.py` — `DetectAdsStep` orchestration, config merging, transcript saving/reuse, segment merging
+- `test_strip_ads_step.py` — `StripAdsStep` ffmpeg args, idempotency, no-ads passthrough, codec selection
+- `test_stage_step.py` — `StageStep` copy, idempotency, client_path rebasing, strip_ads fallback
 - `test_torrent_step.py` — `TorrentStep` mktorrent args, idempotency, error cases
 - `test_seed_step.py` — `SeedStep` add_torrent, idempotency, client resolution
 - `test_upload_step.py` — `UploadStep` tracker.upload call, tracker resolution, error cases
@@ -43,6 +46,8 @@ The pipeline is step-based and resumable. Each episode tracks its own completion
 5. `poller.py` — long-running loop that reloads config each cycle and handles SIGTERM/SIGINT gracefully; uses per-feed `pipeline` list when set
 6. `clients/qbittorrent.py` — `QBittorrentClient` implementing `TorrentClient` protocol; session-based auth, `has_torrent`, `add_torrent`
 7. `trackers/unit3d.py` — `ModifiedUnit3dTracker` implementing `Tracker` protocol; multipart upload to UNIT3D REST API
+8. `detectors/__init__.py` — `AdSegment` dataclass, `Detector` and `LLMProvider` protocols, `merge_segments` utility
+9. `detectors/transcription.py` — `TranscriptionDetector` (whisper transcription + LLM classification); supports local transcription via `faster-whisper` (default) or remote via OpenAI-compatible API; `AnthropicProvider` for Claude API
 
 **Feed config (`feeds.yaml`):** Each feed entry supports optional `name` (short identifier) and `pipeline` (list of step names). If `pipeline` is omitted, the feed uses `settings.pipeline` as the default. The `--feed` flag on `run`/`fetch`/`status` accepts either a name or a full URL.
 
@@ -50,7 +55,7 @@ The pipeline is step-based and resumable. Each episode tracks its own completion
 feeds:
   - url: https://example.com/rss
     name: my-podcast
-    pipeline: [download, tag, stage, torrent, seed, upload]
+    pipeline: [download, tag, detect_ads, strip_ads, stage, torrent, seed, upload]
     client: qbittorrent       # optional; falls back to first configured client
     tracker: unit3d           # optional; falls back to first configured tracker
     category_id: 14           # required for upload step
@@ -58,9 +63,23 @@ feeds:
     cover_image: /config/cover.jpg   # optional; passed to tracker
     banner_image: /config/banner.jpg # optional; passed to tracker
 
+    ad_detection:                       # optional per-feed overrides
+      llm:
+        model: claude-sonnet-4-20250514
+
 settings:
   output_dir: ./output
   torrent_data_dir: /torrent-data   # staging dir readable by both app and torrent client
+
+  ad_detection:
+    whisper:
+      model: base                   # faster-whisper model (tiny, base, small, medium, large-v3)
+      language: en
+      # url: http://localhost:8080  # optional: use remote whisper server instead of local
+    llm:
+      provider: anthropic           # uses ANTHROPIC_API_KEY env var
+      model: claude-sonnet-4-20250514
+    min_confidence: 0.5
 
   clients:
     qbittorrent:
@@ -82,7 +101,9 @@ settings:
 **Pipeline steps:**
 - `download` — fetch audio file from RSS `audio_url`, save to `output/<podcast>/audio/`
 - `tag` — write ID3/MP4 metadata (title, artist, date) to the downloaded file
-- `stage` — copy audio to `torrent_data_dir/<podcast>/<episode>/` for seeding; computes both local and qBittorrent-side paths
+- `detect_ads` — transcribe audio via local `faster-whisper` (default) or remote whisper server, then classify ad segments via LLM (Anthropic Claude); saves transcript to `output/<podcast>/transcripts/` and reuses it on retry to avoid re-transcribing
+- `strip_ads` — remove detected ad segments from audio via ffmpeg with crossfade at splice points; output in `output/<podcast>/cleaned/`
+- `stage` — copy audio to `torrent_data_dir/<podcast>/<episode>/` for seeding; prefers cleaned audio from `strip_ads` if available, falls back to `download`; computes both local and qBittorrent-side paths
 - `torrent` — create `.torrent` file via `mktorrent` CLI; extracts `info_hash` via `torf`; output in `output/<podcast>/torrents/`
 - `seed` — add torrent to qBittorrent via Web API; sets `save_path` to client-side episode directory
 - `upload` — upload `.torrent` + metadata to UNIT3D tracker via REST API; requires `category_id` and `type_id` in feed config
@@ -92,6 +113,6 @@ settings:
 2. Register it in `cli.py`: `register_step(YourStep())`
 3. Add `your_step` to `pipeline` list in `feeds.yaml` (globally or per-feed)
 
-**Docker:** The final image installs `mktorrent` via `apt-get`. Three volumes: `/config` (YAML config), `/output` (download/processing data), `/torrent-data` (staging dir shared with qBittorrent container).
+**Docker:** The final image installs `mktorrent` and `ffmpeg` via `apt-get`. Three volumes: `/config` (YAML config), `/output` (download/processing data), `/torrent-data` (staging dir shared with qBittorrent container).
 
 **Key note on logging:** `cli.py` disables all logging at module import (before dependencies load) to suppress pyenv hashlib errors, then re-enables it in `setup_logging()`. New code that runs before `setup_logging()` will not produce log output.

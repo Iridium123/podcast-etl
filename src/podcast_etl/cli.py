@@ -25,10 +25,14 @@ from podcast_etl.steps.stage import StageStep
 from podcast_etl.steps.torrent import TorrentStep
 from podcast_etl.steps.seed import SeedStep
 from podcast_etl.steps.upload import UploadStep
+from podcast_etl.steps.detect_ads import DetectAdsStep
+from podcast_etl.steps.strip_ads import StripAdsStep
 
 # Register built-in steps
 register_step(DownloadStep())
 register_step(TagStep())
+register_step(DetectAdsStep())
+register_step(StripAdsStep())
 register_step(StageStep())
 register_step(TorrentStep())
 register_step(SeedStep())
