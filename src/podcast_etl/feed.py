@@ -17,8 +17,8 @@ def parse_feed(url: str, output_dir: Path | None = None) -> Podcast:
     step status is preserved for known episodes.
     """
     feed = feedparser.parse(url)
-    if feed.bozo and not feed.entries:
-        raise ValueError(f"Failed to parse feed: {feed.bozo_exception}")
+    print(url)
+
 
     podcast_title = feed.feed.get("title", "Untitled")
     podcast_slug = slugify(podcast_title)
