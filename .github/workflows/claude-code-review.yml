@@ -11,7 +11,9 @@ jobs:
     # Have Claude check outdated review threads and resolve ones that are addressed
     if: >
       github.event_name == 'pull_request' &&
-      github.event.action == 'synchronize'
+      github.event.action == 'synchronize' &&
+      (github.event.pull_request.author_association == 'OWNER' ||
+       github.event.pull_request.user.login == 'dependabot[bot]')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -23,64 +25,77 @@ jobs:
         with:
           fetch-depth: 1
 
-      - name: Resolve addressed review threads
-        uses: anthropics/claude-code-action@v1
-        with:
-          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          prompt: |
-            REPO: ${{ github.repository }}
-            PR NUMBER: ${{ github.event.pull_request.number }}
-
-            New commits have been pushed to this PR. Your job is to check outdated review
-            threads and resolve ONLY the ones whose feedback has actually been addressed
-            in the current code.
-
-            ## Step 1: Fetch outdated unresolved threads
-
-            Run this GraphQL query (substitute owner, repo, and PR number):
-
-            ```
-            gh api graphql -f query='
-              query($owner: String!, $repo: String!, $pr: Int!) {
-                repository(owner: $owner, name: $repo) {
-                  pullRequest(number: $pr) {
-                    reviewThreads(first: 100) {
-                      nodes {
-                        id
-                        isResolved
-                        isOutdated
-                        path
-                        line
-                        comments(first: 10) {
-                          nodes {
-                            body
-                            author { login }
-                          }
+      - name: Fetch outdated unresolved threads
+        id: fetch-threads
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          threads=$(gh api graphql -f query='
+            query($owner: String!, $repo: String!, $pr: Int!) {
+              repository(owner: $owner, name: $repo) {
+                pullRequest(number: $pr) {
+                  reviewThreads(first: 100) {
+                    nodes {
+                      id
+                      isResolved
+                      isOutdated
+                      path
+                      line
+                      comments(first: 10) {
+                        nodes {
+                          body
+                          author { login }
                         }
                       }
                     }
                   }
                 }
               }
-            ' -f owner="OWNER" -f repo="REPO" -F pr=PR_NUMBER
-            ```
+            }
+          ' -f owner="${{ github.repository_owner }}" \
+            -f repo="${{ github.event.repository.name }}" \
+            -F pr=${{ github.event.pull_request.number }})
 
-            Filter to threads where `isOutdated == true` AND `isResolved == false`.
-            If there are none, exit early — nothing to do.
+          # Filter to outdated + unresolved
+          filtered=$(echo "$threads" | jq '[
+            .data.repository.pullRequest.reviewThreads.nodes[]
+            | select(.isOutdated == true and .isResolved == false)
+          ]')
 
-            ## Step 2: For each outdated unresolved thread
+          count=$(echo "$filtered" | jq 'length')
+          echo "count=$count" >> "$GITHUB_OUTPUT"
+          echo "$filtered" > /tmp/outdated-threads.json
+          echo "Found $count outdated unresolved threads"
+
+      - name: Resolve addressed review threads
+        if: steps.fetch-threads.outputs.count != '0'
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: |
+            New commits have been pushed to this PR. Your job is to check outdated review
+            threads and resolve ONLY the ones whose feedback has actually been addressed
+            in the current code. The PR branch is already checked out.
+
+            ## Outdated unresolved threads
+
+            The following threads have been marked outdated by GitHub (the code they
+            referenced has changed). They are in /tmp/outdated-threads.json — read that
+            file to get the thread IDs, file paths, line numbers, and comment bodies.
+
+            ## For each thread
 
             1. Read the comment body to understand what was requested
-            2. Read the current version of the file at the referenced path (the PR branch
-               is already checked out)
+            2. Read the current version of the file at the referenced path
             3. Determine whether the feedback has been addressed in the current code:
                - If the requested change was made → resolve
                - If the code was deleted/moved and the concern no longer applies → resolve
                - If the concern is still valid and unaddressed → leave open
 
-            ## Step 3: Resolve addressed threads
+            ## Resolving threads
 
-            For each thread you determine is addressed, resolve it:
+            For each thread you determine is addressed, run this exact command
+            (substituting only the thread ID):
 
             ```
             gh api graphql -f query='
@@ -97,7 +112,7 @@ jobs:
             Do NOT make any code changes.
 
           claude_args: |
-            --allowedTools "Read,Bash(gh api graphql:*)"
+            --allowedTools "Read,Bash(gh api graphql -f query*resolveReviewThread*)"
 
   claude-review:
     # Auto-run for repo owner and dependabot; otherwise require /review comment from owner
