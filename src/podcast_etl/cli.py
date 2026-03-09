@@ -27,6 +27,7 @@ from podcast_etl.steps.seed import SeedStep
 from podcast_etl.steps.upload import UploadStep
 from podcast_etl.steps.detect_ads import DetectAdsStep
 from podcast_etl.steps.strip_ads import StripAdsStep
+from podcast_etl.steps.audiobookshelf import AudiobookshelfStep
 
 # Register built-in steps
 register_step(DownloadStep())
@@ -37,6 +38,7 @@ register_step(StageStep())
 register_step(TorrentStep())
 register_step(SeedStep())
 register_step(UploadStep())
+register_step(AudiobookshelfStep())
 
 DEFAULT_CONFIG_PATH = Path("feeds.yaml")
 DEFAULT_OUTPUT_DIR = Path("output")

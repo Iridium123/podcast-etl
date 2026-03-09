@@ -184,6 +184,12 @@ settings:
       password: secret
       save_path: /data        # path to torrent_data_dir as seen by qBittorrent
 
+  audiobookshelf:
+    url: https://abs.example.com
+    api_key: your-api-key
+    library_id: lib_abc123              # for triggering library scan
+    podcast_dir: /podcasts/My Podcast   # path to podcast folder on shared volume
+
   trackers:
     unit3d:
       url: https://tracker.example.com
@@ -210,6 +216,7 @@ Steps run in the order listed in `pipeline`. Each step requires the previous ste
 | `torrent` | `stage` | Create `.torrent` via `mktorrent`; extract `info_hash` via `torf`; output in `output/<podcast>/torrents/` |
 | `seed` | `torrent`, `stage` | Add torrent to qBittorrent via Web API with the correct save path |
 | `upload` | `torrent` | Upload `.torrent` + metadata to UNIT3D tracker REST API |
+| `audiobookshelf` | `download` (or `strip_ads`) | Copy audio into Audiobookshelf's podcast directory and trigger library scan |
 
 ## Adding a new pipeline step
 

@@ -31,6 +31,7 @@ Tests live in `tests/` and use pytest:
 - `test_torrent_step.py` — `TorrentStep` mktorrent args, idempotency, error cases
 - `test_seed_step.py` — `SeedStep` add_torrent, idempotency, client resolution
 - `test_upload_step.py` — `UploadStep` tracker.upload call, tracker resolution, error cases
+- `test_audiobookshelf_step.py` — `AudiobookshelfStep` upload call, audio resolution, config merging, error cases
 
 **After making changes**, run tests and check whether new behaviour should be tested. Always update `README.md` and `CLAUDE.md` to reflect any changes to CLI commands, pipeline steps, architecture, or configuration — do not skip this.
 
@@ -66,6 +67,8 @@ feeds:
     ad_detection:                       # optional per-feed overrides
       llm:
         model: claude-sonnet-4-20250514
+    audiobookshelf:                     # optional per-feed overrides
+      library_id: lib_override
 
 settings:
   output_dir: ./output
@@ -80,6 +83,12 @@ settings:
       provider: anthropic           # uses ANTHROPIC_API_KEY env var
       model: claude-sonnet-4-20250514
     min_confidence: 0.5
+
+  audiobookshelf:
+    url: https://abs.example.com
+    api_key: your-api-key
+    library_id: lib_abc123              # for triggering library scan
+    podcast_dir: /podcasts/My Podcast   # path to podcast folder on shared volume
 
   clients:
     qbittorrent:
@@ -107,6 +116,7 @@ settings:
 - `torrent` — create `.torrent` file via `mktorrent` CLI; extracts `info_hash` via `torf`; output in `output/<podcast>/torrents/`
 - `seed` — add torrent to qBittorrent via Web API; sets `save_path` to client-side episode directory
 - `upload` — upload `.torrent` + metadata to UNIT3D tracker via REST API; requires `category_id` and `type_id` in feed config
+- `audiobookshelf` — copy audio into Audiobookshelf's podcast directory (shared volume) and trigger a library scan; prefers cleaned audio from `strip_ads`, falls back to `download`; requires `audiobookshelf` config in settings (url, api_key, library_id, podcast_dir); supports per-feed overrides
 
 **Adding a new pipeline step:**
 1. Create `src/podcast_etl/steps/your_step.py` implementing the `Step` protocol (`name: str`, `process(episode, context) -> StepResult`)
