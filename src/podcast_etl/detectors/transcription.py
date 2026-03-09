@@ -134,7 +134,7 @@ class AnthropicProvider:
 
         llm_config = config.get("llm", {})
         api_key = llm_config.get("api_key") or None  # SDK falls back to env var
-        model = llm_config.get("model", "claude-sonnet-4-20250514")
+        model = llm_config.get("model", "claude-haiku-4-5-20251001")
 
         client = anthropic.Anthropic(api_key=api_key)
 
