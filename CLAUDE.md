@@ -31,7 +31,7 @@ Tests live in `tests/` and use pytest:
 - `test_torrent_step.py` — `TorrentStep` mktorrent args, idempotency, error cases
 - `test_seed_step.py` — `SeedStep` add_torrent, idempotency, client resolution
 - `test_upload_step.py` — `UploadStep` tracker.upload call, tracker resolution, error cases
-- `test_audiobookshelf_step.py` — `AudiobookshelfStep` upload call, audio resolution, config merging, error cases
+- `test_audiobookshelf_step.py` — `AudiobookshelfStep` copy and scan trigger, audio resolution, config merging, error cases
 
 **After making changes**, run tests and check whether new behaviour should be tested. Always update `README.md` and `CLAUDE.md` to reflect any changes to CLI commands, pipeline steps, architecture, or configuration — do not skip this.
 
