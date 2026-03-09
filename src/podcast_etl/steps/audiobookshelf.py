@@ -26,21 +26,24 @@ class AudiobookshelfStep:
 
         dest = podcast_dir / audio_path.name
 
-        if dest.exists():
+        copied = False
+        if dest.exists() and not context.overwrite:
             logger.info("Already in Audiobookshelf: %s", dest)
         else:
             logger.info("Copying %s -> %s", audio_path, dest)
             shutil.copy2(audio_path, dest)
+            copied = True
 
         # Trigger a library scan so Audiobookshelf picks up the new file
-        base_url = abs_config["url"].rstrip("/")
-        library_id = abs_config["library_id"]
-        scan_url = f"{base_url}/api/libraries/{library_id}/scan"
-        headers = {"Authorization": f"Bearer {abs_config['api_key']}"}
+        if copied:
+            base_url = abs_config["url"].rstrip("/")
+            library_id = abs_config["library_id"]
+            scan_url = f"{base_url}/api/libraries/{library_id}/scan"
+            headers = {"Authorization": f"Bearer {abs_config['api_key']}"}
 
-        logger.info("Triggering library scan for %s", library_id)
-        response = httpx.post(scan_url, headers=headers, timeout=30)
-        response.raise_for_status()
+            logger.info("Triggering library scan for %s", library_id)
+            response = httpx.post(scan_url, headers=headers, timeout=30)
+            response.raise_for_status()
 
         return StepResult(data={
             "path": str(dest),

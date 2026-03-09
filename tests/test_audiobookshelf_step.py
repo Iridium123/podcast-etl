@@ -141,12 +141,37 @@ class TestAudiobookshelfStep:
         mock_response = MagicMock()
         mock_response.raise_for_status = MagicMock()
 
-        with patch("podcast_etl.steps.audiobookshelf.httpx.post", return_value=mock_response):
+        with patch("podcast_etl.steps.audiobookshelf.httpx.post", return_value=mock_response) as mock_post:
             result = AudiobookshelfStep().process(episode, context)
 
         # File was NOT overwritten
         assert dest.read_bytes() == b"already there"
         assert result.data["path"] == str(dest)
+        # Scan was NOT triggered since no copy happened
+        mock_post.assert_not_called()
+
+    def test_overwrite_forces_recopy(self, tmp_path):
+        context = _make_context(tmp_path)
+        context.overwrite = True
+        episode = _make_episode()
+        _create_audio_file(tmp_path, "audio/ep1.mp3")
+
+        # Pre-create the destination file with different content
+        abs_dir = tmp_path / "abs-podcasts" / "My Podcast"
+        abs_dir.mkdir(parents=True, exist_ok=True)
+        dest = abs_dir / "ep1.mp3"
+        dest.write_bytes(b"old content")
+
+        mock_response = MagicMock()
+        mock_response.raise_for_status = MagicMock()
+
+        with patch("podcast_etl.steps.audiobookshelf.httpx.post", return_value=mock_response) as mock_post:
+            AudiobookshelfStep().process(episode, context)
+
+        # File WAS overwritten
+        assert dest.read_bytes() == b"fake audio data"
+        # Scan was triggered
+        mock_post.assert_called_once()
 
     def test_creates_podcast_dir_if_missing(self, tmp_path):
         context = _make_context(tmp_path)
