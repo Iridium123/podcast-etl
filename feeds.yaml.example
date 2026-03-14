@@ -14,8 +14,8 @@ feeds:
   tracker: unit3d           # optional; falls back to first configured tracker
   category_id: 14           # required when using the upload step
   type_id: 9                # required when using the upload step
-  cover_image: /config/cover.jpg    # optional
-  banner_image: /config/banner.jpg  # optional
+  cover_image: /config/cover.jpg    # optional; uploaded as torrent cover (1:1, JPEG)
+  banner_image: /config/banner.jpg  # optional; uploaded as torrent banner (16:9, JPEG)
   ad_detection:             # optional per-feed overrides
     llm:
       model: claude-sonnet-4-20250514
@@ -51,7 +51,9 @@ settings:
   trackers:
     unit3d:
       url: https://tracker.example.com
-      api_key: your-api-key
+      remember_cookie: "eyJpdi..." # from browser DevTools; OR use username+password below
+      # username: your-username   # alternative to remember_cookie (no 2FA support)
+      # password: your-password
       announce_url: https://tracker.example.com/announce/your-passkey/announce
       anonymous: 0
       personal_release: 0

@@ -5,14 +5,29 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from podcast_etl.models import Episode, Podcast, StepStatus
-from podcast_etl.trackers.unit3d import ModifiedUnit3dTracker
+from podcast_etl.models import Episode, Podcast
+from podcast_etl.trackers.unit3d import ModifiedUnit3dTracker, _extract_csrf_token, _extract_torrent_id, _extract_validation_errors
+
+LOGIN_PAGE_HTML = '<input type="hidden" name="_token" value="login-csrf-token" autocomplete="off">'
+CREATE_PAGE_HTML = '<input type="hidden" name="_token" value="create-csrf-token" autocomplete="off">'
 
 
 def _make_tracker(**overrides):
     defaults = dict(
         url="https://tracker.example.com",
-        api_key="secret-key",
+        username="testuser",
+        password="testpass",
+        announce_url="https://tracker.example.com/announce/passkey/announce",
+        defaults={"anonymous": 0, "personal_release": 0, "mod_queue_opt_in": 0},
+    )
+    defaults.update(overrides)
+    return ModifiedUnit3dTracker(**defaults)
+
+
+def _make_cookie_tracker(**overrides):
+    defaults = dict(
+        url="https://tracker.example.com",
+        remember_cookie="fake-remember-cookie-value",
         announce_url="https://tracker.example.com/announce/passkey/announce",
         defaults={"anonymous": 0, "personal_release": 0, "mod_queue_opt_in": 0},
     )
@@ -49,7 +64,7 @@ def _make_podcast():
 @pytest.fixture
 def torrent_path(tmp_path):
     p = tmp_path / "episode-one.torrent"
-    p.write_bytes(b"d4:infod4:name8:test.mp3ee")  # minimal bencoded content
+    p.write_bytes(b"d4:infod4:name8:test.mp3ee")
     return p
 
 
@@ -58,66 +73,122 @@ def feed_config():
     return {"category_id": 14, "type_id": 9}
 
 
+def _mock_client_for_login(upload_status=302, upload_location="/torrents/42"):
+    """Create a mock httpx.Client that handles login + create + upload flow."""
+    client = MagicMock()
+
+    login_page_resp = MagicMock()
+    login_page_resp.status_code = 200
+    login_page_resp.text = LOGIN_PAGE_HTML
+
+    login_resp = MagicMock()
+    login_resp.status_code = 302
+    login_resp.headers = {"location": "https://tracker.example.com/"}
+
+    home_resp = MagicMock()
+    home_resp.status_code = 200
+
+    create_resp = MagicMock()
+    create_resp.status_code = 200
+    create_resp.text = CREATE_PAGE_HTML
+
+    upload_resp = MagicMock()
+    upload_resp.status_code = upload_status
+    upload_resp.headers = {"location": upload_location}
+
+    get_responses = [login_page_resp, home_resp, create_resp]
+    post_responses = [login_resp, upload_resp]
+
+    client.get = MagicMock(side_effect=get_responses)
+    client.post = MagicMock(side_effect=post_responses)
+    client.cookies = MagicMock()
+    client.__enter__ = MagicMock(return_value=client)
+    client.__exit__ = MagicMock(return_value=False)
+
+    return client
+
+
+def _mock_client_for_cookie(upload_status=302, upload_location="/torrents/42", expired=False):
+    """Create a mock httpx.Client that handles remember cookie + create + upload flow."""
+    client = MagicMock()
+
+    # First GET: authenticate via cookie (goes to /torrents/create)
+    auth_resp = MagicMock()
+    auth_resp.status_code = 200
+    auth_resp.text = CREATE_PAGE_HTML
+    if expired:
+        auth_resp.url = "https://tracker.example.com/login"
+    else:
+        auth_resp.url = "https://tracker.example.com/torrents/create"
+
+    # Second GET: /torrents/create for CSRF token
+    create_resp = MagicMock()
+    create_resp.status_code = 200
+    create_resp.text = CREATE_PAGE_HTML
+
+    upload_resp = MagicMock()
+    upload_resp.status_code = upload_status
+    upload_resp.headers = {"location": upload_location}
+
+    client.get = MagicMock(side_effect=[auth_resp, create_resp])
+    client.post = MagicMock(return_value=upload_resp)
+    client.cookies = MagicMock()
+    client.__enter__ = MagicMock(return_value=client)
+    client.__exit__ = MagicMock(return_value=False)
+
+    return client
+
+
 class TestUpload:
     def test_successful_upload_returns_torrent_id(self, torrent_path, feed_config):
         tracker = _make_tracker()
         episode = _make_episode()
         podcast = _make_podcast()
+        client = _mock_client_for_login()
 
-        mock_resp = MagicMock()
-        mock_resp.raise_for_status = MagicMock()
-        mock_resp.json.return_value = {"data": {"id": 42, "attributes": {"details_link": "https://tracker.example.com/torrents/42"}}}
-
-        with patch("httpx.post", return_value=mock_resp) as mock_post:
+        with patch("httpx.Client", return_value=client):
             result = tracker.upload(torrent_path, episode, podcast, feed_config)
 
         assert result["torrent_id"] == 42
-        assert result["url"] == "https://tracker.example.com/torrents/42"
+        assert "torrents/42" in result["url"]
 
     def test_name_includes_podcast_episode_and_date(self, torrent_path, feed_config):
         tracker = _make_tracker()
         episode = _make_episode(published="2024-03-15T10:00:00")
         podcast = _make_podcast()
+        client = _mock_client_for_login()
 
-        mock_resp = MagicMock()
-        mock_resp.raise_for_status = MagicMock()
-        mock_resp.json.return_value = {"data": {"id": 1, "attributes": {"details_link": ""}}}
-
-        with patch("httpx.post", return_value=mock_resp) as mock_post:
+        with patch("httpx.Client", return_value=client):
             tracker.upload(torrent_path, episode, podcast, feed_config)
 
-        call_kwargs = mock_post.call_args
-        posted_data = call_kwargs.kwargs["data"]
+        upload_call = client.post.call_args_list[1]
+        posted_data = upload_call.kwargs["data"]
         assert posted_data["name"] == "My Podcast - Episode One (2024-03-15)"
 
     def test_name_omits_date_when_published_is_none(self, torrent_path, feed_config):
         tracker = _make_tracker()
         episode = _make_episode(published=None)
         podcast = _make_podcast()
+        client = _mock_client_for_login()
 
-        mock_resp = MagicMock()
-        mock_resp.raise_for_status = MagicMock()
-        mock_resp.json.return_value = {"data": {"id": 1, "attributes": {"details_link": ""}}}
-
-        with patch("httpx.post", return_value=mock_resp) as mock_post:
+        with patch("httpx.Client", return_value=client):
             tracker.upload(torrent_path, episode, podcast, feed_config)
 
-        posted_data = mock_post.call_args.kwargs["data"]
+        upload_call = client.post.call_args_list[1]
+        posted_data = upload_call.kwargs["data"]
         assert posted_data["name"] == "My Podcast - Episode One"
 
     def test_posts_category_and_type_ids(self, torrent_path, feed_config):
         tracker = _make_tracker()
         episode = _make_episode()
         podcast = _make_podcast()
+        client = _mock_client_for_login()
 
-        mock_resp = MagicMock()
-        mock_resp.raise_for_status = MagicMock()
-        mock_resp.json.return_value = {"data": {"id": 1, "attributes": {"details_link": ""}}}
-
-        with patch("httpx.post", return_value=mock_resp) as mock_post:
+        with patch("httpx.Client", return_value=client):
             tracker.upload(torrent_path, episode, podcast, feed_config)
 
-        posted_data = mock_post.call_args.kwargs["data"]
+        upload_call = client.post.call_args_list[1]
+        posted_data = upload_call.kwargs["data"]
         assert posted_data["category_id"] == "14"
         assert posted_data["type_id"] == "9"
 
@@ -137,20 +208,33 @@ class TestUpload:
         with pytest.raises(ValueError, match="type_id"):
             tracker.upload(torrent_path, episode, podcast, {"category_id": 14})
 
-    def test_sends_bearer_auth_header(self, torrent_path, feed_config):
+    def test_login_sends_credentials(self, torrent_path, feed_config):
         tracker = _make_tracker()
         episode = _make_episode()
         podcast = _make_podcast()
+        client = _mock_client_for_login()
 
-        mock_resp = MagicMock()
-        mock_resp.raise_for_status = MagicMock()
-        mock_resp.json.return_value = {"data": {"id": 1, "attributes": {"details_link": ""}}}
-
-        with patch("httpx.post", return_value=mock_resp) as mock_post:
+        with patch("httpx.Client", return_value=client):
             tracker.upload(torrent_path, episode, podcast, feed_config)
 
-        headers = mock_post.call_args.kwargs["headers"]
-        assert headers["Authorization"] == "Bearer secret-key"
+        login_call = client.post.call_args_list[0]
+        login_data = login_call.kwargs["data"]
+        assert login_data["username"] == "testuser"
+        assert login_data["password"] == "testpass"
+        assert login_data["_token"] == "login-csrf-token"
+
+    def test_upload_sends_csrf_token(self, torrent_path, feed_config):
+        tracker = _make_tracker()
+        episode = _make_episode()
+        podcast = _make_podcast()
+        client = _mock_client_for_login()
+
+        with patch("httpx.Client", return_value=client):
+            tracker.upload(torrent_path, episode, podcast, feed_config)
+
+        upload_call = client.post.call_args_list[1]
+        posted_data = upload_call.kwargs["data"]
+        assert posted_data["_token"] == "create-csrf-token"
 
     def test_includes_cover_image_when_configured(self, torrent_path, feed_config, tmp_path):
         cover = tmp_path / "cover.jpg"
@@ -160,69 +244,293 @@ class TestUpload:
         tracker = _make_tracker()
         episode = _make_episode()
         podcast = _make_podcast()
+        client = _mock_client_for_login()
 
-        mock_resp = MagicMock()
-        mock_resp.raise_for_status = MagicMock()
-        mock_resp.json.return_value = {"data": {"id": 1, "attributes": {"details_link": ""}}}
-
-        with patch("httpx.post", return_value=mock_resp) as mock_post:
+        with patch("httpx.Client", return_value=client):
             tracker.upload(torrent_path, episode, podcast, feed_with_cover)
 
-        files = mock_post.call_args.kwargs["files"]
-        assert "cover_image" in files
-        assert files["cover_image"][1] == b"fake-jpeg"
+        upload_call = client.post.call_args_list[1]
+        files = upload_call.kwargs["files"]
+        cover_entries = [(name, data) for name, data in files if name == "torrent-cover"]
+        assert len(cover_entries) == 1
+        assert cover_entries[0][1][1] == b"fake-jpeg"
 
-    def test_excludes_cover_image_when_not_configured(self, torrent_path, feed_config):
+    def test_includes_banner_image_when_configured(self, torrent_path, feed_config, tmp_path):
+        banner = tmp_path / "banner.jpg"
+        banner.write_bytes(b"fake-banner")
+        feed_with_banner = {**feed_config, "banner_image": str(banner)}
+
         tracker = _make_tracker()
         episode = _make_episode()
         podcast = _make_podcast()
+        client = _mock_client_for_login()
 
-        mock_resp = MagicMock()
-        mock_resp.raise_for_status = MagicMock()
-        mock_resp.json.return_value = {"data": {"id": 1, "attributes": {"details_link": ""}}}
+        with patch("httpx.Client", return_value=client):
+            tracker.upload(torrent_path, episode, podcast, feed_with_banner)
 
-        with patch("httpx.post", return_value=mock_resp) as mock_post:
+        upload_call = client.post.call_args_list[1]
+        files = upload_call.kwargs["files"]
+        banner_entries = [(name, data) for name, data in files if name == "torrent-banner"]
+        assert len(banner_entries) == 1
+        assert banner_entries[0][1][1] == b"fake-banner"
+
+    def test_excludes_images_when_not_configured(self, torrent_path, feed_config):
+        tracker = _make_tracker()
+        episode = _make_episode()
+        podcast = _make_podcast()
+        client = _mock_client_for_login()
+
+        with patch("httpx.Client", return_value=client):
             tracker.upload(torrent_path, episode, podcast, feed_config)
 
-        files = mock_post.call_args.kwargs["files"]
-        assert "cover_image" not in files
-        assert "banner_image" not in files
+        upload_call = client.post.call_args_list[1]
+        files = upload_call.kwargs["files"]
+        file_names = [name for name, _ in files]
+        assert "torrent-cover" not in file_names
+        assert "torrent-banner" not in file_names
 
     def test_hardcodes_media_db_ids_to_zero(self, torrent_path, feed_config):
         tracker = _make_tracker()
         episode = _make_episode()
         podcast = _make_podcast()
+        client = _mock_client_for_login()
 
-        mock_resp = MagicMock()
-        mock_resp.raise_for_status = MagicMock()
-        mock_resp.json.return_value = {"data": {"id": 1, "attributes": {"details_link": ""}}}
-
-        with patch("httpx.post", return_value=mock_resp) as mock_post:
+        with patch("httpx.Client", return_value=client):
             tracker.upload(torrent_path, episode, podcast, feed_config)
 
-        posted_data = mock_post.call_args.kwargs["data"]
+        upload_call = client.post.call_args_list[1]
+        posted_data = upload_call.kwargs["data"]
         for field in ("imdb", "tvdb", "tmdb", "mal", "igdb"):
             assert posted_data[field] == "0"
 
+    def test_raises_on_csrf_expired(self, torrent_path, feed_config):
+        tracker = _make_tracker()
+        episode = _make_episode()
+        podcast = _make_podcast()
+        client = _mock_client_for_login(upload_status=419)
+
+        with patch("httpx.Client", return_value=client):
+            with pytest.raises(RuntimeError, match="CSRF token expired"):
+                tracker.upload(torrent_path, episode, podcast, feed_config)
+
+    def test_raises_on_unexpected_upload_status(self, torrent_path, feed_config):
+        tracker = _make_tracker()
+        episode = _make_episode()
+        podcast = _make_podcast()
+        client = _mock_client_for_login(upload_status=500)
+
+        with patch("httpx.Client", return_value=client):
+            with pytest.raises(RuntimeError, match="Upload failed"):
+                tracker.upload(torrent_path, episode, podcast, feed_config)
+
+
+    def test_raises_with_errors_on_validation_failure(self, torrent_path, feed_config):
+        tracker = _make_tracker()
+        episode = _make_episode()
+        podcast = _make_podcast()
+        client = _mock_client_for_login(
+            upload_status=302,
+            upload_location="https://tracker.example.com/torrents/create",
+        )
+
+        # Add a GET response for following the redirect to the error page
+        error_page = MagicMock()
+        error_page.status_code = 200
+        error_page.text = '<ul><li>The anon field is required.</li><li>The sd field is required.</li></ul>'
+        client.get.side_effect = list(client.get.side_effect) + [error_page]
+
+        with patch("httpx.Client", return_value=client):
+            with pytest.raises(RuntimeError, match="anon field is required.*sd field is required"):
+                tracker.upload(torrent_path, episode, podcast, feed_config)
+
+
+class TestRememberCookie:
+    def test_upload_with_remember_cookie(self, torrent_path, feed_config):
+        tracker = _make_cookie_tracker()
+        episode = _make_episode()
+        podcast = _make_podcast()
+        client = _mock_client_for_cookie()
+
+        with patch("httpx.Client", return_value=client):
+            result = tracker.upload(torrent_path, episode, podcast, feed_config)
+
+        assert result["torrent_id"] == 42
+        # Should set the remember cookie
+        client.cookies.set.assert_called_once()
+
+    def test_skips_login_flow(self, torrent_path, feed_config):
+        tracker = _make_cookie_tracker()
+        episode = _make_episode()
+        podcast = _make_podcast()
+        client = _mock_client_for_cookie()
+
+        with patch("httpx.Client", return_value=client):
+            tracker.upload(torrent_path, episode, podcast, feed_config)
+
+        # Only one POST call (the upload), no login POST
+        assert client.post.call_count == 1
+
+    def test_raises_on_expired_cookie(self, torrent_path, feed_config):
+        tracker = _make_cookie_tracker()
+        episode = _make_episode()
+        podcast = _make_podcast()
+        client = _mock_client_for_cookie(expired=True)
+
+        with patch("httpx.Client", return_value=client):
+            with pytest.raises(RuntimeError, match="expired or invalid"):
+                tracker.upload(torrent_path, episode, podcast, feed_config)
+
+    def test_sends_csrf_token_from_create_page(self, torrent_path, feed_config):
+        tracker = _make_cookie_tracker()
+        episode = _make_episode()
+        podcast = _make_podcast()
+        client = _mock_client_for_cookie()
+
+        with patch("httpx.Client", return_value=client):
+            tracker.upload(torrent_path, episode, podcast, feed_config)
+
+        upload_call = client.post.call_args
+        posted_data = upload_call.kwargs["data"]
+        assert posted_data["_token"] == "create-csrf-token"
+
+
+class TestLogin:
+    def test_raises_on_2fa(self, torrent_path, feed_config):
+        tracker = _make_tracker()
+        episode = _make_episode()
+        podcast = _make_podcast()
+
+        client = MagicMock()
+        login_page = MagicMock()
+        login_page.status_code = 200
+        login_page.text = LOGIN_PAGE_HTML
+
+        login_resp = MagicMock()
+        login_resp.status_code = 302
+        login_resp.headers = {"location": "/two-factor-challenge"}
+
+        client.get = MagicMock(return_value=login_page)
+        client.post = MagicMock(return_value=login_resp)
+        client.cookies = MagicMock()
+        client.__enter__ = MagicMock(return_value=client)
+        client.__exit__ = MagicMock(return_value=False)
+
+        with patch("httpx.Client", return_value=client):
+            with pytest.raises(RuntimeError, match="2FA"):
+                tracker.upload(torrent_path, episode, podcast, feed_config)
+
+    def test_raises_on_bad_credentials(self, torrent_path, feed_config):
+        tracker = _make_tracker()
+        episode = _make_episode()
+        podcast = _make_podcast()
+
+        client = MagicMock()
+        login_page = MagicMock()
+        login_page.status_code = 200
+        login_page.text = LOGIN_PAGE_HTML
+
+        login_resp = MagicMock()
+        login_resp.status_code = 302
+        login_resp.headers = {"location": "/login"}
+
+        client.get = MagicMock(return_value=login_page)
+        client.post = MagicMock(return_value=login_resp)
+        client.cookies = MagicMock()
+        client.__enter__ = MagicMock(return_value=client)
+        client.__exit__ = MagicMock(return_value=False)
+
+        with patch("httpx.Client", return_value=client):
+            with pytest.raises(RuntimeError, match="bad credentials"):
+                tracker.upload(torrent_path, episode, podcast, feed_config)
+
+
+class TestConstructor:
+    def test_raises_without_any_auth(self):
+        with pytest.raises(ValueError, match="remember_cookie.*username"):
+            ModifiedUnit3dTracker(
+                url="https://tracker.example.com",
+                announce_url="https://tracker.example.com/announce/x/announce",
+                defaults={},
+            )
+
+    def test_accepts_remember_cookie_only(self):
+        tracker = _make_cookie_tracker()
+        assert tracker._remember_cookie == "fake-remember-cookie-value"
+
+    def test_accepts_username_password_only(self):
+        tracker = _make_tracker()
+        assert tracker._username == "testuser"
+
+
+class TestExtractCsrfToken:
+    def test_extracts_token_name_first(self):
+        html = '<input type="hidden" name="_token" value="abc123">'
+        assert _extract_csrf_token(html) == "abc123"
+
+    def test_extracts_token_value_first(self):
+        html = '<input type="hidden" value="xyz789" name="_token">'
+        assert _extract_csrf_token(html) == "xyz789"
+
+    def test_raises_when_no_token(self):
+        with pytest.raises(RuntimeError, match="CSRF token"):
+            _extract_csrf_token("<html><body>No token here</body></html>")
+
+
+class TestExtractTorrentId:
+    def test_extracts_id_from_url(self):
+        assert _extract_torrent_id("/torrents/42") == 42
+
+    def test_extracts_id_from_full_url(self):
+        assert _extract_torrent_id("https://tracker.example.com/torrents/123") == 123
+
+    def test_returns_none_for_no_match(self):
+        assert _extract_torrent_id("/other/page") is None
+
+
+class TestExtractValidationErrors:
+    def test_extracts_li_errors(self):
+        html = '<ul><li>The anon field is required.</li><li>The sd field is required.</li></ul>'
+        assert _extract_validation_errors(html) == [
+            "The anon field is required.",
+            "The sd field is required.",
+        ]
+
+    def test_strips_html_tags_from_errors(self):
+        html = '<li>The <strong>name</strong> field is required.</li>'
+        errors = _extract_validation_errors(html)
+        assert errors == ["The name field is required."]
+
+    def test_returns_empty_list_when_no_errors(self):
+        html = '<html><body>No errors here</body></html>'
+        assert _extract_validation_errors(html) == []
+
 
 class TestFromConfig:
-    def test_constructs_from_dict(self):
+    def test_constructs_with_remember_cookie(self):
         tracker = ModifiedUnit3dTracker.from_config({
             "url": "https://tracker.example.com",
-            "api_key": "key",
+            "remember_cookie": "cookie-value",
             "announce_url": "https://tracker.example.com/announce/x/announce",
             "anonymous": 1,
-            "personal_release": 0,
-            "mod_queue_opt_in": 0,
         })
-        assert tracker._url == "https://tracker.example.com"
-        assert tracker._api_key == "key"
+        assert tracker._remember_cookie == "cookie-value"
+        assert tracker._username is None
         assert tracker._defaults["anonymous"] == 1
+
+    def test_constructs_with_username_password(self):
+        tracker = ModifiedUnit3dTracker.from_config({
+            "url": "https://tracker.example.com",
+            "username": "user",
+            "password": "pass",
+            "announce_url": "https://tracker.example.com/announce/x/announce",
+        })
+        assert tracker._username == "user"
+        assert tracker._remember_cookie is None
 
     def test_defaults_to_zero_for_optional_flags(self):
         tracker = ModifiedUnit3dTracker.from_config({
             "url": "https://tracker.example.com",
-            "api_key": "key",
+            "remember_cookie": "cookie",
             "announce_url": "https://tracker.example.com/announce/x/announce",
         })
         assert tracker._defaults["anonymous"] == 0

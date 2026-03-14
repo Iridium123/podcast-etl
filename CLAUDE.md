@@ -61,8 +61,8 @@ feeds:
     tracker: unit3d           # optional; falls back to first configured tracker
     category_id: 14           # required for upload step
     type_id: 9                # required for upload step
-    cover_image: /config/cover.jpg   # optional; passed to tracker
-    banner_image: /config/banner.jpg # optional; passed to tracker
+    cover_image: /config/cover.jpg   # optional; uploaded as torrent cover (1:1, JPEG)
+    banner_image: /config/banner.jpg # optional; uploaded as torrent banner (16:9, JPEG)
 
     ad_detection:                       # optional per-feed overrides
       llm:
@@ -100,7 +100,9 @@ settings:
   trackers:
     unit3d:
       url: https://tracker.example.com
-      api_key: your-api-key
+      remember_cookie: "eyJpdi..." # from browser; OR use username+password below
+      # username: your-username   # alternative to remember_cookie (no 2FA support)
+      # password: your-password
       announce_url: https://tracker.example.com/announce/your-passkey/announce
       anonymous: 0
       personal_release: 0
@@ -115,7 +117,7 @@ settings:
 - `stage` — copy audio to `torrent_data_dir/<podcast>/<episode>/` for seeding; prefers cleaned audio from `strip_ads` if available, falls back to `download`; computes both local and qBittorrent-side paths
 - `torrent` — create `.torrent` file via `mktorrent` CLI; extracts `info_hash` via `torf`; output in `output/<podcast>/torrents/`
 - `seed` — add torrent to qBittorrent via Web API; sets `save_path` to client-side episode directory
-- `upload` — upload `.torrent` + metadata to UNIT3D tracker via REST API; requires `category_id` and `type_id` in feed config
+- `upload` — upload `.torrent` + metadata to UNIT3D tracker via web form (login → CSRF token → POST); supports `torrent-cover` and `torrent-banner` image uploads; requires `category_id` and `type_id` in feed config
 - `audiobookshelf` — copy audio into Audiobookshelf's podcast directory (shared volume) and trigger a library scan; prefers cleaned audio from `strip_ads`, falls back to `download`; requires `audiobookshelf` config in settings (url, api_key, library_id, podcast_dir); supports per-feed overrides
 
 **Adding a new pipeline step:**
