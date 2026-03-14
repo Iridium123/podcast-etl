@@ -155,8 +155,8 @@ feeds:
     tracker: unit3d           # optional; falls back to first configured tracker
     category_id: 14           # required for upload step
     type_id: 9                # required for upload step
-    cover_image: /config/cover.jpg    # optional
-    banner_image: /config/banner.jpg  # optional
+    cover_image: /config/cover.jpg    # optional; uploaded as torrent cover (1:1 aspect ratio, JPEG)
+    banner_image: /config/banner.jpg  # optional; uploaded as torrent banner (16:9 aspect ratio, JPEG)
     ad_detection:                     # optional per-feed overrides
       llm:
         model: claude-sonnet-4-20250514
@@ -193,7 +193,9 @@ settings:
   trackers:
     unit3d:
       url: https://tracker.example.com
-      api_key: your-api-key
+      remember_cookie: "eyJpdi..." # from browser; OR use username+password below
+      # username: your-username   # alternative to remember_cookie (no 2FA support)
+      # password: your-password
       announce_url: https://tracker.example.com/announce/your-passkey/announce
       anonymous: 0
       personal_release: 0
@@ -201,6 +203,8 @@ settings:
       private: true             # optional; sets -p flag in mktorrent (default: true)
       source: MyTracker         # optional; sets -s flag in mktorrent
 ```
+
+To get the `remember_cookie` value: log in to the tracker in your browser, then open DevTools → Application → Cookies → copy the value of `remember_web_59ba36addc2b2f9401580f014c7f58ea4e30989d`. This works with 2FA-enabled accounts. The cookie is long-lived but will eventually expire, requiring a fresh copy.
 
 ## Pipeline Steps
 
@@ -215,7 +219,7 @@ Steps run in the order listed in `pipeline`. Each step requires the previous ste
 | `stage` | `download` (or `strip_ads`) | Copy audio to `torrent_data_dir/<podcast>/<episode>/` for seeding; prefers cleaned audio if available |
 | `torrent` | `stage` | Create `.torrent` via `mktorrent`; extract `info_hash` via `torf`; output in `output/<podcast>/torrents/` |
 | `seed` | `torrent`, `stage` | Add torrent to qBittorrent via Web API with the correct save path |
-| `upload` | `torrent` | Upload `.torrent` + metadata to UNIT3D tracker REST API |
+| `upload` | `torrent` | Upload `.torrent` + metadata to UNIT3D tracker via web form (supports cover/banner images) |
 | `audiobookshelf` | `download` (or `strip_ads`) | Copy audio into Audiobookshelf's podcast directory and trigger library scan |
 
 ## Adding a new pipeline step

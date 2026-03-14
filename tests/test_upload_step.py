@@ -49,7 +49,8 @@ def _make_context(tmp_path: Path, feed_config: dict | None = None) -> PipelineCo
             "trackers": {
                 "unit3d": {
                     "url": "https://tracker.example.com",
-                    "api_key": "key",
+                    "username": "user",
+                    "password": "pass",
                     "announce_url": "https://tracker.example.com/announce/passkey/announce",
                 }
             }
@@ -88,8 +89,8 @@ class TestUploadStep:
         config = {
             "settings": {
                 "trackers": {
-                    "other": {"url": "https://other.example.com", "api_key": "x", "announce_url": "https://other.example.com/a"},
-                    "unit3d": {"url": "https://tracker.example.com", "api_key": "key", "announce_url": "https://tracker.example.com/a"},
+                    "other": {"url": "https://other.example.com", "username": "u", "password": "p", "announce_url": "https://other.example.com/a"},
+                    "unit3d": {"url": "https://tracker.example.com", "username": "u", "password": "p", "announce_url": "https://tracker.example.com/a"},
                 }
             }
         }
