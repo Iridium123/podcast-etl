@@ -153,8 +153,8 @@ feeds:
     pipeline: [download, tag, detect_ads, strip_ads, stage, torrent, seed, upload]
     client: qbittorrent       # optional; falls back to first configured client
     tracker: unit3d           # optional; falls back to first configured tracker
-    category_id: 14           # required for upload step
-    type_id: 9                # required for upload step
+    category_id: 14           # required for upload step (see ID tables below)
+    type_id: 9                # required for upload step (see ID tables below)
     cover_image: /config/cover.jpg    # optional; uploaded as torrent cover (1:1 aspect ratio, JPEG)
     banner_image: /config/banner.jpg  # optional; uploaded as torrent banner (16:9 aspect ratio, JPEG)
     ad_detection:                     # optional per-feed overrides
@@ -205,6 +205,64 @@ settings:
       private: true             # optional; sets -p flag in mktorrent (default: true)
       source: MyTracker         # optional; sets -s flag in mktorrent
 ```
+
+<details>
+<summary>Category IDs</summary>
+
+| ID | Category |
+|----|----------|
+| 3 | Alternative and Unexplained |
+| 4 | Arts and Culture |
+| 5 | Advice and Relationships |
+| 6 | Comedy |
+| 7 | Education and Learning |
+| 8 | Environment and Nature |
+| 9 | Drama and Fiction |
+| 10 | Film and TV |
+| 11 | Fitness and Health |
+| 12 | Food and Drink |
+| 13 | Horror and Science Fiction |
+| 14 | History |
+| 15 | Hobbies, Travel and Leisure |
+| 16 | Kids and Family |
+| 17 | Money and Business |
+| 18 | Music |
+| 19 | News and Politics |
+| 20 | Pop Culture and Fashion |
+| 21 | Religion and Spirituality |
+| 22 | Self-Help |
+| 23 | Serious Discussion and Debate |
+| 24 | Science and Engineering |
+| 25 | Social Issues and Journalism |
+| 26 | Sport |
+| 27 | Technology and Computing |
+| 28 | True Crime |
+| 29 | The Podcast |
+| 31 | Human Interest |
+| 32 | Warfare and Military |
+| 33 | Video Games |
+| 34 | Tabletop Games |
+| 35 | Social Science |
+| 36 | Survival and Adventure |
+
+</details>
+
+<details>
+<summary>Type IDs</summary>
+
+| ID | Type |
+|----|------|
+| 7 | Audio - Patreon |
+| 8 | Video - Patreon |
+| 9 | Audio - Free |
+| 10 | Other |
+| 11 | Video - Free |
+| 12 | Audio - Nebula |
+| 13 | Video - Nebula |
+| 14 | Audio - Premium |
+| 15 | Video - Premium |
+
+</details>
 
 To get the `remember_cookie` value: log in to the tracker in your browser, then open DevTools → Application → Cookies → copy the value of `remember_web_59ba36addc2b2f9401580f014c7f58ea4e30989d`. This works with 2FA-enabled accounts. The cookie is long-lived but will eventually expire, requiring a fresh copy.
 
