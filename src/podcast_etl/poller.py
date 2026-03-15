@@ -52,7 +52,7 @@ def run_poll_loop(config: dict, config_path: Path) -> None:
 
                     feed_step_names = feed_config.get("pipeline") or step_names
                     steps = [get_step(name) for name in feed_step_names]
-                    context = PipelineContext(output_dir=output_dir, podcast=podcast, config=config)
+                    context = PipelineContext(output_dir=output_dir, podcast=podcast, config=config, feed_config=feed_config)
                     pipeline = Pipeline(steps=steps, context=context)
                     pipeline.run(podcast.episodes)
                     logger.info("Completed %s: %d episodes", podcast.title, len(podcast.episodes))

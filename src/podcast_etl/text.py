@@ -34,7 +34,7 @@ def clean_description(raw: str | None) -> str | None:
     text = re.sub(r"<br\s*/?>", "\n", text, flags=re.IGNORECASE)
 
     # Block-level elements get paragraph breaks
-    text = re.sub(r"</(?:p|div|blockquote|li|h[1-6])>", "\n\n", text, flags=re.IGNORECASE)
+    text = re.sub(r"</(?:p|div|blockquote|li|ul|ol|h[1-6])>", "\n\n", text, flags=re.IGNORECASE)
     text = re.sub(r"<(?:p|div|blockquote|li|h[1-6])\b[^>]*>", "", text, flags=re.IGNORECASE)
 
     # Strip all remaining HTML tags

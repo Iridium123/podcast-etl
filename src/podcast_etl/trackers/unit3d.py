@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import logging
+import mimetypes
 import re
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
-
 from mutagen.mp3 import MP3
 
 from podcast_etl.models import Episode, Podcast, format_date
@@ -41,7 +42,7 @@ class ModifiedUnit3dTracker:
     def _authenticate(self, client: httpx.Client) -> None:
         """Authenticate the client session."""
         if self._remember_cookie:
-            client.cookies.set(REMEMBER_COOKIE_NAME, self._remember_cookie, domain=self._url.split("//")[1])
+            client.cookies.set(REMEMBER_COOKIE_NAME, self._remember_cookie, domain=urlparse(self._url).hostname)
             # Make a request to establish the session from the remember cookie
             resp = client.get(f"{self._url}/torrents/create", follow_redirects=True)
             if "login" in str(resp.url):
@@ -130,12 +131,14 @@ class ModifiedUnit3dTracker:
             cover_image_path = feed_config.get("cover_image")
             if cover_image_path:
                 cover = Path(cover_image_path)
-                files.append(("torrent-cover", (cover.name, cover.read_bytes(), "image/jpeg")))
+                mime = mimetypes.guess_type(cover.name)[0] or "image/jpeg"
+                files.append(("torrent-cover", (cover.name, cover.read_bytes(), mime)))
 
             banner_image_path = feed_config.get("banner_image")
             if banner_image_path:
                 banner = Path(banner_image_path)
-                files.append(("torrent-banner", (banner.name, banner.read_bytes(), "image/jpeg")))
+                mime = mimetypes.guess_type(banner.name)[0] or "image/jpeg"
+                files.append(("torrent-banner", (banner.name, banner.read_bytes(), mime)))
 
             resp = client.post(
                 f"{self._url}/torrents",
