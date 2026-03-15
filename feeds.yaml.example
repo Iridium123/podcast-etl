@@ -43,6 +43,12 @@ settings:
       model: claude-sonnet-4-20250514
     min_confidence: 0.5
 
+  audiobookshelf:
+    url: https://abs.example.com
+    api_key: your-api-key
+    library_id: lib_abc123              # for triggering library scan
+    dir: /podcasts                      # root dir on shared volume; podcast title used as subdir
+
   clients:
     qbittorrent:
       url: http://localhost:8080

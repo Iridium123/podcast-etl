@@ -11,7 +11,7 @@ from podcast_etl.steps.seed import SeedStep
 
 INFO_HASH = "abcdef1234567890abcdef1234567890abcdef12"
 TORRENT_PATH = "/output/my-podcast/torrents/episode-one.torrent"
-CLIENT_PATH = "/data/my-podcast/episode-one/2024-01-15 Episode One.mp3"
+CLIENT_PATH = "/data/2024-01-15 Episode One.mp3"
 
 
 def _make_podcast():
@@ -36,9 +36,8 @@ def _make_episode(with_torrent: bool = True, with_stage: bool = True) -> Episode
         status["stage"] = StepStatus(
             completed_at="2024-01-15T09:00:00",
             result={
-                "local_path": "/torrent-data/my-podcast/episode-one/2024-01-15 Episode One.mp3",
+                "local_path": "/torrent-data/2024-01-15 Episode One.mp3",
                 "client_path": CLIENT_PATH,
-                "episode_dir": "/data/my-podcast/episode-one",
             },
         )
     return Episode(
@@ -88,7 +87,7 @@ class TestSeedStep:
 
         mock_client.add_torrent.assert_called_once_with(
             Path(TORRENT_PATH),
-            "/data/my-podcast/episode-one",
+            "/data",
         )
         assert result.data["hash"] == INFO_HASH
         assert result.data["client"] == "qbittorrent"

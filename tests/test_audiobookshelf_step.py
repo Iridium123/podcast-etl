@@ -50,7 +50,7 @@ def _abs_config(tmp_path: Path) -> dict:
         "url": "https://abs.example.com",
         "api_key": "test-token",
         "library_id": "lib_abc123",
-        "podcast_dir": str(tmp_path / "abs-podcasts" / "My Podcast"),
+        "dir": str(tmp_path / "abs-podcasts"),
     }
 
 
@@ -225,10 +225,10 @@ class TestAudiobookshelfStep:
             AudiobookshelfStep().process(episode, context)
 
     def test_feed_config_overrides_settings(self, tmp_path):
-        override_dir = str(tmp_path / "abs-override" / "Other Podcast")
+        override_dir = str(tmp_path / "abs-override")
         context = _make_context(
             tmp_path,
-            feed_config={"audiobookshelf": {"podcast_dir": override_dir}},
+            feed_config={"audiobookshelf": {"dir": override_dir}},
         )
         episode = _make_episode()
         _create_audio_file(tmp_path, "audio/ep1.mp3")
@@ -239,7 +239,7 @@ class TestAudiobookshelfStep:
         with patch("podcast_etl.steps.audiobookshelf.httpx.post", return_value=mock_response):
             result = AudiobookshelfStep().process(episode, context)
 
-        assert result.data["path"].startswith(str(tmp_path / "abs-override"))
+        assert result.data["path"].startswith(str(tmp_path / "abs-override" / "My Podcast"))
 
     def test_url_trailing_slash_stripped(self, tmp_path):
         config = _abs_config(tmp_path)

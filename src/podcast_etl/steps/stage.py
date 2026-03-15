@@ -34,10 +34,9 @@ class StageStep:
             raise FileNotFoundError(f"Audio file not found: {source}")
 
         torrent_data_dir = _get_torrent_data_dir(context)
-        episode_dir = torrent_data_dir / context.podcast.slug / episode.slug
-        episode_dir.mkdir(parents=True, exist_ok=True)
+        torrent_data_dir.mkdir(parents=True, exist_ok=True)
 
-        dest = episode_dir / source.name
+        dest = torrent_data_dir / source.name
 
         if dest.exists() and not context.overwrite:
             logger.info("Stage already exists: %s", dest)
@@ -50,7 +49,6 @@ class StageStep:
         return StepResult(data={
             "local_path": str(dest),
             "client_path": client_path,
-            "episode_dir": str(episode_dir),
         })
 
 

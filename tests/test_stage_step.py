@@ -71,7 +71,7 @@ class TestStageStep:
         result = StageStep().process(episode, context)
 
         torrent_data_dir = Path(context.config["settings"]["torrent_data_dir"])
-        dest = torrent_data_dir / "my-podcast" / "episode-one" / "2024-01-15 Episode One.mp3"
+        dest = torrent_data_dir / "2024-01-15 Episode One.mp3"
         assert dest.exists()
         assert dest.read_bytes() == b"audio data"
         assert result.data["local_path"] == str(dest)
@@ -98,7 +98,7 @@ class TestStageStep:
 
         # Pre-create destination
         torrent_data_dir = Path(context.config["settings"]["torrent_data_dir"])
-        dest = torrent_data_dir / "my-podcast" / "episode-one" / "2024-01-15 Episode One.mp3"
+        dest = torrent_data_dir / "2024-01-15 Episode One.mp3"
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_bytes(b"existing")
 
@@ -107,20 +107,6 @@ class TestStageStep:
         # File not overwritten
         assert dest.read_bytes() == b"existing"
         assert result.data["local_path"] == str(dest)
-
-    def test_returns_episode_dir(self, tmp_path):
-        context = _make_context(tmp_path)
-        episode = _make_episode()
-
-        source = context.podcast_dir / "audio" / "2024-01-15 Episode One.mp3"
-        source.parent.mkdir(parents=True, exist_ok=True)
-        source.write_bytes(b"audio")
-
-        result = StageStep().process(episode, context)
-
-        torrent_data_dir = Path(context.config["settings"]["torrent_data_dir"])
-        expected_dir = torrent_data_dir / "my-podcast" / "episode-one"
-        assert result.data["episode_dir"] == str(expected_dir)
 
     def test_client_path_rebased_onto_save_path(self, tmp_path):
         context = _make_context(tmp_path, save_path="/data")
@@ -132,7 +118,7 @@ class TestStageStep:
 
         result = StageStep().process(episode, context)
 
-        assert result.data["client_path"] == "/data/my-podcast/episode-one/2024-01-15 Episode One.mp3"
+        assert result.data["client_path"] == "/data/2024-01-15 Episode One.mp3"
 
     def test_client_path_equals_local_path_when_no_client_configured(self, tmp_path):
         context = _make_context(tmp_path)  # no save_path
@@ -157,7 +143,7 @@ class TestStageStep:
 
         # Pre-create destination with stale content
         torrent_data_dir = Path(context.config["settings"]["torrent_data_dir"])
-        dest = torrent_data_dir / "my-podcast" / "episode-one" / "2024-01-15 Episode One.mp3"
+        dest = torrent_data_dir / "2024-01-15 Episode One.mp3"
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_bytes(b"stale data")
 
@@ -186,18 +172,18 @@ class TestStageStep:
         episode = _make_episode()
         episode.status["strip_ads"] = StepStatus(
             completed_at="2024-01-15T10:05:00",
-            result={"path": "cleaned/episode-one/2024-01-15 Episode One.mp3", "original_path": "audio/2024-01-15 Episode One.mp3"},
+            result={"path": "cleaned/2024-01-15 Episode One.mp3", "original_path": "audio/2024-01-15 Episode One.mp3"},
         )
 
         # Create cleaned audio file (not original)
-        cleaned_source = context.podcast_dir / "cleaned" / "episode-one" / "2024-01-15 Episode One.mp3"
+        cleaned_source = context.podcast_dir / "cleaned" / "2024-01-15 Episode One.mp3"
         cleaned_source.parent.mkdir(parents=True, exist_ok=True)
         cleaned_source.write_bytes(b"cleaned audio")
 
         result = StageStep().process(episode, context)
 
         torrent_data_dir = Path(context.config["settings"]["torrent_data_dir"])
-        dest = torrent_data_dir / "my-podcast" / "episode-one" / "2024-01-15 Episode One.mp3"
+        dest = torrent_data_dir / "2024-01-15 Episode One.mp3"
         assert dest.exists()
         assert dest.read_bytes() == b"cleaned audio"
         assert result.data["local_path"] == str(dest)
@@ -214,7 +200,7 @@ class TestStageStep:
         result = StageStep().process(episode, context)
 
         torrent_data_dir = Path(context.config["settings"]["torrent_data_dir"])
-        dest = torrent_data_dir / "my-podcast" / "episode-one" / "2024-01-15 Episode One.mp3"
+        dest = torrent_data_dir / "2024-01-15 Episode One.mp3"
         assert dest.read_bytes() == b"original audio"
 
     def test_raises_if_torrent_data_dir_not_configured(self, tmp_path):
