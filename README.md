@@ -273,7 +273,7 @@ Steps run in the order listed in `pipeline`. Each step requires the previous ste
 | Step | Requires | Description |
 |------|----------|-------------|
 | `download` | — | Fetch audio from RSS `audio_url` → `output/<podcast>/audio/` |
-| `tag` | `download` | Write ID3/MP4 metadata (title, artist, date) to the downloaded file |
+| `tag` | `download` | Write ID3 metadata (title, artist, date) to the downloaded MP3 file |
 | `detect_ads` | `download` | Transcribe audio via local faster-whisper (or remote server), classify ad segments via LLM; saves transcript and reuses on retry |
 | `strip_ads` | `detect_ads`, `download` | Remove detected ad segments from audio via ffmpeg; output in `output/<podcast>/cleaned/` |
 | `stage` | `download` (or `strip_ads`) | Copy audio to `torrent_data_dir/<podcast>/<episode>/` for seeding; prefers cleaned audio if available |

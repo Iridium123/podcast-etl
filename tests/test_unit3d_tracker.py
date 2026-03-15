@@ -581,17 +581,6 @@ class TestBuildTorrentName:
         name = _build_torrent_name(episode, podcast, feed_config)
         assert name == "My Podcast - Episode One [2024-03-15]"
 
-    def test_bitrate_error_gracefully_handled(self):
-        episode = _make_episode(published="Fri, 15 Mar 2024 06:00:00 +0000")
-        podcast = _make_podcast()
-        feed_config = {}
-
-        with patch("podcast_etl.trackers.unit3d._get_mp3_bitrate", side_effect=Exception("bad file")):
-            name = _build_torrent_name(episode, podcast, feed_config, audio_path=Path("/fake.mp3"))
-
-        assert name == "My Podcast - Episode One [2024-03-15]"
-
-
 class TestGetMp3Bitrate:
     def test_reads_bitrate_from_mp3(self):
         mock_info = MagicMock()

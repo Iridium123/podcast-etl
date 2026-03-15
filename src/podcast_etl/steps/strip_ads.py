@@ -69,11 +69,7 @@ def _build_comment(segments: list[AdSegment]) -> str:
 
 def _write_metadata(output_path: Path, chapters: list[dict], comment: str) -> None:
     """Write ID3v2 chapter frames and comment tag to the cleaned file."""
-    ext = output_path.suffix.lower()
-    if ext == ".mp3":
-        _write_mp3_metadata(output_path, chapters, comment)
-    elif ext in (".m4a", ".mp4"):
-        _write_mp4_metadata(output_path, comment)
+    _write_mp3_metadata(output_path, chapters, comment)
 
 
 def _write_mp3_metadata(output_path: Path, chapters: list[dict], comment: str) -> None:
@@ -114,18 +110,6 @@ def _write_mp3_metadata(output_path: Path, chapters: list[dict], comment: str) -
     # Add comment
     tags.add(COMM(encoding=3, lang="eng", desc="", text=[comment]))
     tags.save(output_path)
-
-
-def _write_mp4_metadata(output_path: Path, comment: str) -> None:
-    """Write comment tag to an MP4/M4A file (chapters not supported in MP4 tags)."""
-    from mutagen.mp4 import MP4
-
-    try:
-        audio = MP4(output_path)
-    except Exception:
-        return
-    audio["\xa9cmt"] = [comment]
-    audio.save()
 
 
 def _build_ffmpeg_args(
@@ -183,12 +167,7 @@ def _build_ffmpeg_args(
 
 
 def _get_codec(audio_path: Path) -> str:
-    """Pick the output codec based on file extension."""
-    ext = audio_path.suffix.lower()
-    if ext == ".m4a":
-        return "aac"
-    if ext == ".ogg":
-        return "libvorbis"
+    """Return the ffmpeg output codec."""
     return "libmp3lame"
 
 

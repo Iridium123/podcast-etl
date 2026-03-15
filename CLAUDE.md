@@ -20,13 +20,13 @@ Tests live in `tests/` and use pytest:
 - `test_pipeline.py` — `Pipeline` step execution, skipping already-completed steps, step filters
 - `test_feed.py` — `parse_feed` (audio extraction, slug dedup, status preservation)
 - `test_cli.py` — `load_config`, `save_config`, `get_output_dir`, `find_feed_config`, `get_pipeline_steps`, `filter_episodes`
-- `test_download_step.py` — `DownloadStep` filename construction, extension extraction, skip-existing, download
-- `test_tag_step.py` — `TagStep` MP3/MP4 tagging, audio file discovery, error cases
+- `test_download_step.py` — `DownloadStep` filename construction, skip-existing, download
+- `test_tag_step.py` — `TagStep` MP3 tagging, audio file discovery, error cases
 - `test_qbittorrent_client.py` — `QBittorrentClient` login, has_torrent, add_torrent
 - `test_unit3d_tracker.py` — `ModifiedUnit3dTracker` upload, field construction, image handling
 - `test_transcription_detector.py` — `TranscriptionDetector` whisper API, local transcription, `AnthropicProvider` LLM calls, `merge_segments`, `_parse_llm_response`
 - `test_detect_ads_step.py` — `DetectAdsStep` orchestration, config merging, transcript saving/reuse, segment merging
-- `test_strip_ads_step.py` — `StripAdsStep` ffmpeg args, idempotency, no-ads passthrough, codec selection
+- `test_strip_ads_step.py` — `StripAdsStep` ffmpeg args, idempotency, no-ads passthrough
 - `test_stage_step.py` — `StageStep` copy, idempotency, client_path rebasing, strip_ads fallback
 - `test_torrent_step.py` — `TorrentStep` mktorrent args, idempotency, error cases
 - `test_seed_step.py` — `SeedStep` add_torrent, idempotency, client resolution
@@ -115,7 +115,7 @@ settings:
 
 **Pipeline steps:**
 - `download` — fetch audio file from RSS `audio_url`, save to `output/<podcast>/audio/`
-- `tag` — write ID3/MP4 metadata (title, artist, date) to the downloaded file
+- `tag` — write ID3 metadata (title, artist, date) to the downloaded MP3 file
 - `detect_ads` — transcribe audio via local `faster-whisper` (default) or remote whisper server, then classify ad segments via LLM (Anthropic Claude); saves transcript to `output/<podcast>/transcripts/` and reuses it on retry to avoid re-transcribing
 - `strip_ads` — remove detected ad segments from audio via ffmpeg with crossfade at splice points; output in `output/<podcast>/cleaned/`
 - `stage` — copy audio to `torrent_data_dir/<podcast>/<episode>/` for seeding; prefers cleaned audio from `strip_ads` if available, falls back to `download`; computes both local and qBittorrent-side paths

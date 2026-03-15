@@ -22,13 +22,7 @@ class DownloadStep:
         audio_dir = context.podcast_dir / "audio"
         audio_dir.mkdir(parents=True, exist_ok=True)
 
-        # Determine file extension from URL
-        ext = ".mp3"
-        url_path = episode.audio_url.split("?")[0]
-        if "." in url_path.split("/")[-1]:
-            ext = "." + url_path.split("/")[-1].rsplit(".", 1)[-1]
-
-        filename = episode_basename(context.effective_title, episode.title, episode.published) + ext
+        filename = episode_basename(context.effective_title, episode.title, episode.published) + ".mp3"
         filepath = audio_dir / filename
 
         if filepath.exists():
