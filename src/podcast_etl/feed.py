@@ -22,7 +22,7 @@ def parse_feed(
     step status is preserved for known episodes.
 
     Descriptions are cleaned to plain text. If *blacklist* is provided,
-    any description or title containing a blacklisted string is blanked.
+    any description containing a blacklisted string is blanked to null.
     """
     feed = feedparser.parse(url)
     if feed.bozo and not feed.entries:
