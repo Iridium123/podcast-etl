@@ -166,6 +166,8 @@ settings:
   output_dir: ./output
   torrent_data_dir: /torrent-data   # staging dir readable by both app and torrent client
   pipeline: [download, tag]         # default for feeds without their own pipeline
+  blacklist:                        # strings to reject from descriptions (case-insensitive)
+    - "John Doe"                    # any description containing this is blanked to null
 
   ad_detection:
     whisper:

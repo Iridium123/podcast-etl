@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from podcast_etl.models import Episode, Podcast
-from podcast_etl.trackers.unit3d import ModifiedUnit3dTracker, _extract_csrf_token, _extract_torrent_id, _extract_validation_errors
+from podcast_etl.trackers.unit3d import ModifiedUnit3dTracker, _build_torrent_name, _extract_csrf_token, _extract_torrent_id, _extract_validation_errors, _get_mp3_bitrate
 
 LOGIN_PAGE_HTML = '<input type="hidden" name="_token" value="login-csrf-token" autocomplete="off">'
 CREATE_PAGE_HTML = '<input type="hidden" name="_token" value="create-csrf-token" autocomplete="off">'
@@ -163,7 +163,7 @@ class TestUpload:
 
         upload_call = client.post.call_args_list[1]
         posted_data = upload_call.kwargs["data"]
-        assert posted_data["name"] == "My Podcast - Episode One (2024-03-15)"
+        assert posted_data["name"] == "My Podcast - Episode One [2024-03-15]"
 
     def test_name_omits_date_when_published_is_none(self, torrent_path, feed_config):
         tracker = _make_tracker()
@@ -536,3 +536,75 @@ class TestFromConfig:
         assert tracker._defaults["anonymous"] == 0
         assert tracker._defaults["personal_release"] == 0
         assert tracker._defaults["mod_queue_opt_in"] == 0
+
+
+class TestBuildTorrentName:
+    def test_with_date_and_bitrate(self):
+        episode = _make_episode(published="Fri, 15 Mar 2024 06:00:00 +0000")
+        podcast = _make_podcast()
+        feed_config = {"category_id": 14, "type_id": 9}
+
+        with patch("podcast_etl.trackers.unit3d._get_mp3_bitrate", return_value=256):
+            name = _build_torrent_name(episode, podcast, feed_config, audio_path=Path("/fake.mp3"))
+
+        assert name == "My Podcast - Episode One [2024-03-15/MP3-256kbps]"
+
+    def test_with_date_no_audio(self):
+        episode = _make_episode(published="Fri, 15 Mar 2024 06:00:00 +0000")
+        podcast = _make_podcast()
+        feed_config = {}
+
+        name = _build_torrent_name(episode, podcast, feed_config)
+        assert name == "My Podcast - Episode One [2024-03-15]"
+
+    def test_no_date_no_audio(self):
+        episode = _make_episode(published=None)
+        podcast = _make_podcast()
+        feed_config = {}
+
+        name = _build_torrent_name(episode, podcast, feed_config)
+        assert name == "My Podcast - Episode One"
+
+    def test_title_override(self):
+        episode = _make_episode(published="Fri, 15 Mar 2024 06:00:00 +0000")
+        podcast = _make_podcast()
+        feed_config = {"title_override": "Custom Name"}
+
+        name = _build_torrent_name(episode, podcast, feed_config)
+        assert name.startswith("Custom Name - Episode One")
+
+    def test_iso_date_format(self):
+        episode = _make_episode(published="2024-03-15T10:00:00")
+        podcast = _make_podcast()
+        feed_config = {}
+
+        name = _build_torrent_name(episode, podcast, feed_config)
+        assert name == "My Podcast - Episode One [2024-03-15]"
+
+    def test_bitrate_error_gracefully_handled(self):
+        episode = _make_episode(published="Fri, 15 Mar 2024 06:00:00 +0000")
+        podcast = _make_podcast()
+        feed_config = {}
+
+        with patch("podcast_etl.trackers.unit3d._get_mp3_bitrate", side_effect=Exception("bad file")):
+            name = _build_torrent_name(episode, podcast, feed_config, audio_path=Path("/fake.mp3"))
+
+        assert name == "My Podcast - Episode One [2024-03-15]"
+
+
+class TestGetMp3Bitrate:
+    def test_reads_bitrate_from_mp3(self):
+        mock_info = MagicMock()
+        mock_info.bitrate = 256000
+
+        with patch("podcast_etl.trackers.unit3d.MP3") as mock_mp3:
+            mock_mp3.return_value.info = mock_info
+            assert _get_mp3_bitrate(Path("/fake.mp3")) == 256
+
+    def test_rounds_down_to_kbps(self):
+        mock_info = MagicMock()
+        mock_info.bitrate = 128500
+
+        with patch("podcast_etl.trackers.unit3d.MP3") as mock_mp3:
+            mock_mp3.return_value.info = mock_info
+            assert _get_mp3_bitrate(Path("/fake.mp3")) == 128

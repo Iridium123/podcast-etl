@@ -25,12 +25,14 @@ class UploadStep:
             raise ValueError(f"Episode {episode.slug} torrent result missing 'torrent_path'")
 
         tracker = _get_tracker(context)
+        audio_path = _resolve_audio_path(episode)
 
         upload_result = tracker.upload(
             torrent_path=Path(torrent_path),
             episode=episode,
             podcast=context.podcast,
             feed_config=context.feed_config,
+            audio_path=audio_path,
         )
         logger.info("Uploaded torrent for %s: %s", episode.slug, upload_result.get("url"))
 
@@ -50,3 +52,11 @@ def _get_tracker(context: PipelineContext) -> ModifiedUnit3dTracker:
         raise ValueError("No tracker configured")
 
     return ModifiedUnit3dTracker.from_config(tracker_config)
+
+
+def _resolve_audio_path(episode: Episode) -> Path | None:
+    """Find the staged audio file path from episode status."""
+    stage_status = episode.status.get("stage")
+    if stage_status and stage_status.result.get("local_path"):
+        return Path(stage_status.result["local_path"])
+    return None

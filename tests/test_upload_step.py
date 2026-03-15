@@ -80,6 +80,7 @@ class TestUploadStep:
             episode=episode,
             podcast=context.podcast,
             feed_config=context.feed_config,
+            audio_path=None,
         )
         assert result.data["torrent_id"] == 42
         assert result.data["url"] == "https://tracker.example.com/torrents/42"

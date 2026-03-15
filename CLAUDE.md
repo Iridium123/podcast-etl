@@ -31,6 +31,7 @@ Tests live in `tests/` and use pytest:
 - `test_torrent_step.py` — `TorrentStep` mktorrent args, idempotency, error cases
 - `test_seed_step.py` — `SeedStep` add_torrent, idempotency, client resolution
 - `test_upload_step.py` — `UploadStep` tracker.upload call, tracker resolution, error cases
+- `test_text.py` — `clean_description` (HTML, entity-encoded, CDATA, plain text), `contains_blacklisted`, `apply_blacklist`
 - `test_audiobookshelf_step.py` — `AudiobookshelfStep` copy and scan trigger, audio resolution, config merging, error cases
 
 **After making changes**, run tests and check whether new behaviour should be tested. Always update `README.md` and `CLAUDE.md` to reflect any changes to CLI commands, pipeline steps, architecture, or configuration — do not skip this.
@@ -47,8 +48,9 @@ The pipeline is step-based and resumable. Each episode tracks its own completion
 5. `poller.py` — long-running loop that reloads config each cycle and handles SIGTERM/SIGINT gracefully; uses per-feed `pipeline` list when set
 6. `clients/qbittorrent.py` — `QBittorrentClient` implementing `TorrentClient` protocol; session-based auth, `has_torrent`, `add_torrent`
 7. `trackers/unit3d.py` — `ModifiedUnit3dTracker` implementing `Tracker` protocol; multipart upload to UNIT3D REST API
-8. `detectors/__init__.py` — `AdSegment` dataclass, `Detector` and `LLMProvider` protocols, `merge_segments` utility
-9. `detectors/transcription.py` — `TranscriptionDetector` (whisper transcription + LLM classification); supports local transcription via `faster-whisper` (default) or remote via OpenAI-compatible API; `AnthropicProvider` for Claude API
+8. `text.py` — `clean_description` (HTML/entity/CDATA → plain text), `apply_blacklist` / `contains_blacklisted` for rejecting text containing configured strings
+9. `detectors/__init__.py` — `AdSegment` dataclass, `Detector` and `LLMProvider` protocols, `merge_segments` utility
+10. `detectors/transcription.py` — `TranscriptionDetector` (whisper transcription + LLM classification); supports local transcription via `faster-whisper` (default) or remote via OpenAI-compatible API; `AnthropicProvider` for Claude API
 
 **Feed config (`feeds.yaml`):** Each feed entry supports optional `name` (short identifier) and `pipeline` (list of step names). If `pipeline` is omitted, the feed uses `settings.pipeline` as the default. The `--feed` flag on `run`/`fetch`/`status` accepts either a name or a full URL.
 
@@ -73,6 +75,8 @@ feeds:
 settings:
   output_dir: ./output
   torrent_data_dir: /torrent-data   # staging dir readable by both app and torrent client
+  blacklist:                        # strings to reject from descriptions (case-insensitive)
+    - "John Doe"                    # any description containing this is blanked to null
 
   ad_detection:
     whisper:

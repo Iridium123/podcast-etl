@@ -229,3 +229,85 @@ def test_parse_feed_bozo_with_entries_succeeds():
         podcast = parse_feed("https://example.com/feed.xml")
 
     assert len(podcast.episodes) == 1
+
+
+# ---------------------------------------------------------------------------
+# Description cleaning
+# ---------------------------------------------------------------------------
+
+def test_parse_feed_cleans_html_description():
+    """HTML in episode descriptions is stripped to plain text."""
+    entry = _Entry(
+        summary="<p>Hello <a href='https://example.com'>world</a></p>",
+        links=[_audio_link()],
+    )
+    feed = _make_parsed_feed(entries=[entry])
+    with patch("podcast_etl.feed.feedparser.parse", return_value=feed):
+        podcast = parse_feed("https://example.com/feed.xml")
+
+    assert podcast.episodes[0].description == "Hello world"
+
+
+def test_parse_feed_cleans_entity_encoded_description():
+    """Entity-encoded HTML (Patreon-style) is decoded and stripped."""
+    entry = _Entry(
+        summary="&lt;p&gt;Content here&lt;/p&gt;",
+        links=[_audio_link()],
+    )
+    feed = _make_parsed_feed(entries=[entry])
+    with patch("podcast_etl.feed.feedparser.parse", return_value=feed):
+        podcast = parse_feed("https://example.com/feed.xml")
+
+    assert podcast.episodes[0].description == "Content here"
+
+
+def test_parse_feed_cleans_podcast_description():
+    """Podcast-level description is also cleaned."""
+    feed = _make_parsed_feed(
+        entries=[_Entry(links=[_audio_link()])],
+        feed=_FeedMeta(subtitle="<p>About the <b>show</b></p>"),
+    )
+    with patch("podcast_etl.feed.feedparser.parse", return_value=feed):
+        podcast = parse_feed("https://example.com/feed.xml")
+
+    assert podcast.description == "About the show"
+
+
+# ---------------------------------------------------------------------------
+# Blacklist
+# ---------------------------------------------------------------------------
+
+def test_parse_feed_blacklist_blanks_matching_description():
+    entry = _Entry(
+        summary="Episode brought to you by Ben Smith",
+        links=[_audio_link()],
+    )
+    feed = _make_parsed_feed(entries=[entry])
+    with patch("podcast_etl.feed.feedparser.parse", return_value=feed):
+        podcast = parse_feed("https://example.com/feed.xml", blacklist=["Ben Smith"])
+
+    assert podcast.episodes[0].description is None
+
+
+def test_parse_feed_blacklist_no_match_preserves_description():
+    entry = _Entry(
+        summary="A normal description",
+        links=[_audio_link()],
+    )
+    feed = _make_parsed_feed(entries=[entry])
+    with patch("podcast_etl.feed.feedparser.parse", return_value=feed):
+        podcast = parse_feed("https://example.com/feed.xml", blacklist=["secret"])
+
+    assert podcast.episodes[0].description == "A normal description"
+
+
+def test_parse_feed_no_blacklist_by_default():
+    entry = _Entry(
+        summary="Contains Ben Smith name",
+        links=[_audio_link()],
+    )
+    feed = _make_parsed_feed(entries=[entry])
+    with patch("podcast_etl.feed.feedparser.parse", return_value=feed):
+        podcast = parse_feed("https://example.com/feed.xml")
+
+    assert podcast.episodes[0].description == "Contains Ben Smith name"

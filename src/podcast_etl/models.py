@@ -30,14 +30,23 @@ def sanitize_filename(title: str) -> str:
     return name.strip()
 
 
+def format_date(published: str | None) -> str | None:
+    """Parse a date string (RFC 2822 or ISO 8601) into yyyy-mm-dd format."""
+    if not published:
+        return None
+    try:
+        return parsedate_to_datetime(published).strftime("%Y-%m-%d")
+    except Exception:
+        pass
+    try:
+        return datetime.fromisoformat(published).strftime("%Y-%m-%d")
+    except Exception:
+        return None
+
+
 def episode_basename(podcast_title: str, episode_title: str, published: str | None) -> str:
     """Return the base filename (no extension) for an episode, matching the download naming scheme."""
-    date_prefix = "unknown-date"
-    if published:
-        try:
-            date_prefix = parsedate_to_datetime(published).strftime("%Y-%m-%d")
-        except Exception:
-            pass
+    date_prefix = format_date(published) or "unknown-date"
     return f"{sanitize_filename(podcast_title)} - {date_prefix} - {sanitize_filename(episode_title)}"
 
 
