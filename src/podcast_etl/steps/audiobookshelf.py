@@ -21,7 +21,7 @@ class AudiobookshelfStep:
         audio_path = _resolve_audio_path(episode, context)
         abs_config = _get_abs_config(context)
 
-        podcast_dir = Path(abs_config["podcast_dir"])
+        podcast_dir = Path(abs_config["dir"]) / context.effective_title
         podcast_dir.mkdir(parents=True, exist_ok=True)
 
         dest = podcast_dir / audio_path.name
@@ -72,7 +72,7 @@ def _get_abs_config(context: PipelineContext) -> dict:
     feed_abs = context.feed_config.get("audiobookshelf", {})
     merged = {**config, **feed_abs}
 
-    for key in ("url", "api_key", "library_id", "podcast_dir"):
+    for key in ("url", "api_key", "library_id", "dir"):
         if not merged.get(key):
             raise ValueError(f"audiobookshelf.{key} is not configured")
 

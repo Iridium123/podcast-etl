@@ -191,9 +191,9 @@ class StripAdsStep:
 
         segments = [AdSegment.from_dict(s) for s in raw_segments]
 
-        episode_cleaned_dir = context.podcast_dir / "cleaned" / episode.slug
-        episode_cleaned_dir.mkdir(parents=True, exist_ok=True)
-        output_path = episode_cleaned_dir / audio_path.name
+        cleaned_dir = context.podcast_dir / "cleaned"
+        cleaned_dir.mkdir(parents=True, exist_ok=True)
+        output_path = cleaned_dir / audio_path.name
 
         if output_path.exists() and not context.overwrite:
             logger.info("Cleaned file already exists: %s", output_path)
@@ -210,7 +210,7 @@ class StripAdsStep:
         _write_mp3_metadata(output_path, chapters, comment)
 
         duration_removed = sum(s.end - s.start for s in segments)
-        cleaned_relative = f"cleaned/{episode.slug}/{audio_path.name}"
+        cleaned_relative = f"cleaned/{audio_path.name}"
 
         return StepResult(data={
             "path": cleaned_relative,

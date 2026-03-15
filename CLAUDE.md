@@ -92,7 +92,7 @@ settings:
     url: https://abs.example.com
     api_key: your-api-key
     library_id: lib_abc123              # for triggering library scan
-    podcast_dir: /podcasts/My Podcast   # path to podcast folder on shared volume
+    dir: /podcasts                      # root dir on shared volume; podcast title used as subdir
 
   clients:
     qbittorrent:
@@ -118,11 +118,11 @@ settings:
 - `tag` — write ID3 metadata (title, artist, date) to the downloaded MP3 file
 - `detect_ads` — transcribe audio via local `faster-whisper` (default) or remote whisper server, then classify ad segments via LLM (Anthropic Claude); saves transcript to `output/<podcast>/transcripts/` and reuses it on retry to avoid re-transcribing
 - `strip_ads` — remove detected ad segments from audio via ffmpeg with crossfade at splice points; output in `output/<podcast>/cleaned/`
-- `stage` — copy audio to `torrent_data_dir/<podcast>/<episode>/` for seeding; prefers cleaned audio from `strip_ads` if available, falls back to `download`; computes both local and qBittorrent-side paths
+- `stage` — copy audio to `torrent_data_dir/` for seeding; prefers cleaned audio from `strip_ads` if available, falls back to `download`; computes both local and qBittorrent-side paths
 - `torrent` — create `.torrent` file via `mktorrent` CLI; extracts `info_hash` via `torf`; output in `output/<podcast>/torrents/`
 - `seed` — add torrent to qBittorrent via Web API; sets `save_path` to client-side episode directory
 - `upload` — upload `.torrent` + metadata to UNIT3D tracker via web form (login → CSRF token → POST); supports `torrent-cover` and `torrent-banner` image uploads; requires `category_id` and `type_id` in feed config
-- `audiobookshelf` — copy audio into Audiobookshelf's podcast directory (shared volume) and trigger a library scan; prefers cleaned audio from `strip_ads`, falls back to `download`; requires `audiobookshelf` config in settings (url, api_key, library_id, podcast_dir); supports per-feed overrides
+- `audiobookshelf` — copy audio into `audiobookshelf.dir/<podcast title>/` (using `title_override` if set) and trigger a library scan; prefers cleaned audio from `strip_ads`, falls back to `download`; requires `audiobookshelf` config in settings (url, api_key, library_id, dir); supports per-feed overrides
 
 **Adding a new pipeline step:**
 1. Create `src/podcast_etl/steps/your_step.py` implementing the `Step` protocol (`name: str`, `process(episode, context) -> StepResult`)

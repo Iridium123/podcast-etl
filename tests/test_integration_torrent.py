@@ -87,11 +87,10 @@ class TestStageIntegration:
 
         result = StageStep().process(episode, context)
 
-        dest = torrent_data_dir / "test-podcast" / "test-episode" / "2024-06-01 Test Episode.mp3"
+        dest = torrent_data_dir / "2024-06-01 Test Episode.mp3"
         assert dest.exists(), f"Expected staged file at {dest}"
         assert dest.read_bytes() == _MINIMAL_MP3
         assert result.data["local_path"] == str(dest)
-        assert result.data["episode_dir"] == str(dest.parent)
         assert result.data["client_path"] == str(dest)  # no save_path configured
 
     def test_stage_is_idempotent(self, tmp_path):

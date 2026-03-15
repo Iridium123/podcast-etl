@@ -190,7 +190,7 @@ settings:
     url: https://abs.example.com
     api_key: your-api-key
     library_id: lib_abc123              # for triggering library scan
-    podcast_dir: /podcasts/My Podcast   # path to podcast folder on shared volume
+    dir: /podcasts                      # root dir on shared volume; podcast title used as subdir
 
   trackers:
     unit3d:
@@ -276,11 +276,11 @@ Steps run in the order listed in `pipeline`. Each step requires the previous ste
 | `tag` | `download` | Write ID3 metadata (title, artist, date) to the downloaded MP3 file |
 | `detect_ads` | `download` | Transcribe audio via local faster-whisper (or remote server), classify ad segments via LLM; saves transcript and reuses on retry |
 | `strip_ads` | `detect_ads`, `download` | Remove detected ad segments from audio via ffmpeg; output in `output/<podcast>/cleaned/` |
-| `stage` | `download` (or `strip_ads`) | Copy audio to `torrent_data_dir/<podcast>/<episode>/` for seeding; prefers cleaned audio if available |
+| `stage` | `download` (or `strip_ads`) | Copy audio to `torrent_data_dir/` for seeding; prefers cleaned audio if available |
 | `torrent` | `stage` | Create `.torrent` via `mktorrent`; extract `info_hash` via `torf`; output in `output/<podcast>/torrents/` |
 | `seed` | `torrent`, `stage` | Add torrent to qBittorrent via Web API with the correct save path |
 | `upload` | `torrent` | Upload `.torrent` + metadata to UNIT3D tracker via web form (supports cover/banner images) |
-| `audiobookshelf` | `download` (or `strip_ads`) | Copy audio into Audiobookshelf's podcast directory and trigger library scan |
+| `audiobookshelf` | `download` (or `strip_ads`) | Copy audio into `audiobookshelf.dir/<podcast title>/` and trigger library scan; uses `title_override` if set |
 
 ## Adding a new pipeline step
 
