@@ -27,6 +27,8 @@ settings:
   pipeline:
   - download
   - tag
+  blacklist:                        # strings to reject from descriptions (case-insensitive)
+    - "John Doe"                    # any description containing this is blanked to null
 
   ad_detection:
     whisper:

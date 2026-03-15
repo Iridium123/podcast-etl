@@ -85,8 +85,12 @@ def setup_logging(level: str) -> None:
     )
 
 
-def fetch_feed(url: str, output_dir: Path) -> Podcast:
-    podcast = parse_feed(url, output_dir=output_dir)
+def fetch_feed(
+    url: str,
+    output_dir: Path,
+    blacklist: list[str] | None = None,
+) -> Podcast:
+    podcast = parse_feed(url, output_dir=output_dir, blacklist=blacklist)
     podcast.save(output_dir)
     return podcast
 
@@ -215,9 +219,10 @@ def fetch(ctx: click.Context, feed_url: str | None, fetch_all: bool) -> None:
         click.echo("No feeds configured. Use 'podcast-etl add <url>' first.")
         return
 
+    blacklist = config.get("settings", {}).get("blacklist", [])
     for url in urls:
         click.echo(f"Fetching {url}...")
-        podcast = fetch_feed(url, output_dir)
+        podcast = fetch_feed(url, output_dir, blacklist=blacklist)
         click.echo(f"  {podcast.title}: {len(podcast.episodes)} episodes")
 
 
@@ -257,9 +262,10 @@ def run(ctx: click.Context, feed_url: str | None, run_all: bool, step_filter: st
         click.echo("No feeds configured. Use 'podcast-etl add <url>' first.")
         return
 
+    blacklist = config.get("settings", {}).get("blacklist", [])
     for url, feed_config in feeds_to_run:
         click.echo(f"Processing {url}...")
-        podcast = fetch_feed(url, output_dir)
+        podcast = fetch_feed(url, output_dir, blacklist=blacklist)
         click.echo(f"  {podcast.title}: {len(podcast.episodes)} episodes")
         run_pipeline(podcast, output_dir, config, feed_config=feed_config, step_filter=step_filter, last=last, date_range=date_range, overwrite=overwrite)
 

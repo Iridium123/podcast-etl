@@ -6,15 +6,23 @@ from pathlib import Path
 import feedparser
 
 from podcast_etl.models import Episode, Podcast, slugify
+from podcast_etl.text import apply_blacklist, clean_description
 
 logger = logging.getLogger(__name__)
 
 
-def parse_feed(url: str, output_dir: Path | None = None) -> Podcast:
+def parse_feed(
+    url: str,
+    output_dir: Path | None = None,
+    blacklist: list[str] | None = None,
+) -> Podcast:
     """Fetch and parse an RSS feed, returning a Podcast with episodes.
 
     If output_dir is provided and existing episode data is found on disk,
     step status is preserved for known episodes.
+
+    Descriptions are cleaned to plain text. If *blacklist* is provided,
+    any description or title containing a blacklisted string is blanked.
     """
     feed = feedparser.parse(url)
     if feed.bozo and not feed.entries:
@@ -59,13 +67,18 @@ def parse_feed(url: str, output_dir: Path | None = None) -> Podcast:
             counter += 1
             ep_slug = f"{base_slug}-{counter}"
 
+        description = clean_description(entry.get("summary"))
+        bl = blacklist or []
+        if bl:
+            description = apply_blacklist(description, bl)
+
         episode = Episode(
             title=title,
             guid=guid,
             published=entry.get("published"),
             audio_url=audio_url,
             duration=entry.get("itunes_duration"),
-            description=entry.get("summary"),
+            description=description,
             slug=ep_slug,
         )
 
@@ -75,10 +88,14 @@ def parse_feed(url: str, output_dir: Path | None = None) -> Podcast:
 
         episodes.append(episode)
 
+    podcast_description = clean_description(
+        feed.feed.get("subtitle") or feed.feed.get("summary")
+    )
+
     podcast = Podcast(
         title=podcast_title,
         url=url,
-        description=feed.feed.get("subtitle") or feed.feed.get("summary"),
+        description=podcast_description,
         image_url=image_url,
         slug=podcast_slug,
         episodes=episodes,

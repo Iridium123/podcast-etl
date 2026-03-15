@@ -7,7 +7,9 @@ from typing import Any
 
 import httpx
 
-from podcast_etl.models import Episode, Podcast
+from mutagen.mp3 import MP3
+
+from podcast_etl.models import Episode, Podcast, format_date
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +85,7 @@ class ModifiedUnit3dTracker:
         episode: Episode,
         podcast: Podcast,
         feed_config: dict[str, Any],
+        audio_path: Path | None = None,
     ) -> dict[str, Any]:
         """Upload a torrent via the web form. Returns tracker metadata."""
         category_id = feed_config.get("category_id")
@@ -92,11 +95,7 @@ class ModifiedUnit3dTracker:
         if type_id is None:
             raise ValueError("Feed config must specify 'type_id' for tracker upload")
 
-        date_str = ""
-        if episode.published:
-            date_str = f" ({episode.published[:10]})"
-
-        name = f"{feed_config.get('title_override') or podcast.title} - {episode.title}{date_str}"
+        name = _build_torrent_name(episode, podcast, feed_config, audio_path)
         description = episode.description or ""
 
         with httpx.Client(follow_redirects=False, timeout=120) as client:
@@ -211,3 +210,37 @@ def _extract_validation_errors(html: str) -> list[str]:
     # Fallback: look for common error patterns in the page text
     matches = re.findall(r"(?:The |A )\w[\w\s]*(?:field |is )\w[\w\s]*\.", html)
     return matches
+
+
+def _get_mp3_bitrate(path: Path) -> int:
+    """Return the bitrate of an MP3 file in kbps."""
+    info = MP3(path).info
+    return info.bitrate // 1000
+
+
+def _build_torrent_name(
+    episode: Episode,
+    podcast: Podcast,
+    feed_config: dict[str, Any],
+    audio_path: Path | None = None,
+) -> str:
+    """Build torrent name: Podcast - Episode [date/MP3-bitrate]."""
+    podcast_name = feed_config.get("title_override") or podcast.title
+    base = f"{podcast_name} - {episode.title}"
+
+    tag_parts: list[str] = []
+
+    date_str = format_date(episode.published)
+    if date_str:
+        tag_parts.append(date_str)
+
+    if audio_path:
+        try:
+            bitrate = _get_mp3_bitrate(audio_path)
+            tag_parts.append(f"MP3-{bitrate}kbps")
+        except Exception:
+            logger.warning("Could not read bitrate from %s", audio_path)
+
+    if tag_parts:
+        return f"{base} [{'/'.join(tag_parts)}]"
+    return base

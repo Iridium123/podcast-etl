@@ -46,7 +46,8 @@ def run_poll_loop(config: dict, config_path: Path) -> None:
                 url = feed_config["url"]
                 try:
                     logger.info("Fetching %s", url)
-                    podcast = parse_feed(url, output_dir=output_dir)
+                    blacklist = config.get("settings", {}).get("blacklist", [])
+                    podcast = parse_feed(url, output_dir=output_dir, blacklist=blacklist)
                     podcast.save(output_dir)
 
                     feed_step_names = feed_config.get("pipeline") or step_names
