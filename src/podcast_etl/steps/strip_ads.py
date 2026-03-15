@@ -210,7 +210,7 @@ class StripAdsStep:
         _write_mp3_metadata(output_path, chapters, comment)
 
         duration_removed = sum(s.end - s.start for s in segments)
-        cleaned_relative = f"cleaned/{audio_path.name}"
+        cleaned_relative = str(output_path.relative_to(context.podcast_dir))
 
         return StepResult(data={
             "path": cleaned_relative,
