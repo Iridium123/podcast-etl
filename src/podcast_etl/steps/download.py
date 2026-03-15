@@ -22,6 +22,12 @@ class DownloadStep:
         audio_dir = context.podcast_dir / "audio"
         audio_dir.mkdir(parents=True, exist_ok=True)
 
+        url_path = episode.audio_url.split("?")[0]
+        if "." in url_path.split("/")[-1]:
+            url_ext = "." + url_path.split("/")[-1].rsplit(".", 1)[-1]
+            if url_ext.lower() != ".mp3":
+                logger.warning("Feed audio URL has non-MP3 extension %s, saving as .mp3: %s", url_ext, episode.audio_url)
+
         filename = episode_basename(context.effective_title, episode.title, episode.published) + ".mp3"
         filepath = audio_dir / filename
 

@@ -67,11 +67,6 @@ def _build_comment(segments: list[AdSegment]) -> str:
     return f"{len(segments)} ads removed ({total_duration:.1f}s total): {', '.join(parts)}"
 
 
-def _write_metadata(output_path: Path, chapters: list[dict], comment: str) -> None:
-    """Write ID3v2 chapter frames and comment tag to the cleaned file."""
-    _write_mp3_metadata(output_path, chapters, comment)
-
-
 def _write_mp3_metadata(output_path: Path, chapters: list[dict], comment: str) -> None:
     """Write CHAP/CTOC frames and COMM tag to an MP3 file."""
     from mutagen.id3 import CHAP, COMM, CTOC, TIT2, ID3
@@ -160,15 +155,10 @@ def _build_ffmpeg_args(
         "-i", str(audio_path),
         "-filter_complex", filter_complex,
         "-map", "[out]",
-        "-c:a", _get_codec(audio_path),
+        "-c:a", "libmp3lame",
         str(output_path),
     ]
     return cmd
-
-
-def _get_codec(audio_path: Path) -> str:
-    """Return the ffmpeg output codec."""
-    return "libmp3lame"
 
 
 @dataclass
@@ -217,7 +207,7 @@ class StripAdsStep:
         # Write chapter frames and comment tag
         chapters = _build_chapters(segments, audio_duration)
         comment = _build_comment(segments)
-        _write_metadata(output_path, chapters, comment)
+        _write_mp3_metadata(output_path, chapters, comment)
 
         duration_removed = sum(s.end - s.start for s in segments)
         cleaned_relative = f"cleaned/{episode.slug}/{audio_path.name}"

@@ -173,7 +173,7 @@ class TestStripAdsStep:
         mock_result.returncode = 0
 
         with patch("podcast_etl.steps.strip_ads.subprocess.run", return_value=mock_result) as mock_run:
-            with patch("podcast_etl.steps.strip_ads._write_metadata"):
+            with patch("podcast_etl.steps.strip_ads._write_mp3_metadata"):
                 result = StripAdsStep().process(episode, context)
 
         mock_run.assert_called_once()
@@ -199,7 +199,7 @@ class TestStripAdsStep:
         (cleaned_dir / "episode.mp3").write_bytes(b"already cleaned")
 
         with patch("podcast_etl.steps.strip_ads.subprocess.run") as mock_run:
-            with patch("podcast_etl.steps.strip_ads._write_metadata"):
+            with patch("podcast_etl.steps.strip_ads._write_mp3_metadata"):
                 result = StripAdsStep().process(episode, context)
 
         mock_run.assert_not_called()
@@ -221,7 +221,7 @@ class TestStripAdsStep:
         mock_result.returncode = 0
 
         with patch("podcast_etl.steps.strip_ads.subprocess.run", return_value=mock_result) as mock_run:
-            with patch("podcast_etl.steps.strip_ads._write_metadata"):
+            with patch("podcast_etl.steps.strip_ads._write_mp3_metadata"):
                 StripAdsStep().process(episode, context)
 
         mock_run.assert_called_once()
