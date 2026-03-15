@@ -100,16 +100,6 @@ def test_process_extracts_mp3_extension_from_url(tmp_path: Path):
     assert result.data["path"].endswith(".mp3")
 
 
-def test_process_extracts_m4a_extension_from_url(tmp_path: Path):
-    ctx = _make_context(tmp_path)
-    ep = _make_episode(audio_url="https://example.com/episode.m4a")
-
-    with patch("podcast_etl.steps.download.httpx.stream", _mock_httpx_stream([b"audio data"])):
-        result = DownloadStep().process(ep, ctx)
-
-    assert result.data["path"].endswith(".m4a")
-
-
 def test_process_strips_query_string_before_extracting_extension(tmp_path: Path):
     ctx = _make_context(tmp_path)
     ep = _make_episode(audio_url="https://example.com/episode.mp3?token=abc&t=123")

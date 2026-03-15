@@ -6,7 +6,6 @@ from email.utils import parsedate_to_datetime
 from pathlib import Path
 
 from mutagen.id3 import COMM, ID3, ID3NoHeaderError, TDRC, TDRL, TIT2, TPE1
-from mutagen.mp4 import MP4
 
 from podcast_etl.models import Episode
 from podcast_etl.pipeline import PipelineContext, StepResult
@@ -34,13 +33,7 @@ class TagStep:
 
         podcast_title = context.effective_title
         description = episode.description or ""
-        suffix = audio_path.suffix.lower()
-        if suffix == ".mp3":
-            self._tag_mp3(audio_path, episode.title, podcast_title, description, date_str, year_str)
-        elif suffix in (".m4a", ".mp4", ".m4b", ".aac"):
-            self._tag_mp4(audio_path, episode.title, podcast_title, description, date_str)
-        else:
-            raise ValueError(f"Unsupported audio format for tagging: {suffix}")
+        self._tag_mp3(audio_path, episode.title, podcast_title, description, date_str, year_str)
 
         logger.info("Tagged %s with release date %s", audio_path.name, date_str)
         return StepResult(data={"release_date": date_str, "path": str(audio_path.relative_to(context.podcast_dir))})
@@ -76,13 +69,3 @@ class TagStep:
         tags.delall("TALB")
         tags.save(path)
 
-    def _tag_mp4(self, path: Path, title: str, artist: str, description: str, date_str: str) -> None:
-        tags = MP4(path)
-        tags["©nam"] = title
-        if "©ART" not in tags:
-            tags["©ART"] = artist
-        if description:
-            tags["©cmt"] = description
-        tags["©day"] = date_str
-        tags.pop("©alb", None)
-        tags.save()

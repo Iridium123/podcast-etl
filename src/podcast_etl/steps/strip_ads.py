@@ -67,15 +67,6 @@ def _build_comment(segments: list[AdSegment]) -> str:
     return f"{len(segments)} ads removed ({total_duration:.1f}s total): {', '.join(parts)}"
 
 
-def _write_metadata(output_path: Path, chapters: list[dict], comment: str) -> None:
-    """Write ID3v2 chapter frames and comment tag to the cleaned file."""
-    ext = output_path.suffix.lower()
-    if ext == ".mp3":
-        _write_mp3_metadata(output_path, chapters, comment)
-    elif ext in (".m4a", ".mp4"):
-        _write_mp4_metadata(output_path, comment)
-
-
 def _write_mp3_metadata(output_path: Path, chapters: list[dict], comment: str) -> None:
     """Write CHAP/CTOC frames and COMM tag to an MP3 file."""
     from mutagen.id3 import CHAP, COMM, CTOC, TIT2, ID3
@@ -114,18 +105,6 @@ def _write_mp3_metadata(output_path: Path, chapters: list[dict], comment: str) -
     # Add comment
     tags.add(COMM(encoding=3, lang="eng", desc="", text=[comment]))
     tags.save(output_path)
-
-
-def _write_mp4_metadata(output_path: Path, comment: str) -> None:
-    """Write comment tag to an MP4/M4A file (chapters not supported in MP4 tags)."""
-    from mutagen.mp4 import MP4
-
-    try:
-        audio = MP4(output_path)
-    except Exception:
-        return
-    audio["\xa9cmt"] = [comment]
-    audio.save()
 
 
 def _build_ffmpeg_args(
@@ -176,20 +155,10 @@ def _build_ffmpeg_args(
         "-i", str(audio_path),
         "-filter_complex", filter_complex,
         "-map", "[out]",
-        "-c:a", _get_codec(audio_path),
+        "-c:a", "libmp3lame",
         str(output_path),
     ]
     return cmd
-
-
-def _get_codec(audio_path: Path) -> str:
-    """Pick the output codec based on file extension."""
-    ext = audio_path.suffix.lower()
-    if ext == ".m4a":
-        return "aac"
-    if ext == ".ogg":
-        return "libvorbis"
-    return "libmp3lame"
 
 
 @dataclass
@@ -238,7 +207,7 @@ class StripAdsStep:
         # Write chapter frames and comment tag
         chapters = _build_chapters(segments, audio_duration)
         comment = _build_comment(segments)
-        _write_metadata(output_path, chapters, comment)
+        _write_mp3_metadata(output_path, chapters, comment)
 
         duration_removed = sum(s.end - s.start for s in segments)
         cleaned_relative = f"cleaned/{episode.slug}/{audio_path.name}"

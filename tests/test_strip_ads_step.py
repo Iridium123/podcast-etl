@@ -14,7 +14,6 @@ from podcast_etl.steps.strip_ads import (
     _build_comment,
     _build_ffmpeg_args,
     _format_timestamp,
-    _get_codec,
 )
 
 
@@ -85,24 +84,6 @@ def _create_audio_file(context, relative_path="audio/episode.mp3"):
 
 
 # ---------------------------------------------------------------------------
-# _get_codec
-# ---------------------------------------------------------------------------
-
-class TestGetCodec:
-    def test_mp3(self):
-        assert _get_codec(Path("file.mp3")) == "libmp3lame"
-
-    def test_m4a(self):
-        assert _get_codec(Path("file.m4a")) == "aac"
-
-    def test_ogg(self):
-        assert _get_codec(Path("file.ogg")) == "libvorbis"
-
-    def test_default_is_mp3(self):
-        assert _get_codec(Path("file.wav")) == "libmp3lame"
-
-
-# ---------------------------------------------------------------------------
 # _build_ffmpeg_args
 # ---------------------------------------------------------------------------
 
@@ -159,11 +140,11 @@ class TestBuildFfmpegArgs:
         with pytest.raises(ValueError, match="All audio would be removed"):
             _build_ffmpeg_args(Path("in.mp3"), Path("out.mp3"), segments, 120.0)
 
-    def test_uses_correct_codec_for_m4a(self):
+    def test_uses_libmp3lame_codec(self):
         segments = [AdSegment(start=0.0, end=30.0, confidence=0.9, detector="t")]
-        cmd = _build_ffmpeg_args(Path("in.m4a"), Path("out.m4a"), segments, 120.0)
+        cmd = _build_ffmpeg_args(Path("in.mp3"), Path("out.mp3"), segments, 120.0)
         codec_idx = cmd.index("-c:a") + 1
-        assert cmd[codec_idx] == "aac"
+        assert cmd[codec_idx] == "libmp3lame"
 
 
 # ---------------------------------------------------------------------------
@@ -192,7 +173,7 @@ class TestStripAdsStep:
         mock_result.returncode = 0
 
         with patch("podcast_etl.steps.strip_ads.subprocess.run", return_value=mock_result) as mock_run:
-            with patch("podcast_etl.steps.strip_ads._write_metadata"):
+            with patch("podcast_etl.steps.strip_ads._write_mp3_metadata"):
                 result = StripAdsStep().process(episode, context)
 
         mock_run.assert_called_once()
@@ -218,7 +199,7 @@ class TestStripAdsStep:
         (cleaned_dir / "episode.mp3").write_bytes(b"already cleaned")
 
         with patch("podcast_etl.steps.strip_ads.subprocess.run") as mock_run:
-            with patch("podcast_etl.steps.strip_ads._write_metadata"):
+            with patch("podcast_etl.steps.strip_ads._write_mp3_metadata"):
                 result = StripAdsStep().process(episode, context)
 
         mock_run.assert_not_called()
@@ -240,7 +221,7 @@ class TestStripAdsStep:
         mock_result.returncode = 0
 
         with patch("podcast_etl.steps.strip_ads.subprocess.run", return_value=mock_result) as mock_run:
-            with patch("podcast_etl.steps.strip_ads._write_metadata"):
+            with patch("podcast_etl.steps.strip_ads._write_mp3_metadata"):
                 StripAdsStep().process(episode, context)
 
         mock_run.assert_called_once()

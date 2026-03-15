@@ -238,11 +238,8 @@ def _build_torrent_name(
         tag_parts.append(date_str)
 
     if audio_path:
-        try:
-            bitrate = _get_mp3_bitrate(audio_path)
-            tag_parts.append(f"MP3-{bitrate}kbps")
-        except Exception:
-            logger.warning("Could not read bitrate from %s", audio_path)
+        bitrate = _get_mp3_bitrate(audio_path)
+        tag_parts.append(f"MP3-{bitrate}kbps")
 
     if tag_parts:
         return f"{base} [{'/'.join(tag_parts)}]"

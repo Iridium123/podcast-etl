@@ -46,10 +46,10 @@ def _get_ad_detection_config(context: PipelineContext) -> dict[str, Any]:
 
 def _get_audio_duration(audio_path: Path) -> float:
     """Get audio duration in seconds using mutagen."""
-    from mutagen import File as MutagenFile
+    from mutagen.mp3 import MP3
 
-    audio = MutagenFile(audio_path)
-    if audio is not None and audio.info is not None:
+    audio = MP3(audio_path)
+    if audio.info is not None:
         return audio.info.length
     return 0.0
 
