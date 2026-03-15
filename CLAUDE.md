@@ -61,8 +61,8 @@ feeds:
     pipeline: [download, tag, detect_ads, strip_ads, stage, torrent, seed, upload]
     client: qbittorrent       # optional; falls back to first configured client
     tracker: unit3d           # optional; falls back to first configured tracker
-    category_id: 14           # required for upload step
-    type_id: 9                # required for upload step
+    category_id: 14           # required for upload step (see README.md for full ID tables)
+    type_id: 9                # required for upload step (see README.md for full ID tables)
     cover_image: /config/cover.jpg   # optional; uploaded as torrent cover (1:1, JPEG)
     banner_image: /config/banner.jpg # optional; uploaded as torrent banner (16:9, JPEG)
 
