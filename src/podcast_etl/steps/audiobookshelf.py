@@ -7,7 +7,7 @@ from pathlib import Path
 
 import httpx
 
-from podcast_etl.models import Episode
+from podcast_etl.models import Episode, sanitize_filename
 from podcast_etl.pipeline import PipelineContext, StepResult
 
 logger = logging.getLogger(__name__)
@@ -21,7 +21,7 @@ class AudiobookshelfStep:
         audio_path = _resolve_audio_path(episode, context)
         abs_config = _get_abs_config(context)
 
-        podcast_dir = Path(abs_config["dir"]) / context.effective_title
+        podcast_dir = Path(abs_config["dir"]) / sanitize_filename(context.effective_title)
         podcast_dir.mkdir(parents=True, exist_ok=True)
 
         dest = podcast_dir / audio_path.name
