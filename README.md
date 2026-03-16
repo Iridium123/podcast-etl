@@ -190,6 +190,7 @@ defaults:
     # username: your-username       # alternative to remember_cookie (no 2FA support)
     # password: your-password
     announce_url: https://tracker.example.com/announce/your-passkey/announce
+    rate_limit: 5                   # seconds between HTTP requests to this tracker (default: 5)
     anonymous: 0
     personal_release: 0
     mod_queue_opt_in: 0

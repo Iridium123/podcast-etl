@@ -35,6 +35,7 @@ Tests live in `tests/` and use pytest:
 - `test_text.py` — `clean_description` (HTML, entity-encoded, CDATA, plain text), `contains_blacklisted`, `apply_blacklist`
 - `test_poller.py` — `run_poll_loop` enabled/disabled feed filtering
 - `test_audiobookshelf_step.py` — `AudiobookshelfStep` copy and scan trigger, audio resolution, config merging, error cases
+- `test_rate_limiter.py` — `RateLimiter` sleep behavior, `get_rate_limiter` registry
 
 **After making changes**, run tests and check whether new behaviour should be tested. Always update `README.md` and `CLAUDE.md` to reflect any changes to CLI commands, pipeline steps, architecture, or configuration — do not skip this.
 

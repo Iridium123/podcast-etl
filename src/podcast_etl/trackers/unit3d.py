@@ -11,6 +11,7 @@ import httpx
 from mutagen.mp3 import MP3
 
 from podcast_etl.models import Episode, Podcast, format_date
+from podcast_etl.rate_limiter import RateLimiter, get_rate_limiter
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +29,7 @@ class ModifiedUnit3dTracker:
         username: str | None = None,
         password: str | None = None,
         remember_cookie: str | None = None,
+        rate_limit: float = 5.0,
     ) -> None:
         self._url = url.rstrip("/")
         self._username = username
@@ -35,6 +37,7 @@ class ModifiedUnit3dTracker:
         self._remember_cookie = remember_cookie
         self.announce_url = announce_url
         self._defaults = defaults
+        self._rate_limiter = get_rate_limiter(self._url, rate_limit)
 
         if not remember_cookie and not (username and password):
             raise ValueError("Tracker config must specify either 'remember_cookie' or both 'username' and 'password'")
@@ -44,6 +47,7 @@ class ModifiedUnit3dTracker:
         if self._remember_cookie:
             client.cookies.set(REMEMBER_COOKIE_NAME, self._remember_cookie, domain=urlparse(self._url).hostname)
             # Make a request to establish the session from the remember cookie
+            self._rate_limiter.wait()
             resp = client.get(f"{self._url}/torrents/create", follow_redirects=True)
             if "login" in str(resp.url):
                 raise RuntimeError("Remember cookie is expired or invalid")
@@ -53,10 +57,12 @@ class ModifiedUnit3dTracker:
 
     def _login(self, client: httpx.Client) -> None:
         """Authenticate via the web login form."""
+        self._rate_limiter.wait()
         login_page = client.get(f"{self._url}/login")
         login_page.raise_for_status()
         token = _extract_csrf_token(login_page.text)
 
+        self._rate_limiter.wait()
         resp = client.post(
             f"{self._url}/login",
             data={
@@ -77,6 +83,7 @@ class ModifiedUnit3dTracker:
             raise RuntimeError("Login failed: redirected back to login page (bad credentials?)")
 
         # Follow the redirect to complete the session
+        self._rate_limiter.wait()
         client.get(resp.headers["location"], follow_redirects=True)
         logger.debug("Logged in to %s as %s", self._url, self._username)
 
@@ -106,6 +113,7 @@ class ModifiedUnit3dTracker:
             self._authenticate(client)
 
             # GET the create page to get a fresh CSRF token
+            self._rate_limiter.wait()
             create_page = client.get(f"{self._url}/torrents/create", follow_redirects=True)
             create_page.raise_for_status()
             token = _extract_csrf_token(create_page.text)
@@ -143,6 +151,7 @@ class ModifiedUnit3dTracker:
                 mime = mimetypes.guess_type(banner.name)[0] or "image/jpeg"
                 files.append(("torrent-banner", (banner.name, banner.read_bytes(), mime)))
 
+            self._rate_limiter.wait()
             resp = client.post(
                 f"{self._url}/torrents",
                 data=fields,
@@ -163,6 +172,7 @@ class ModifiedUnit3dTracker:
             # A redirect back to the create page means validation failed.
             # Follow it to extract Laravel's error messages from the HTML.
             if "torrents/create" in location:
+                self._rate_limiter.wait()
                 error_page = client.get(location, follow_redirects=True)
                 errors = _extract_validation_errors(error_page.text)
                 error_msg = "; ".join(errors) if errors else "unknown validation error"
@@ -188,6 +198,7 @@ class ModifiedUnit3dTracker:
                 "mod_queue_opt_in": config.get("mod_queue_opt_in", 0),
                 "description_suffix": config.get("description_suffix"),
             },
+            rate_limit=config.get("rate_limit", 5.0),
         )
 
 

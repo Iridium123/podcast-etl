@@ -19,6 +19,7 @@ def _make_tracker(**overrides):
         password="testpass",
         announce_url="https://tracker.example.com/announce/passkey/announce",
         defaults={"anonymous": 0, "personal_release": 0, "mod_queue_opt_in": 0},
+        rate_limit=0,
     )
     defaults.update(overrides)
     return ModifiedUnit3dTracker(**defaults)
@@ -30,6 +31,7 @@ def _make_cookie_tracker(**overrides):
         remember_cookie="fake-remember-cookie-value",
         announce_url="https://tracker.example.com/announce/passkey/announce",
         defaults={"anonymous": 0, "personal_release": 0, "mod_queue_opt_in": 0},
+        rate_limit=0,
     )
     defaults.update(overrides)
     return ModifiedUnit3dTracker(**defaults)
