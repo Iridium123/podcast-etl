@@ -46,8 +46,13 @@ DEFAULT_OUTPUT_DIR = Path("output")
 
 def load_config(config_path: Path) -> dict:
     if not config_path.exists():
+        logger.warning("Config file not found: %s — using defaults", config_path)
         return {"feeds": [], "settings": {"poll_interval": 3600, "output_dir": "./output", "pipeline": ["download"]}}
-    return yaml.safe_load(config_path.read_text()) or {}
+    try:
+        return yaml.safe_load(config_path.read_text()) or {}
+    except yaml.YAMLError as exc:
+        logger.error("Failed to parse config file %s: %s", config_path, exc)
+        raise SystemExit(1)
 
 
 def save_config(config: dict, config_path: Path) -> None:
@@ -278,9 +283,12 @@ def poll(ctx: click.Context, interval: int | None) -> None:
     from podcast_etl.poller import run_poll_loop
 
     config = ctx.obj["config"]
+    config_path = ctx.obj["config_path"]
+    enabled_feeds = [f for f in config.get("feeds", []) if f.get("enabled", False)]
+    logger.info("Config loaded from %s: %d feeds configured, %d enabled for polling", config_path, len(config.get("feeds", [])), len(enabled_feeds))
     if interval:
         config.setdefault("settings", {})["poll_interval"] = interval
-    run_poll_loop(config, ctx.obj["config_path"])
+    run_poll_loop(config, config_path)
 
 
 @main.command()

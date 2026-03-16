@@ -47,6 +47,13 @@ def test_load_config_empty_yaml_returns_empty_dict(tmp_path: Path):
     assert config == {}
 
 
+def test_load_config_invalid_yaml_exits(tmp_path: Path):
+    cfg_file = tmp_path / "feeds.yaml"
+    cfg_file.write_text("feeds:\n  - url: [invalid\n")
+    with pytest.raises(SystemExit):
+        load_config(cfg_file)
+
+
 # ---------------------------------------------------------------------------
 # save_config
 # ---------------------------------------------------------------------------

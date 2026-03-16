@@ -34,7 +34,10 @@ def run_poll_loop(config: dict, config_path: Path) -> None:
         import yaml
 
         if config_path.exists():
-            config = yaml.safe_load(config_path.read_text()) or config
+            try:
+                config = yaml.safe_load(config_path.read_text()) or config
+            except yaml.YAMLError as exc:
+                logger.error("Failed to parse config %s, using previous config: %s", config_path, exc)
 
         feeds = config.get("feeds", [])
         if not feeds:
