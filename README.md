@@ -151,6 +151,7 @@ feeds:
   - url: "https://example.com/feed.xml"
     name: my-podcast
     enabled: true                 # optional; must be true to run during poll (default: false)
+    last: 5                       # optional; only process N most recent episodes during poll
     pipeline: [download, tag, detect_ads, strip_ads, stage, torrent, seed, upload]
     client: qbittorrent       # optional; falls back to first configured client
     tracker: unit3d           # optional; falls back to first configured tracker
@@ -164,6 +165,7 @@ feeds:
 
 settings:
   poll_interval: 3600
+  last: 5                           # optional; default episode limit for poll (per-feed overrides this)
   output_dir: ./output
   torrent_data_dir: /torrent-data   # staging dir readable by both app and torrent client
   pipeline: [download, tag]         # default for feeds without their own pipeline
