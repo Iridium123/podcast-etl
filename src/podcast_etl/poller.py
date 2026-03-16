@@ -56,7 +56,7 @@ def run_poll_loop(config: dict, config_path: Path) -> None:
                     podcast = parse_feed(url, output_dir=output_dir, blacklist=blacklist)
                     podcast.save(output_dir)
 
-                    last = feed_config.get("last") or config.get("settings", {}).get("last")
+                    last = feed_config.get("last") if "last" in feed_config else config.get("settings", {}).get("last")
                     episodes = podcast.episodes[:last] if last else podcast.episodes
 
                     feed_step_names = feed_config.get("pipeline") or step_names
