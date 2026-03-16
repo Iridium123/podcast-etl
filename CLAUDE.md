@@ -60,6 +60,7 @@ feeds:
   - url: https://example.com/rss
     name: my-podcast
     enabled: true                 # optional; must be true to run during poll (default: false)
+    last: 5                       # optional; only process N most recent episodes during poll
     pipeline: [download, tag, detect_ads, strip_ads, stage, torrent, seed, upload]
     client: qbittorrent       # optional; falls back to first configured client
     tracker: unit3d           # optional; falls back to first configured tracker
