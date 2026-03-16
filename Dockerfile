@@ -22,4 +22,5 @@ ENV PATH="/app/.venv/bin:$PATH"
 WORKDIR /app
 VOLUME ["/config", "/output", "/torrent-data"]
 
-CMD ["podcast-etl", "-c", "/config/feeds.yaml", "poll"]
+ENV CONFIG_PATH="/config/feeds.yaml"
+CMD ["sh", "-c", "podcast-etl -c \"$CONFIG_PATH\" poll"]

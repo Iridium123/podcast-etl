@@ -10,3 +10,4 @@ services:
       - /path/to/torrent-data:/torrent-data   # shared with qBittorrent container
     environment:
       - TZ=America/Los_Angeles
+      - CONFIG_PATH=/config/feeds.yaml
