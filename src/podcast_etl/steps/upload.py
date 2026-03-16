@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import dataclass
 from pathlib import Path
@@ -24,6 +25,13 @@ class UploadStep:
         if not torrent_path:
             raise ValueError(f"Episode {episode.slug} torrent result missing 'torrent_path'")
 
+        # Check for existing upload checkpoint to avoid duplicate uploads
+        checkpoint_path = _checkpoint_path(context, episode)
+        if checkpoint_path.exists() and not context.overwrite:
+            upload_result = json.loads(checkpoint_path.read_text())
+            logger.info("Upload already completed for %s: %s", episode.slug, upload_result.get("url"))
+            return StepResult(data=upload_result)
+
         tracker = _get_tracker(context)
         audio_path = _resolve_audio_path(episode)
 
@@ -34,9 +42,17 @@ class UploadStep:
             feed_config=context.feed_config,
             audio_path=audio_path,
         )
-        logger.info("Uploaded torrent for %s: %s", episode.slug, upload_result.get("url"))
 
+        # Write checkpoint immediately after successful upload
+        checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+        checkpoint_path.write_text(json.dumps(upload_result))
+
+        logger.info("Uploaded torrent for %s: %s", episode.slug, upload_result.get("url"))
         return StepResult(data=upload_result)
+
+
+def _checkpoint_path(context: PipelineContext, episode: Episode) -> Path:
+    return context.podcast_dir / "uploads" / f"{episode.slug}.json"
 
 
 def _get_tracker(context: PipelineContext) -> ModifiedUnit3dTracker:
