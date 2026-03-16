@@ -17,6 +17,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
  && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /app/.venv /app/.venv
+COPY --from=builder /app/src /app/src
 ENV PATH="/app/.venv/bin:$PATH"
 
 WORKDIR /app
