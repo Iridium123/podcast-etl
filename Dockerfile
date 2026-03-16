@@ -7,7 +7,7 @@ COPY pyproject.toml uv.lock ./
 RUN uv sync --no-dev --no-install-project
 
 COPY src/ src/
-RUN uv sync --no-dev
+RUN uv sync --no-dev --no-editable
 
 FROM python:3.13-slim
 
@@ -17,7 +17,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
  && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /app/.venv /app/.venv
-COPY --from=builder /app/src /app/src
 ENV PATH="/app/.venv/bin:$PATH"
 
 WORKDIR /app
