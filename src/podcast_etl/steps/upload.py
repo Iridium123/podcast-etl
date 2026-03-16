@@ -28,9 +28,13 @@ class UploadStep:
         # Check for existing upload checkpoint to avoid duplicate uploads
         checkpoint_path = _checkpoint_path(context, episode)
         if checkpoint_path.exists() and not context.overwrite:
-            upload_result = json.loads(checkpoint_path.read_text())
-            logger.info("Upload already completed for %s: %s", episode.slug, upload_result.get("url"))
-            return StepResult(data=upload_result)
+            try:
+                upload_result = json.loads(checkpoint_path.read_text())
+            except (json.JSONDecodeError, OSError):
+                logger.warning("Checkpoint for %s is unreadable, re-uploading", episode.slug)
+            else:
+                logger.info("Upload already completed for %s: %s", episode.slug, upload_result.get("url"))
+                return StepResult(data=upload_result)
 
         tracker = _get_tracker(context)
         audio_path = _resolve_audio_path(episode)

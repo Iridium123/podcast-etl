@@ -190,3 +190,21 @@ class TestUploadStep:
 
         mock_tracker.upload.assert_called_once()
         assert result.data["torrent_id"] == 100
+        assert json.loads(checkpoint.read_text())["torrent_id"] == 100
+
+    def test_corrupt_checkpoint_triggers_reupload(self, tmp_path):
+        context = _make_context(tmp_path)
+        episode = _make_episode()
+
+        checkpoint = context.podcast_dir / "uploads" / f"{episode.slug}.json"
+        checkpoint.parent.mkdir(parents=True)
+        checkpoint.write_text("{corrupt")
+
+        mock_tracker = MagicMock()
+        mock_tracker.upload.return_value = {"torrent_id": 50, "url": "https://tracker.example.com/torrents/50"}
+
+        with patch("podcast_etl.steps.upload.ModifiedUnit3dTracker.from_config", return_value=mock_tracker):
+            result = UploadStep().process(episode, context)
+
+        mock_tracker.upload.assert_called_once()
+        assert result.data["torrent_id"] == 50
