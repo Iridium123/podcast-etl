@@ -32,6 +32,7 @@ Tests live in `tests/` and use pytest:
 - `test_seed_step.py` — `SeedStep` add_torrent, idempotency, client resolution
 - `test_upload_step.py` — `UploadStep` tracker.upload call, tracker resolution, error cases
 - `test_text.py` — `clean_description` (HTML, entity-encoded, CDATA, plain text), `contains_blacklisted`, `apply_blacklist`
+- `test_poller.py` — `run_poll_loop` enabled/disabled feed filtering
 - `test_audiobookshelf_step.py` — `AudiobookshelfStep` copy and scan trigger, audio resolution, config merging, error cases
 
 **After making changes**, run tests and check whether new behaviour should be tested. Always update `README.md` and `CLAUDE.md` to reflect any changes to CLI commands, pipeline steps, architecture, or configuration — do not skip this.
@@ -52,12 +53,13 @@ The pipeline is step-based and resumable. Each episode tracks its own completion
 9. `detectors/__init__.py` — `AdSegment` dataclass, `Detector` and `LLMProvider` protocols, `merge_segments` utility
 10. `detectors/transcription.py` — `TranscriptionDetector` (whisper transcription + LLM classification); supports local transcription via `faster-whisper` (default) or remote via OpenAI-compatible API; `AnthropicProvider` for Claude API
 
-**Feed config (`feeds.yaml`):** Each feed entry supports optional `name` (short identifier) and `pipeline` (list of step names). If `pipeline` is omitted, the feed uses `settings.pipeline` as the default. The `--feed` flag on `run`/`fetch`/`status` accepts either a name or a full URL.
+**Feed config (`feeds.yaml`):** Each feed entry supports optional `name` (short identifier), `enabled` (boolean, defaults to `false` — must be set to `true` for poll to process it), and `pipeline` (list of step names). If `pipeline` is omitted, the feed uses `settings.pipeline` as the default. The `--feed` flag on `run`/`fetch`/`status` accepts either a name or a full URL; `enabled: false` only affects `poll` mode, not explicit `--feed` runs.
 
 ```yaml
 feeds:
   - url: https://example.com/rss
     name: my-podcast
+    enabled: true                 # optional; must be true to run during poll (default: false)
     pipeline: [download, tag, detect_ads, strip_ads, stage, torrent, seed, upload]
     client: qbittorrent       # optional; falls back to first configured client
     tracker: unit3d           # optional; falls back to first configured tracker

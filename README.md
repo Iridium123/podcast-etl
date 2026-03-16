@@ -150,6 +150,7 @@ Edit `feeds.yaml` to manage feeds and pipeline settings. See `feeds.yaml.example
 feeds:
   - url: "https://example.com/feed.xml"
     name: my-podcast
+    enabled: true                 # optional; must be true to run during poll (default: false)
     pipeline: [download, tag, detect_ads, strip_ads, stage, torrent, seed, upload]
     client: qbittorrent       # optional; falls back to first configured client
     tracker: unit3d           # optional; falls back to first configured tracker

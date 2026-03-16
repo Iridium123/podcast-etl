@@ -43,6 +43,9 @@ def run_poll_loop(config: dict, config_path: Path) -> None:
             for feed_config in feeds:
                 if shutdown:
                     break
+                if not feed_config.get("enabled", False):
+                    logger.debug("Skipping disabled feed: %s", feed_config.get("name") or feed_config["url"])
+                    continue
                 url = feed_config["url"]
                 try:
                     logger.info("Fetching %s", url)
