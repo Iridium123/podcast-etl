@@ -125,7 +125,7 @@ def test_pipeline_runs_multiple_episodes(tmp_path: Path):
     assert step.call_count == 3
 
 
-def test_pipeline_continues_after_step_exception(tmp_path: Path):
+def test_pipeline_continues_to_next_episode_after_failure(tmp_path: Path):
     """A failing step should be caught; subsequent episodes still run."""
     call_log = []
 
@@ -149,6 +149,34 @@ def test_pipeline_continues_after_step_exception(tmp_path: Path):
     assert "boom" not in episodes[0].status
     assert "boom" in episodes[1].status
     assert "boom" in episodes[2].status
+
+
+def test_pipeline_stops_remaining_steps_on_failure(tmp_path: Path):
+    """A failing step should prevent later steps from running for that episode."""
+    step_a_log = []
+    step_b_log = []
+
+    class FailingStepA:
+        name = "step-a"
+
+        def process(self, episode: Episode, context: PipelineContext) -> StepResult:
+            step_a_log.append(episode.slug)
+            raise RuntimeError("step-a failed")
+
+    class StepB:
+        name = "step-b"
+
+        def process(self, episode: Episode, context: PipelineContext) -> StepResult:
+            step_b_log.append(episode.slug)
+            return StepResult()
+
+    ep = _make_episode()
+    ctx = _make_context(tmp_path)
+
+    Pipeline(steps=[FailingStepA(), StepB()], context=ctx).run([ep])
+
+    assert step_a_log == ["ep-1"]
+    assert step_b_log == []
 
 
 def test_get_step_unknown_raises():
