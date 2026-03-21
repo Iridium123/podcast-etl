@@ -171,6 +171,9 @@ class TestSeedStep:
             with pytest.raises(RuntimeError, match="connection refused"):
                 SeedStep().process(episode, context)
 
+        checkpoint = context.podcast_dir / "seeds" / f"{episode.slug}.json"
+        assert not checkpoint.exists()
+
     def test_writes_checkpoint_after_success(self, tmp_path):
         context = _make_context(tmp_path)
         episode = _make_episode()
