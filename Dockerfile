@@ -25,6 +25,6 @@ VOLUME ["/config", "/output", "/torrent-data"]
 
 ENV CONFIG_PATH="/config/feeds.yaml"
 COPY entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+COPY --chmod=0755 entrypoint.sh /entrypoint.sh
 ENTRYPOINT ["/entrypoint.sh"]
 CMD ["sh", "-c", "podcast-etl -c \"$CONFIG_PATH\" poll"]
