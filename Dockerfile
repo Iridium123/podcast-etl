@@ -15,8 +15,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     mktorrent \
     ffmpeg \
  && rm -rf /var/lib/apt/lists/* \
- && groupadd -g 100 podcastetl \
- && useradd -u 99 -g 100 -s /bin/bash podcastetl
+ && useradd -u 99 -g 100 -s /bin/bash -M podcastetl
 
 COPY --from=builder /app/.venv /app/.venv
 ENV PATH="/app/.venv/bin:$PATH"
@@ -28,4 +27,4 @@ ENV CONFIG_PATH="/config/feeds.yaml"
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 ENTRYPOINT ["/entrypoint.sh"]
-CMD ["podcast-etl", "-c", "/config/feeds.yaml", "poll"]
+CMD ["sh", "-c", "podcast-etl -c \"$CONFIG_PATH\" poll"]
