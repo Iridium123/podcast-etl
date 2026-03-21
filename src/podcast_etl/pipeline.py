@@ -84,3 +84,4 @@ class Pipeline:
                     logger.debug("  done %s", step.name)
                 except Exception:
                     logger.exception("  %s failed for %s", step.name, episode.slug)
+                    break
