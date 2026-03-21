@@ -14,7 +14,9 @@ FROM python:3.13-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
     mktorrent \
     ffmpeg \
- && rm -rf /var/lib/apt/lists/*
+ && rm -rf /var/lib/apt/lists/* \
+ && groupadd -g 100 podcastetl \
+ && useradd -u 99 -g 100 -s /bin/bash podcastetl
 
 COPY --from=builder /app/.venv /app/.venv
 ENV PATH="/app/.venv/bin:$PATH"
@@ -23,4 +25,7 @@ WORKDIR /app
 VOLUME ["/config", "/output", "/torrent-data"]
 
 ENV CONFIG_PATH="/config/feeds.yaml"
-CMD ["sh", "-c", "podcast-etl -c \"$CONFIG_PATH\" poll"]
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+ENTRYPOINT ["/entrypoint.sh"]
+CMD ["podcast-etl", "-c", "/config/feeds.yaml", "poll"]
