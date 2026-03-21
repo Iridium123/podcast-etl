@@ -15,7 +15,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     mktorrent \
     ffmpeg \
  && rm -rf /var/lib/apt/lists/* \
- && useradd -u 99 -g 100 -s /bin/bash -M podcastetl
+ && useradd -u 99 -g 100 -s /bin/bash -M podcastetl \
+ && echo 'umask 0002' >> /etc/profile \
+ && echo 'umask 0002' >> /etc/bash.bashrc
 
 COPY --from=builder /app/.venv /app/.venv
 ENV PATH="/app/.venv/bin:$PATH"
