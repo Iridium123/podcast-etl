@@ -3,6 +3,8 @@ services:
     image: ghcr.io/iridium123/podcast-etl:latest
     # Uncomment to build locally instead:
     # build: .
+    # Unraid: run as nobody:users so output files inherit correct ownership
+    # user: "99:100"
     restart: unless-stopped
     volumes:
       - ./config:/config
