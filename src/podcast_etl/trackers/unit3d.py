@@ -98,7 +98,7 @@ class ModifiedUnit3dTracker:
 
         name = _build_torrent_name(episode, podcast, feed_config, audio_path)
         description = episode.description or ""
-        description_suffix = feed_config.get("description_suffix")
+        description_suffix = self._defaults.get("description_suffix")
         if description_suffix:
             description = f"{description}\n\n{description_suffix}" if description else description_suffix
 
@@ -186,6 +186,7 @@ class ModifiedUnit3dTracker:
                 "anonymous": config.get("anonymous", 0),
                 "personal_release": config.get("personal_release", 0),
                 "mod_queue_opt_in": config.get("mod_queue_opt_in", 0),
+                "description_suffix": config.get("description_suffix"),
             },
         )
 

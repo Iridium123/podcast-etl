@@ -211,6 +211,42 @@ class TestUploadStep:
         # Original settings are preserved
         assert called_config["url"] == "https://tracker.example.com"
 
+    def test_feed_tracker_config_overrides_description_suffix(self, tmp_path):
+        podcast = _make_podcast()
+        config = {
+            "settings": {
+                "trackers": {
+                    "unit3d": {
+                        "url": "https://tracker.example.com",
+                        "username": "u",
+                        "password": "p",
+                        "announce_url": "https://tracker.example.com/a",
+                        "description_suffix": "Global suffix",
+                    }
+                }
+            }
+        }
+        context = PipelineContext(
+            output_dir=tmp_path / "output",
+            podcast=podcast,
+            config=config,
+            feed_config={
+                "category_id": 14,
+                "type_id": 9,
+                "tracker_config": {"description_suffix": "Per-feed suffix"},
+            },
+        )
+        episode = _make_episode()
+
+        mock_tracker = MagicMock()
+        mock_tracker.upload.return_value = {"torrent_id": 42, "url": "https://tracker.example.com/torrents/42"}
+
+        with patch("podcast_etl.steps.upload.ModifiedUnit3dTracker.from_config", return_value=mock_tracker) as mock_from_config:
+            UploadStep().process(episode, context)
+
+        called_config = mock_from_config.call_args[0][0]
+        assert called_config["description_suffix"] == "Per-feed suffix"
+
     def test_corrupt_checkpoint_triggers_reupload(self, tmp_path):
         context = _make_context(tmp_path)
         episode = _make_episode()
