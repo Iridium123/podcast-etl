@@ -290,28 +290,26 @@ class TestUpload:
         assert "torrent-banner" not in file_names
 
     def test_description_suffix_appended(self, torrent_path, feed_config):
-        feed_with_suffix = {**feed_config, "description_suffix": "Uploaded by Bot"}
-        tracker = _make_tracker()
+        tracker = _make_tracker(defaults={"anonymous": 0, "personal_release": 0, "mod_queue_opt_in": 0, "description_suffix": "Uploaded by Bot"})
         episode = _make_episode(description="A great episode.")
         podcast = _make_podcast()
         client = _mock_client_for_login()
 
         with patch("httpx.Client", return_value=client):
-            tracker.upload(torrent_path, episode, podcast, feed_with_suffix)
+            tracker.upload(torrent_path, episode, podcast, feed_config)
 
         upload_call = client.post.call_args_list[1]
         posted_data = upload_call.kwargs["data"]
         assert posted_data["description"] == "A great episode.\n\nUploaded by Bot"
 
     def test_description_suffix_with_empty_description(self, torrent_path, feed_config):
-        feed_with_suffix = {**feed_config, "description_suffix": "Uploaded by Bot"}
-        tracker = _make_tracker()
+        tracker = _make_tracker(defaults={"anonymous": 0, "personal_release": 0, "mod_queue_opt_in": 0, "description_suffix": "Uploaded by Bot"})
         episode = _make_episode(description=None)
         podcast = _make_podcast()
         client = _mock_client_for_login()
 
         with patch("httpx.Client", return_value=client):
-            tracker.upload(torrent_path, episode, podcast, feed_with_suffix)
+            tracker.upload(torrent_path, episode, podcast, feed_config)
 
         upload_call = client.post.call_args_list[1]
         posted_data = upload_call.kwargs["data"]
@@ -577,6 +575,16 @@ class TestFromConfig:
         assert tracker._defaults["anonymous"] == 0
         assert tracker._defaults["personal_release"] == 0
         assert tracker._defaults["mod_queue_opt_in"] == 0
+        assert tracker._defaults["description_suffix"] is None
+
+    def test_description_suffix_from_config(self):
+        tracker = ModifiedUnit3dTracker.from_config({
+            "url": "https://tracker.example.com",
+            "remember_cookie": "cookie",
+            "announce_url": "https://tracker.example.com/announce/x/announce",
+            "description_suffix": "Uploaded by Bot",
+        })
+        assert tracker._defaults["description_suffix"] == "Uploaded by Bot"
 
 
 class TestBuildTorrentName:
