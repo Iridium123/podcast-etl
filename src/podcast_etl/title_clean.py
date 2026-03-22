@@ -48,3 +48,40 @@ def strip_date(title: str) -> str:
     result = re.sub(r"^[-\u2013\u2014]\s*", "", result)
     result = re.sub(r"\s*[-\u2013\u2014]$", "", result)
     return result if result else title
+
+
+# Part indicator pattern inside brackets: Part 1, Pt. 2, Pt 3
+_PART_INTERIOR = r"(?:(?:Part|Pt)\.?\s*\d+)"
+
+_BRACKETED_PART_RE = re.compile(
+    r"\s*[-\u2013\u2014]*\s*"
+    r"(?:"
+    rf"\(({_PART_INTERIOR})\)"
+    rf"|\[({_PART_INTERIOR})\]"
+    rf"|\{{({_PART_INTERIOR})\}}"
+    r")"
+    r"\s*",
+    re.IGNORECASE,
+)
+
+
+def reorder_parts(title: str) -> str:
+    """Move the first bracketed part indicator to the front of the title.
+
+    Transforms 'Title (Part 1)' to 'Part 1 - Title'. Preserves original
+    casing. Only matches Part/Pt./Pt inside (), [], or {}.
+    """
+    if not title:
+        return title
+    match = _BRACKETED_PART_RE.search(title)
+    if not match:
+        return title
+    # One of the three capture groups will have the match
+    part_text = match.group(1) or match.group(2) or match.group(3)
+    before = title[:match.start()]
+    after = title[match.end():]
+    remainder = (before + " " + after).strip() if before.strip() and after.strip() else (before + after).strip()
+    # Clean up dangling separators
+    remainder = re.sub(r"^[-\u2013\u2014]\s*", "", remainder)
+    remainder = re.sub(r"\s*[-\u2013\u2014]$", "", remainder)
+    return f"{part_text} - {remainder}" if remainder else part_text

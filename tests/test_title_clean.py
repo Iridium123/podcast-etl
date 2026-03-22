@@ -1,5 +1,5 @@
 """Tests for title_clean.py: strip_date, reorder_parts, clean_title."""
-from podcast_etl.title_clean import strip_date
+from podcast_etl.title_clean import reorder_parts, strip_date
 
 
 class TestStripDate:
@@ -55,3 +55,55 @@ class TestStripDate:
     # Safety: don't return empty
     def test_date_only_returns_original(self):
         assert strip_date("(3_19_26)") == "(3_19_26)"
+
+
+class TestReorderParts:
+    # Basic reordering
+    def test_part_parens(self):
+        assert reorder_parts("The Great Episode (Part 1)") == "Part 1 - The Great Episode"
+
+    def test_part_brackets(self):
+        assert reorder_parts("The Great Episode [Part 2]") == "Part 2 - The Great Episode"
+
+    def test_part_braces(self):
+        assert reorder_parts("The Great Episode {Part 3}") == "Part 3 - The Great Episode"
+
+    # Pt. and Pt variants
+    def test_pt_dot(self):
+        assert reorder_parts("The Great Episode (Pt. 1)") == "Pt. 1 - The Great Episode"
+
+    def test_pt_no_dot(self):
+        assert reorder_parts("The Great Episode (Pt 2)") == "Pt 2 - The Great Episode"
+
+    # Case insensitivity (preserves original case)
+    def test_lowercase_part(self):
+        assert reorder_parts("The Great Episode (part 1)") == "part 1 - The Great Episode"
+
+    def test_uppercase_part(self):
+        assert reorder_parts("The Great Episode (PART 1)") == "PART 1 - The Great Episode"
+
+    # Multi-digit
+    def test_multi_digit_part(self):
+        assert reorder_parts("The Great Episode (Part 12)") == "Part 12 - The Great Episode"
+
+    # Trailing separator cleanup
+    def test_trailing_dash_before_part(self):
+        assert reorder_parts("The Great Episode - (Part 1)") == "Part 1 - The Great Episode"
+
+    # No match cases
+    def test_bare_part_not_reordered(self):
+        assert reorder_parts("The Great Episode Part 1") == "The Great Episode Part 1"
+
+    def test_no_part_unchanged(self):
+        assert reorder_parts("Just a Normal Title") == "Just a Normal Title"
+
+    def test_empty_string(self):
+        assert reorder_parts("") == ""
+
+    # Only first match moves
+    def test_multiple_parts_only_first_moves(self):
+        assert reorder_parts("Episode (Part 1) (Part 2)") == "Part 1 - Episode (Part 2)"
+
+    # Part at start — already at front, but brackets should be removed
+    def test_part_at_start_parens(self):
+        assert reorder_parts("(Part 1) The Great Episode") == "Part 1 - The Great Episode"
