@@ -6,8 +6,7 @@ import time
 from pathlib import Path
 
 from podcast_etl.feed import parse_feed
-from podcast_etl.pipeline import Pipeline, PipelineContext, get_step
-from podcast_etl.cli import resolve_title_cleaning
+from podcast_etl.pipeline import Pipeline, PipelineContext, get_step, resolve_title_cleaning
 
 logger = logging.getLogger(__name__)
 

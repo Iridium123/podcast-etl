@@ -18,7 +18,7 @@ from podcast_etl.feed import parse_feed
 from podcast_etl.models import Episode, Podcast
 
 logger = logging.getLogger(__name__)
-from podcast_etl.pipeline import Pipeline, PipelineContext, STEP_REGISTRY, get_step, merge_config, register_step
+from podcast_etl.pipeline import Pipeline, PipelineContext, STEP_REGISTRY, get_step, merge_config, register_step, resolve_title_cleaning
 from podcast_etl.steps.download import DownloadStep
 from podcast_etl.steps.tag import TagStep
 from podcast_etl.steps.stage import StageStep
@@ -145,15 +145,6 @@ def get_pipeline_steps(config: dict, feed_config: dict | None = None) -> list[st
     if feed_config and feed_config.get("pipeline"):
         return feed_config["pipeline"]
     return config.get("settings", {}).get("pipeline", ["download"])
-
-
-def resolve_title_cleaning(config: dict, feed_config: dict | None = None) -> dict | None:
-    """Merge global and per-feed title_cleaning config."""
-    global_cfg = config.get("settings", {}).get("title_cleaning", {})
-    feed_cfg = (feed_config or {}).get("title_cleaning", {})
-    if not global_cfg and not feed_cfg:
-        return None
-    return merge_config(global_cfg, feed_cfg) if global_cfg and feed_cfg else (feed_cfg or global_cfg)
 
 
 def setup_logging(level: str) -> None:
