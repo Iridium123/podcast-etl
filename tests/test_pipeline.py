@@ -230,3 +230,11 @@ class TestMergeConfig:
     def test_feed_adds_new_dict_key(self):
         result = merge_config({}, {"llm": {"model": "haiku"}})
         assert result == {"llm": {"model": "haiku"}}
+
+    def test_type_mismatch_dict_vs_scalar_raises(self):
+        with pytest.raises(TypeError, match="Type mismatch for key 'llm'"):
+            merge_config({"llm": {"model": "sonnet"}}, {"llm": "haiku"})
+
+    def test_type_mismatch_scalar_vs_dict_raises(self):
+        with pytest.raises(TypeError, match="Type mismatch for key 'model'"):
+            merge_config({"model": "sonnet"}, {"model": {"name": "haiku"}})

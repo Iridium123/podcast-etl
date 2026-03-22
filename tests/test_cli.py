@@ -15,6 +15,7 @@ from podcast_etl.cli import (
     load_config,
     parse_date_range,
     save_config,
+    validate_config,
 )
 from podcast_etl.models import Episode
 
@@ -277,3 +278,86 @@ def test_parse_date_range_both_empty_raises():
 def test_parse_date_range_invalid_format_raises():
     with pytest.raises(ValueError):
         parse_date_range("not-a-date")
+
+
+# ---------------------------------------------------------------------------
+# validate_config
+# ---------------------------------------------------------------------------
+
+def test_validate_config_passes_valid_config():
+    config = {
+        "feeds": [{"url": "https://example.com/rss", "pipeline": ["download"], "ad_detection": {"llm": {"model": "haiku"}}}],
+        "settings": {"ad_detection": {"llm": {"provider": "anthropic", "model": "sonnet"}}},
+    }
+    validate_config(config)  # should not raise
+
+
+def test_validate_config_empty():
+    validate_config({})  # should not raise
+    validate_config({"feeds": [], "settings": {}})  # should not raise
+
+
+def test_validate_config_feed_missing_url():
+    config = {"feeds": [{"name": "no-url"}]}
+    with pytest.raises(SystemExit, match="missing 'url'"):
+        validate_config(config)
+
+
+def test_validate_config_unknown_pipeline_step_in_feed():
+    config = {"feeds": [{"url": "https://example.com/rss", "pipeline": ["download", "nonexistent"]}]}
+    with pytest.raises(SystemExit, match="unknown pipeline step 'nonexistent'"):
+        validate_config(config)
+
+
+def test_validate_config_unknown_pipeline_step_in_settings():
+    config = {"feeds": [], "settings": {"pipeline": ["bogus"]}}
+    with pytest.raises(SystemExit, match="settings.pipeline.*'bogus'"):
+        validate_config(config)
+
+
+def test_validate_config_unknown_tracker_reference():
+    config = {
+        "feeds": [{"url": "https://example.com/rss", "tracker": "missing"}],
+        "settings": {"trackers": {"unit3d": {"url": "https://t.example.com"}}},
+    }
+    with pytest.raises(SystemExit, match="tracker 'missing' not found"):
+        validate_config(config)
+
+
+def test_validate_config_unknown_client_reference():
+    config = {
+        "feeds": [{"url": "https://example.com/rss", "client": "missing"}],
+        "settings": {"clients": {"qbittorrent": {"url": "http://localhost:8080"}}},
+    }
+    with pytest.raises(SystemExit, match="client 'missing' not found"):
+        validate_config(config)
+
+
+def test_validate_config_catches_ad_detection_type_mismatch():
+    config = {
+        "feeds": [{"url": "https://example.com/rss", "ad_detection": {"llm": "haiku"}}],
+        "settings": {"ad_detection": {"llm": {"provider": "anthropic"}}},
+    }
+    with pytest.raises(SystemExit, match="ad_detection"):
+        validate_config(config)
+
+
+def test_validate_config_catches_tracker_config_type_mismatch():
+    config = {
+        "feeds": [{"url": "https://example.com/rss", "tracker_config": {"announce_url": {"nested": "bad"}}}],
+        "settings": {"trackers": {"unit3d": {"url": "https://t.example.com", "announce_url": "https://t.example.com/a"}}},
+    }
+    with pytest.raises(SystemExit, match="tracker_config"):
+        validate_config(config)
+
+
+def test_validate_config_collects_multiple_errors():
+    config = {
+        "feeds": [
+            {"name": "no-url"},
+            {"url": "https://example.com/rss", "pipeline": ["nonexistent"]},
+        ],
+    }
+    with pytest.raises(SystemExit, match="missing 'url'") as exc_info:
+        validate_config(config)
+    assert "nonexistent" in str(exc_info.value)

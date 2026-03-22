@@ -18,7 +18,7 @@ from podcast_etl.feed import parse_feed
 from podcast_etl.models import Episode, Podcast
 
 logger = logging.getLogger(__name__)
-from podcast_etl.pipeline import Pipeline, PipelineContext, get_step, register_step
+from podcast_etl.pipeline import Pipeline, PipelineContext, STEP_REGISTRY, get_step, merge_config, register_step
 from podcast_etl.steps.download import DownloadStep
 from podcast_etl.steps.tag import TagStep
 from podcast_etl.steps.stage import StageStep
@@ -57,6 +57,73 @@ def load_config(config_path: Path) -> dict:
 
 def save_config(config: dict, config_path: Path) -> None:
     config_path.write_text(yaml.dump(config, default_flow_style=False, sort_keys=False))
+
+
+def validate_config(config: dict) -> None:
+    """Validate config structure and catch common errors early."""
+    settings = config.get("settings", {})
+    feeds = config.get("feeds", [])
+    errors: list[str] = []
+
+    # Validate each feed entry
+    for i, feed in enumerate(feeds):
+        feed_label = feed.get("name") or feed.get("url") or f"feeds[{i}]"
+
+        if not feed.get("url"):
+            errors.append(f"Feed {feed_label!r}: missing 'url'")
+
+        # Check pipeline step names are registered
+        for step_name in feed.get("pipeline", []):
+            if step_name not in STEP_REGISTRY:
+                errors.append(f"Feed {feed_label!r}: unknown pipeline step {step_name!r}")
+
+        # Check tracker/client references exist
+        tracker_name = feed.get("tracker")
+        if tracker_name and tracker_name not in settings.get("trackers", {}):
+            errors.append(f"Feed {feed_label!r}: tracker {tracker_name!r} not found in settings.trackers")
+
+        client_name = feed.get("client")
+        if client_name and client_name not in settings.get("clients", {}):
+            errors.append(f"Feed {feed_label!r}: client {client_name!r} not found in settings.clients")
+
+        # Check feed override type compatibility
+        _validate_feed_overrides(feed, settings, feed_label, errors)
+
+    # Check global pipeline step names
+    for step_name in settings.get("pipeline", []):
+        if step_name not in STEP_REGISTRY:
+            errors.append(f"settings.pipeline: unknown step {step_name!r}")
+
+    if errors:
+        raise SystemExit("Config validation failed:\n  " + "\n  ".join(errors))
+
+
+def _validate_feed_overrides(
+    feed: dict, settings: dict, feed_label: str, errors: list[str],
+) -> None:
+    """Check that per-feed override sections have compatible types with global settings."""
+    for section in ("ad_detection", "audiobookshelf"):
+        global_cfg = settings.get(section, {})
+        feed_cfg = feed.get(section, {})
+        if global_cfg and feed_cfg:
+            try:
+                merge_config(global_cfg, feed_cfg)
+            except TypeError as exc:
+                errors.append(f"Feed {feed_label!r}, {section}: {exc}")
+
+    feed_tracker_overrides = feed.get("tracker_config", {})
+    if feed_tracker_overrides:
+        tracker_name = feed.get("tracker")
+        trackers = settings.get("trackers", {})
+        if tracker_name:
+            tracker_cfg = trackers.get(tracker_name, {})
+        else:
+            tracker_cfg = next(iter(trackers.values()), {}) if trackers else {}
+        if tracker_cfg:
+            try:
+                merge_config(tracker_cfg, feed_tracker_overrides)
+            except TypeError as exc:
+                errors.append(f"Feed {feed_label!r}, tracker_config: {exc}")
 
 
 def get_output_dir(config: dict) -> Path:
@@ -174,6 +241,7 @@ def main(ctx: click.Context, config_path: Path, verbose: bool, log_level: str) -
     ctx.ensure_object(dict)
     ctx.obj["config_path"] = config_path
     ctx.obj["config"] = load_config(config_path)
+    validate_config(ctx.obj["config"])
 
 
 @main.command()
