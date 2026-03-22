@@ -9,7 +9,9 @@ _MONTH_NAMES = (
     r"|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)"
 )
 
-# Numeric dates: M/D/YY, MM/DD/YYYY, etc. with /, -, _ separators
+# Numeric dates: M/D/YY, MM/DD/YYYY, etc. with /, -, _ separators.
+# This is intentionally loose — it may match non-date sequences like (1/2/34).
+# Acceptable trade-off for podcast titles where such patterns are rare.
 _NUMERIC_DATE = r"\d{1,2}[/_-]\d{1,2}[/_-]\d{2,4}"
 # ISO dates: YYYY-MM-DD
 _ISO_DATE = r"\d{4}-\d{2}-\d{2}"
@@ -35,14 +37,17 @@ _BRACKETED_DATE_RE = re.compile(_BRACKETED_DATE)
 
 
 def strip_date(title: str) -> str:
-    """Remove bracketed date strings from a title.
+    """Remove all bracketed date strings from a title.
 
-    Only matches dates inside (), [], or {}. Cleans up adjacent
-    whitespace and dashes. Returns the original if stripping would
-    leave an empty result.
+    Only matches dates inside (), [], or {}. Removes every match
+    (titles with multiple bracketed dates get all of them stripped).
+    Cleans up adjacent whitespace and dashes. Returns the original
+    if stripping would leave an empty result.
     """
     if not title:
         return title
+    # Replace with space (not empty) so surrounding words don't merge;
+    # the regex's \s* already consumes adjacent whitespace.
     result = _BRACKETED_DATE_RE.sub(" ", title).strip()
     # Clean up leftover dangling separators at start/end
     result = re.sub(r"^[-\u2013\u2014]\s*", "", result)
@@ -68,8 +73,9 @@ _BRACKETED_PART_RE = re.compile(
 def reorder_parts(title: str) -> str:
     """Move the first bracketed part indicator to the front of the title.
 
-    Transforms 'Title (Part 1)' to 'Part 1 - Title'. Preserves original
-    casing. Only matches Part/Pt./Pt inside (), [], or {}.
+    Transforms 'Title (Part 1)' to 'Part 1 - Title'. Only moves the
+    first match — additional part indicators stay in place. Preserves
+    original casing. Only matches Part/Pt./Pt inside (), [], or {}.
     """
     if not title:
         return title

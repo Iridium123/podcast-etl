@@ -348,3 +348,32 @@ def test_parse_feed_title_cleaning_affects_slug():
     with patch("podcast_etl.feed.feedparser.parse", return_value=feed):
         podcast = parse_feed("https://example.com/feed.xml", title_cleaning={"strip_date": True})
     assert podcast.episodes[0].slug == "guest-name"
+
+
+def test_parse_feed_title_cleaning_preserves_status_despite_slug_change(tmp_path: Path):
+    """Status is preserved via GUID even when title cleaning changes the slug."""
+    # Save an episode with the old (uncleaned) title
+    existing_ep = Episode(
+        title="Guest Name (3_19_26)",
+        guid="guid-dated",
+        published="Mon, 01 Jan 2024 00:00:00 +0000",
+        audio_url="https://example.com/ep.mp3",
+        duration=None,
+        description=None,
+        slug="guest-name-3_19_26",
+        status={"download": StepStatus(completed_at="2024-01-01T00:00:00", result={"size_bytes": 200})},
+    )
+    podcast_dir = tmp_path / "test-podcast"
+    existing_ep.save(podcast_dir, "Test Podcast")
+
+    # Re-parse with title cleaning enabled — slug will change
+    entry = _Entry(title="Guest Name (3_19_26)", guid="guid-dated", links=[_audio_link()])
+    feed = _make_parsed_feed(entries=[entry], feed=_FeedMeta(title="Test Podcast"))
+    with patch("podcast_etl.feed.feedparser.parse", return_value=feed):
+        podcast = parse_feed("https://example.com/feed.xml", output_dir=tmp_path, title_cleaning={"strip_date": True})
+
+    ep = podcast.episodes[0]
+    assert ep.title == "Guest Name"
+    assert ep.slug == "guest-name"
+    assert "download" in ep.status
+    assert ep.status["download"].result["size_bytes"] == 200
