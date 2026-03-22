@@ -284,7 +284,7 @@ Optional rules to clean episode titles at feed parse time. Both rules are off by
 
 **`strip_date`** — Removes dates wrapped in brackets `()`, `[]`, or `{}` from episode titles. Useful when the pipeline already prepends dates to filenames and upload titles. Supported formats: `(3_19_26)`, `(03/22/2026)`, `(2026-03-22)`, `(March 22, 2026)`, etc. Bare dates without brackets are not affected.
 
-**`reorder_parts`** — Moves part indicators like `(Part 1)`, `(Pt. 2)`, `[Pt 3]` from anywhere in the title to the front, so multi-part episodes sort correctly. For example, `"The Great Episode (Part 1)"` becomes `"Part 1 - The Great Episode"`. Only matches parts inside brackets; bare `Part 1` is not affected.
+**`reorder_parts`** — Reorders part indicators like `(Part 1)`, `(Pt. 2)`, `[Pt 3]` so multi-part episodes released on the same day sort correctly. Uses same-day sibling episodes from the RSS feed to find a common series prefix and inserts the part number after it. For example, `"World War II - D-Day (Part 3)"` becomes `"World War II - Part 3 - D-Day"`. If the common prefix is too short (< 5 chars), the part is prepended instead. Only triggers when multiple same-day episodes have part indicators; solo episodes are left unchanged. Only matches parts inside brackets; bare `Part 1` is not affected.
 
 To get the `remember_cookie` value: log in to the tracker in your browser, then open DevTools → Application → Cookies → copy the value of `remember_web_59ba36addc2b2f9401580f014c7f58ea4e30989d`. This works with 2FA-enabled accounts. The cookie is long-lived but will eventually expire, requiring a fresh copy.
 
