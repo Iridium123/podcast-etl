@@ -43,17 +43,31 @@ def merge_config(global_config: dict[str, Any], feed_overrides: dict[str, Any]) 
     """Shallow-merge global settings with per-feed overrides (one level deep).
 
     Dict values are merged so the feed only needs to specify the keys it wants
-    to change.  Non-dict values are replaced outright.
+    to change.  Non-dict values are replaced outright.  Raises TypeError if a
+    key present in both configs has mismatched types (dict vs non-dict).
     """
     merged: dict[str, Any] = {}
     for key in global_config.keys() | feed_overrides.keys():
-        global_val = global_config.get(key, {})
-        feed_val = feed_overrides.get(key, {})
-        if isinstance(global_val, dict) and isinstance(feed_val, dict):
-            merged[key] = {**global_val, **feed_val}
+        in_global = key in global_config
+        in_feed = key in feed_overrides
+
+        if in_global and in_feed:
+            global_val = global_config[key]
+            feed_val = feed_overrides[key]
+            if isinstance(global_val, dict) and isinstance(feed_val, dict):
+                merged[key] = {**global_val, **feed_val}
+            elif isinstance(global_val, dict) != isinstance(feed_val, dict):
+                raise TypeError(
+                    f"Type mismatch for key {key!r}: "
+                    f"global is {type(global_val).__name__}, "
+                    f"feed override is {type(feed_val).__name__}"
+                )
+            else:
+                merged[key] = feed_val
+        elif in_feed:
+            merged[key] = feed_overrides[key]
         else:
-            # If types differ, the feed value wins (or global if key not in feed).
-            merged[key] = feed_val if key in feed_overrides else global_val
+            merged[key] = global_config[key]
     return merged
 
 
