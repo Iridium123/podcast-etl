@@ -244,6 +244,27 @@ class TestTorrentStep:
         cmd = mock_run.call_args[0][0]
         assert "https://tracker.example.com/announce/passkey/announce" in cmd
 
+    def test_feed_tracker_config_overrides_settings(self, tmp_path):
+        audio = _make_audio_file(tmp_path)
+        context = _make_context(tmp_path, feed_config={
+            "tracker_config": {"private": False},
+        })
+        episode = _make_episode(local_path=str(audio))
+
+        mock_result = MagicMock(returncode=0)
+        mock_torrent = MagicMock()
+        mock_torrent.infohash = "abcdef1234567890abcdef1234567890abcdef12"
+
+        with patch("podcast_etl.steps.torrent.subprocess.run", return_value=mock_result) as mock_run, \
+             patch("torf.Torrent.read", return_value=mock_torrent):
+            TorrentStep().process(episode, context)
+
+        cmd = mock_run.call_args[0][0]
+        # private=False from feed override should suppress -p flag
+        assert "-p" not in cmd
+        # announce_url from global settings is still used
+        assert "https://tracker.example.com/announce/passkey/announce" in cmd
+
     def test_raises_if_no_stage_status(self, tmp_path):
         context = _make_context(tmp_path)
         episode = _make_episode(local_path=None)

@@ -160,6 +160,8 @@ feeds:
     cover_image: /config/cover.jpg    # optional; uploaded as torrent cover (1:1 aspect ratio, JPEG)
     banner_image: /config/banner.jpg  # optional; uploaded as torrent banner (16:9 aspect ratio, JPEG)
     description_suffix: "Uploaded by MyBot"  # optional; appended to episode description on tracker
+    tracker_config:                   # optional per-feed tracker overrides
+      mod_queue_opt_in: 1
     ad_detection:                     # optional per-feed overrides
       llm:
         model: claude-sonnet-4-20250514

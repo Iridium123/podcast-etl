@@ -8,7 +8,7 @@ from pathlib import Path
 import httpx
 
 from podcast_etl.models import Episode, sanitize_filename
-from podcast_etl.pipeline import PipelineContext, StepResult
+from podcast_etl.pipeline import PipelineContext, StepResult, merge_config
 
 logger = logging.getLogger(__name__)
 
@@ -67,10 +67,9 @@ def _resolve_audio_path(episode: Episode, context: PipelineContext) -> Path:
 
 def _get_abs_config(context: PipelineContext) -> dict:
     """Resolve audiobookshelf config from settings."""
-    config = context.config.get("settings", {}).get("audiobookshelf", {})
-    # Allow per-feed overrides
-    feed_abs = context.feed_config.get("audiobookshelf", {})
-    merged = {**config, **feed_abs}
+    global_config = context.config.get("settings", {}).get("audiobookshelf", {})
+    feed_overrides = context.feed_config.get("audiobookshelf", {})
+    merged = merge_config(global_config, feed_overrides)
 
     for key in ("url", "api_key", "library_id", "dir"):
         if not merged.get(key):

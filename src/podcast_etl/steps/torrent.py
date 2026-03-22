@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from podcast_etl.models import Episode, episode_basename
-from podcast_etl.pipeline import PipelineContext, StepResult
+from podcast_etl.pipeline import PipelineContext, StepResult, merge_config
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +65,9 @@ def _get_tracker_info(context: PipelineContext) -> tuple[dict[str, Any], str]:
 
     if not tracker_config:
         raise ValueError("No tracker configured; cannot determine announce URL")
+
+    feed_overrides = context.feed_config.get("tracker_config", {})
+    tracker_config = merge_config(tracker_config, feed_overrides)
 
     announce_url = tracker_config.get("announce_url")
     if not announce_url:

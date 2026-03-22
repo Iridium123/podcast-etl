@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from podcast_etl.models import Episode
-from podcast_etl.pipeline import PipelineContext, StepResult
+from podcast_etl.pipeline import PipelineContext, StepResult, merge_config
 from podcast_etl.trackers.unit3d import ModifiedUnit3dTracker
 
 logger = logging.getLogger(__name__)
@@ -71,7 +71,9 @@ def _get_tracker(context: PipelineContext) -> ModifiedUnit3dTracker:
     if not tracker_config:
         raise ValueError("No tracker configured")
 
-    return ModifiedUnit3dTracker.from_config(tracker_config)
+    feed_overrides = context.feed_config.get("tracker_config", {})
+    merged = merge_config(tracker_config, feed_overrides)
+    return ModifiedUnit3dTracker.from_config(merged)
 
 
 def _resolve_audio_path(episode: Episode) -> Path | None:

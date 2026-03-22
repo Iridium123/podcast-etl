@@ -192,6 +192,25 @@ class TestUploadStep:
         assert result.data["torrent_id"] == 100
         assert json.loads(checkpoint.read_text())["torrent_id"] == 100
 
+    def test_feed_tracker_config_overrides_settings(self, tmp_path):
+        context = _make_context(tmp_path, feed_config={
+            "category_id": 14,
+            "type_id": 9,
+            "tracker_config": {"mod_queue_opt_in": 1},
+        })
+        episode = _make_episode()
+
+        mock_tracker = MagicMock()
+        mock_tracker.upload.return_value = {"torrent_id": 42, "url": "https://tracker.example.com/torrents/42"}
+
+        with patch("podcast_etl.steps.upload.ModifiedUnit3dTracker.from_config", return_value=mock_tracker) as mock_from_config:
+            UploadStep().process(episode, context)
+
+        called_config = mock_from_config.call_args[0][0]
+        assert called_config["mod_queue_opt_in"] == 1
+        # Original settings are preserved
+        assert called_config["url"] == "https://tracker.example.com"
+
     def test_corrupt_checkpoint_triggers_reupload(self, tmp_path):
         context = _make_context(tmp_path)
         episode = _make_episode()

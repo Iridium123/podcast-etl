@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from podcast_etl.models import Episode, Podcast, StepStatus
-from podcast_etl.pipeline import Pipeline, PipelineContext, StepResult
+from podcast_etl.pipeline import Pipeline, PipelineContext, StepResult, merge_config
 
 
 # --- Helpers ---
@@ -199,3 +199,30 @@ def test_register_and_get_step(tmp_path: Path):
 def test_pipeline_context_podcast_dir(tmp_path: Path):
     ctx = _make_context(tmp_path)
     assert ctx.podcast_dir == tmp_path / "test-podcast"
+
+
+# --- merge_config ---
+
+class TestMergeConfig:
+    def test_global_only(self):
+        assert merge_config({"a": 1, "b": 2}, {}) == {"a": 1, "b": 2}
+
+    def test_feed_overrides_scalar(self):
+        assert merge_config({"a": 1}, {"a": 99}) == {"a": 99}
+
+    def test_feed_adds_new_key(self):
+        assert merge_config({"a": 1}, {"b": 2}) == {"a": 1, "b": 2}
+
+    def test_nested_dicts_merged(self):
+        result = merge_config(
+            {"llm": {"provider": "anthropic", "model": "sonnet"}},
+            {"llm": {"model": "haiku"}},
+        )
+        assert result == {"llm": {"provider": "anthropic", "model": "haiku"}}
+
+    def test_both_empty(self):
+        assert merge_config({}, {}) == {}
+
+    def test_feed_replaces_scalar_with_scalar(self):
+        result = merge_config({"min_confidence": 0.5}, {"min_confidence": 0.8})
+        assert result == {"min_confidence": 0.8}
