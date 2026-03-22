@@ -26,6 +26,7 @@ class TestRetryTransport:
 
         rate_limit_response = MagicMock()
         rate_limit_response.status_code = 429
+        rate_limit_response.headers = {}
 
         ok_response = MagicMock()
         ok_response.status_code = 200
@@ -45,6 +46,7 @@ class TestRetryTransport:
 
         rate_limit_response = MagicMock()
         rate_limit_response.status_code = 429
+        rate_limit_response.headers = {}
         mock_transport.handle_request.return_value = rate_limit_response
 
         transport = RetryTransport(mock_transport)
@@ -60,6 +62,7 @@ class TestRetryTransport:
 
         rate_limit_response = MagicMock()
         rate_limit_response.status_code = 429
+        rate_limit_response.headers = {}
 
         ok_response = MagicMock()
         ok_response.status_code = 200
@@ -86,6 +89,7 @@ class TestRetryTransport:
 
         rate_limit_response = MagicMock()
         rate_limit_response.status_code = 429
+        rate_limit_response.headers = {}
 
         ok_response = MagicMock()
         ok_response.status_code = 200
@@ -98,6 +102,44 @@ class TestRetryTransport:
 
         rate_limit_response.close.assert_called_once()
 
+    def test_respects_retry_after_header(self):
+        mock_transport = MagicMock()
+
+        rate_limit_response = MagicMock()
+        rate_limit_response.status_code = 429
+        rate_limit_response.headers = {"Retry-After": "30"}
+
+        ok_response = MagicMock()
+        ok_response.status_code = 200
+
+        mock_transport.handle_request.side_effect = [rate_limit_response, ok_response]
+
+        transport = RetryTransport(mock_transport)
+        with patch("podcast_etl.http.time.sleep") as mock_sleep:
+            transport.handle_request(MagicMock())
+
+        # Should use the Retry-After value (30s) instead of the default (60s)
+        mock_sleep.assert_called_once_with(30)
+
+    def test_caps_retry_after_at_max_delay(self):
+        mock_transport = MagicMock()
+
+        rate_limit_response = MagicMock()
+        rate_limit_response.status_code = 429
+        rate_limit_response.headers = {"Retry-After": "9999"}
+
+        ok_response = MagicMock()
+        ok_response.status_code = 200
+
+        mock_transport.handle_request.side_effect = [rate_limit_response, ok_response]
+
+        transport = RetryTransport(mock_transport)
+        with patch("podcast_etl.http.time.sleep") as mock_sleep:
+            transport.handle_request(MagicMock())
+
+        # Should cap at max(RETRY_DELAYS) = 1200
+        mock_sleep.assert_called_once_with(max(RETRY_DELAYS))
+
     def test_close_delegates_to_wrapped_transport(self):
         mock_transport = MagicMock()
         transport = RetryTransport(mock_transport)
@@ -106,9 +148,10 @@ class TestRetryTransport:
 
 
 class TestRetryClient:
-    def test_returns_httpx_client(self):
+    def test_returns_httpx_client_with_retry_transport(self):
         client = retry_client()
         assert isinstance(client, httpx.Client)
+        assert isinstance(client._transport, RetryTransport)
         client.close()
 
     def test_accepts_kwargs(self):

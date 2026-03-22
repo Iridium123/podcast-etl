@@ -30,6 +30,9 @@ class RetryTransport(httpx.BaseTransport):
             return response
 
         for delay in RETRY_DELAYS:
+            retry_after = response.headers.get("Retry-After")
+            if retry_after and retry_after.isdigit():
+                delay = min(int(retry_after), max(RETRY_DELAYS))
             logger.warning(
                 "Rate limited (429) on %s %s, retrying in %ds...",
                 request.method,
@@ -54,5 +57,5 @@ class RetryTransport(httpx.BaseTransport):
 
 def retry_client(**kwargs: object) -> httpx.Client:
     """Create an httpx.Client with automatic 429 retry handling."""
-    transport = RetryTransport(httpx.HTTPTransport())
+    transport = RetryTransport()
     return httpx.Client(transport=transport, **kwargs)
