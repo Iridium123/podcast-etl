@@ -70,11 +70,12 @@ def run_poll_loop(config: dict, config_path: Path) -> None:
                     last = resolved.get("last")
                     episodes = podcast.episodes[:last] if last else podcast.episodes
 
+                    fail_fast = resolved.get("fail_fast", True)
                     feed_step_names = resolved.get("pipeline") or ["download"]
                     steps = [get_step(name) for name in feed_step_names]
                     context = PipelineContext(output_dir=output_dir, podcast=podcast, config=resolved)
                     pipeline = Pipeline(steps=steps, context=context)
-                    pipeline.run(episodes)
+                    pipeline.run(episodes, fail_fast=fail_fast)
                     logger.info("Completed %s: %d episodes processed", podcast.title, len(episodes))
                 except Exception:
                     logger.exception("Error processing feed %s", url)

@@ -10,6 +10,7 @@ from urllib.parse import urlparse
 import httpx
 from mutagen.mp3 import MP3
 
+from podcast_etl.http import retry_client
 from podcast_etl.models import Episode, Podcast, format_date
 
 logger = logging.getLogger(__name__)
@@ -103,7 +104,7 @@ class ModifiedUnit3dTracker:
         if description_suffix:
             description = f"{description}\n\n{description_suffix}" if description else description_suffix
 
-        with httpx.Client(follow_redirects=False, timeout=120) as client:
+        with retry_client(follow_redirects=False, timeout=120) as client:
             self._authenticate(client)
 
             # GET the create page to get a fresh CSRF token

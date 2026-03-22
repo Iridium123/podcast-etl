@@ -3,8 +3,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 
-import httpx
-
+from podcast_etl.http import retry_client
 from podcast_etl.models import Episode, episode_basename
 from podcast_etl.pipeline import PipelineContext, StepResult
 
@@ -38,11 +37,12 @@ class DownloadStep:
 
         logger.info("Downloading %s -> %s", episode.audio_url, filepath)
         headers = {"User-Agent": "podcast-etl/0.1"}
-        with httpx.stream("GET", episode.audio_url, headers=headers, follow_redirects=True, timeout=120) as response:
-            response.raise_for_status()
-            with open(filepath, "wb") as f:
-                for chunk in response.iter_bytes(chunk_size=8192):
-                    f.write(chunk)
+        with retry_client(follow_redirects=True, timeout=120) as client:
+            with client.stream("GET", episode.audio_url, headers=headers) as response:
+                response.raise_for_status()
+                with open(filepath, "wb") as f:
+                    for chunk in response.iter_bytes(chunk_size=8192):
+                        f.write(chunk)
 
         size = filepath.stat().st_size
         logger.info("Downloaded %s (%d bytes)", filename, size)

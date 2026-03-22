@@ -32,7 +32,7 @@ class TestLogin:
         mock_session.get.return_value.raise_for_status = MagicMock()
         mock_session.get.return_value.json.return_value = []
 
-        with patch("httpx.Client", return_value=mock_session):
+        with patch("podcast_etl.clients.qbittorrent.retry_client", return_value=mock_session):
             client.has_torrent("abc123")
 
         mock_session.post.assert_called_once_with(
@@ -46,7 +46,7 @@ class TestLogin:
         mock_session.post.return_value.text = "Fails."
         mock_session.post.return_value.raise_for_status = MagicMock()
 
-        with patch("httpx.Client", return_value=mock_session):
+        with patch("podcast_etl.clients.qbittorrent.retry_client", return_value=mock_session):
             with pytest.raises(ValueError, match="login failed"):
                 client.has_torrent("abc123")
 
@@ -58,7 +58,7 @@ class TestLogin:
         mock_session.get.return_value.raise_for_status = MagicMock()
         mock_session.get.return_value.json.return_value = []
 
-        with patch("httpx.Client", return_value=mock_session):
+        with patch("podcast_etl.clients.qbittorrent.retry_client", return_value=mock_session):
             client.has_torrent("abc")
             client.has_torrent("def")
 

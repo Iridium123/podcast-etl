@@ -44,6 +44,15 @@ def _llm_response_json(segments):
 # transcribe
 # ---------------------------------------------------------------------------
 
+def _mock_whisper_client(mock_resp):
+    """Create a mock retry_client that returns a context-managed client with .post()."""
+    mock_client = MagicMock()
+    mock_client.post = MagicMock(return_value=mock_resp)
+    mock_client.__enter__ = MagicMock(return_value=mock_client)
+    mock_client.__exit__ = MagicMock(return_value=False)
+    return mock_client
+
+
 class TestTranscribe:
     def test_calls_whisper_endpoint(self, tmp_path):
         audio_file = tmp_path / "test.mp3"
@@ -52,14 +61,15 @@ class TestTranscribe:
         mock_resp = MagicMock()
         mock_resp.json.return_value = _whisper_response(_whisper_segments())
         mock_resp.raise_for_status = MagicMock()
+        mock_client = _mock_whisper_client(mock_resp)
 
         config = {"whisper": {"url": "http://localhost:9000", "model": "large-v3"}}
 
-        with patch("podcast_etl.detectors.transcription.httpx.post", return_value=mock_resp) as mock_post:
+        with patch("podcast_etl.detectors.transcription.retry_client", return_value=mock_client):
             result = transcribe(audio_file, config)
 
-        mock_post.assert_called_once()
-        call_kwargs = mock_post.call_args
+        mock_client.post.assert_called_once()
+        call_kwargs = mock_client.post.call_args
         assert "localhost:9000" in call_kwargs.args[0]
         assert len(result) == 3
 
@@ -70,13 +80,14 @@ class TestTranscribe:
         mock_resp = MagicMock()
         mock_resp.json.return_value = _whisper_response([])
         mock_resp.raise_for_status = MagicMock()
+        mock_client = _mock_whisper_client(mock_resp)
 
         config = {"whisper": {"url": "http://localhost:9000", "api_key": "sk-test-key"}}
 
-        with patch("podcast_etl.detectors.transcription.httpx.post", return_value=mock_resp) as mock_post:
+        with patch("podcast_etl.detectors.transcription.retry_client", return_value=mock_client):
             transcribe(audio_file, config)
 
-        headers = mock_post.call_args.kwargs["headers"]
+        headers = mock_client.post.call_args.kwargs["headers"]
         assert headers["Authorization"] == "Bearer sk-test-key"
 
     def test_returns_empty_list_when_no_segments(self, tmp_path):
@@ -86,10 +97,11 @@ class TestTranscribe:
         mock_resp = MagicMock()
         mock_resp.json.return_value = {"segments": []}
         mock_resp.raise_for_status = MagicMock()
+        mock_client = _mock_whisper_client(mock_resp)
 
         config = {"whisper": {"url": "http://localhost:9000"}}
 
-        with patch("podcast_etl.detectors.transcription.httpx.post", return_value=mock_resp):
+        with patch("podcast_etl.detectors.transcription.retry_client", return_value=mock_client):
             result = transcribe(audio_file, config)
 
         assert result == []
@@ -100,10 +112,11 @@ class TestTranscribe:
 
         mock_resp = MagicMock()
         mock_resp.raise_for_status.side_effect = Exception("500 Internal Server Error")
+        mock_client = _mock_whisper_client(mock_resp)
 
         config = {"whisper": {"url": "http://localhost:9000"}}
 
-        with patch("podcast_etl.detectors.transcription.httpx.post", return_value=mock_resp):
+        with patch("podcast_etl.detectors.transcription.retry_client", return_value=mock_client):
             with pytest.raises(Exception, match="500"):
                 transcribe(audio_file, config)
 
@@ -126,10 +139,11 @@ class TestTranscribe:
         mock_resp = MagicMock()
         mock_resp.json.return_value = {"segments": []}
         mock_resp.raise_for_status = MagicMock()
+        mock_client = _mock_whisper_client(mock_resp)
 
         config = {"whisper": {"url": "http://localhost:9000", "model": "base"}}
 
-        with patch("podcast_etl.detectors.transcription.httpx.post", return_value=mock_resp):
+        with patch("podcast_etl.detectors.transcription.retry_client", return_value=mock_client):
             result = transcribe(audio_file, config)
 
         assert result == []

@@ -58,12 +58,14 @@ uv run podcast-etl run --feed my-podcast --date 2026-03-01..
 uv run podcast-etl run --feed my-podcast --date ..2026-03-07
 # re-process even if already completed
 uv run podcast-etl run --feed my-podcast --overwrite
+# continue processing remaining episodes after a failure (default: stop)
+uv run podcast-etl run --all --no-fail-fast
 # control log verbosity (-v is shorthand for DEBUG)
 uv run podcast-etl -v run --all
 uv run podcast-etl --log-level WARNING run --all
 ```
 
-Fetches feeds then runs configured pipeline steps. Episodes that have already completed a step are skipped unless `--overwrite` is passed.
+Fetches feeds then runs configured pipeline steps. Episodes that have already completed a step are skipped unless `--overwrite` is passed. By default, the pipeline stops on the first episode failure (`--fail-fast`). Use `--no-fail-fast` to continue processing remaining episodes after a failure. This can also be set globally via `settings.fail_fast` in the config file.
 
 Downloaded audio files are named `YYYY-MM-DD <Episode Title>.mp3` using the episode's release date and a sanitized version of its title. Characters forbidden on Windows/macOS (`/:*?"<>|`) are removed, and `": "` is replaced with `" - "` (e.g. `2024-03-15 Ep 3 - God Picked a Loser.mp3`).
 
@@ -155,6 +157,7 @@ defaults:
   output_dir: ./output
   torrent_data_dir: /torrent-data   # staging dir readable by both app and torrent client
   pipeline: [download, tag]         # default for feeds without their own pipeline
+  fail_fast: true                   # stop on first episode failure (default: true); set to false to continue
   blacklist:                        # strings to reject from descriptions (case-insensitive)
     - "John Doe"                    # any description containing this is blanked to null
 
