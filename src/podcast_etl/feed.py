@@ -40,7 +40,11 @@ def parse_feed(
         podcast_dir = output_dir / podcast_slug / "episodes"
         if podcast_dir.exists():
             for ep_path in podcast_dir.glob("*.json"):
-                ep = Episode.load(ep_path)
+                try:
+                    ep = Episode.load(ep_path)
+                except Exception as exc:
+                    logger.warning("Skipping corrupt episode file %s: %s", ep_path, exc)
+                    continue
                 existing_episodes[ep.guid] = ep
 
     episodes = []

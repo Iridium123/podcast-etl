@@ -60,11 +60,12 @@ def _get_tracker_info(context: PipelineContext) -> tuple[dict[str, Any], str]:
 
     if tracker_name:
         tracker_config = trackers.get(tracker_name)
+        if not tracker_config:
+            raise ValueError(f"Tracker {tracker_name!r} not found in settings.trackers")
     else:
         tracker_config = next(iter(trackers.values()), None) if trackers else None
-
-    if not tracker_config:
-        raise ValueError("No tracker configured; cannot determine announce URL")
+        if not tracker_config:
+            raise ValueError("No tracker configured; cannot determine announce URL")
 
     feed_overrides = context.feed_config.get("tracker_config", {})
     tracker_config = merge_config(tracker_config, feed_overrides)
@@ -85,7 +86,10 @@ def _run_mktorrent(audio_path: Path, torrent_path: Path, announce_url: str, comm
     cmd.append(str(audio_path))
 
     logger.info("Creating torrent: %s", torrent_path)
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True)
+    except FileNotFoundError:
+        raise RuntimeError("mktorrent is not installed or not in PATH") from None
     if result.returncode != 0:
         raise RuntimeError(f"mktorrent failed (exit {result.returncode}): {result.stderr.strip()}")
 

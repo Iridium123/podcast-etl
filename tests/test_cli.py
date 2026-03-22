@@ -361,3 +361,64 @@ def test_validate_config_collects_multiple_errors():
     with pytest.raises(SystemExit, match="missing 'url'") as exc_info:
         validate_config(config)
     assert "nonexistent" in str(exc_info.value)
+
+
+def test_validate_config_pipeline_must_be_list():
+    config = {"feeds": [{"url": "https://example.com/rss", "pipeline": "download"}]}
+    with pytest.raises(SystemExit, match="must be a list"):
+        validate_config(config)
+
+
+def test_validate_config_global_pipeline_must_be_list():
+    config = {"feeds": [], "settings": {"pipeline": "download"}}
+    with pytest.raises(SystemExit, match="must be a list"):
+        validate_config(config)
+
+
+def test_validate_config_poll_interval_must_be_positive_int():
+    config = {"feeds": [], "settings": {"poll_interval": -10}}
+    with pytest.raises(SystemExit, match="positive integer"):
+        validate_config(config)
+
+
+def test_validate_config_poll_interval_rejects_string():
+    config = {"feeds": [], "settings": {"poll_interval": "hourly"}}
+    with pytest.raises(SystemExit, match="positive integer"):
+        validate_config(config)
+
+
+def test_validate_config_client_missing_required_keys():
+    config = {"feeds": [], "settings": {"clients": {"qbt": {"url": "http://qbt:8080"}}}}
+    with pytest.raises(SystemExit, match="missing required key 'username'"):
+        validate_config(config)
+
+
+def test_validate_config_tracker_missing_required_keys():
+    config = {"feeds": [], "settings": {"trackers": {"unit3d": {"url": "https://t.example.com"}}}}
+    with pytest.raises(SystemExit, match="missing required key 'announce_url'"):
+        validate_config(config)
+
+
+def test_validate_config_tracker_missing_auth():
+    config = {"feeds": [], "settings": {"trackers": {"unit3d": {"url": "https://t.example.com", "announce_url": "https://t.example.com/announce"}}}}
+    with pytest.raises(SystemExit, match="remember_cookie.*username"):
+        validate_config(config)
+
+
+def test_validate_config_upload_requires_category_and_type_id():
+    config = {"feeds": [{"url": "https://example.com/rss", "pipeline": ["upload"]}]}
+    with pytest.raises(SystemExit, match="category_id") as exc_info:
+        validate_config(config)
+    assert "type_id" in str(exc_info.value)
+
+
+def test_validate_config_stage_requires_torrent_data_dir():
+    config = {"feeds": [{"url": "https://example.com/rss", "pipeline": ["stage"]}], "settings": {}}
+    with pytest.raises(SystemExit, match="torrent_data_dir"):
+        validate_config(config)
+
+
+def test_validate_config_ad_detection_whisper_must_be_dict():
+    config = {"feeds": [], "settings": {"ad_detection": {"whisper": "base"}}}
+    with pytest.raises(SystemExit, match="ad_detection.whisper.*must be a mapping"):
+        validate_config(config)

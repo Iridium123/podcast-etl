@@ -65,6 +65,9 @@ def validate_config(config: dict) -> None:
     feeds = config.get("feeds", [])
     errors: list[str] = []
 
+    # Validate settings types
+    _validate_settings_types(settings, errors)
+
     # Validate each feed entry
     for i, feed in enumerate(feeds):
         feed_label = feed.get("name") or feed.get("url") or f"feeds[{i}]"
@@ -72,10 +75,15 @@ def validate_config(config: dict) -> None:
         if not feed.get("url"):
             errors.append(f"Feed {feed_label!r}: missing 'url'")
 
-        # Check pipeline step names are registered
-        for step_name in feed.get("pipeline", []):
-            if step_name not in STEP_REGISTRY:
-                errors.append(f"Feed {feed_label!r}: unknown pipeline step {step_name!r}")
+        # pipeline must be a list, not a bare string
+        feed_pipeline = feed.get("pipeline")
+        if feed_pipeline is not None and not isinstance(feed_pipeline, list):
+            errors.append(f"Feed {feed_label!r}: 'pipeline' must be a list, not {type(feed_pipeline).__name__}")
+        else:
+            # Check pipeline step names are registered
+            for step_name in feed.get("pipeline", []):
+                if step_name not in STEP_REGISTRY:
+                    errors.append(f"Feed {feed_label!r}: unknown pipeline step {step_name!r}")
 
         # Check tracker/client references exist
         tracker_name = feed.get("tracker")
@@ -89,13 +97,81 @@ def validate_config(config: dict) -> None:
         # Check feed override type compatibility
         _validate_feed_overrides(feed, settings, feed_label, errors)
 
+        # Check required config for steps in this feed's pipeline
+        feed_steps = feed.get("pipeline") if isinstance(feed.get("pipeline"), list) else None
+        _validate_step_requirements(feed_steps or settings.get("pipeline", []), feed, feed_label, settings, errors)
+
     # Check global pipeline step names
-    for step_name in settings.get("pipeline", []):
-        if step_name not in STEP_REGISTRY:
-            errors.append(f"settings.pipeline: unknown step {step_name!r}")
+    global_pipeline = settings.get("pipeline", [])
+    if global_pipeline and not isinstance(global_pipeline, list):
+        errors.append(f"settings.pipeline: must be a list, not {type(global_pipeline).__name__}")
+    else:
+        for step_name in global_pipeline:
+            if step_name not in STEP_REGISTRY:
+                errors.append(f"settings.pipeline: unknown step {step_name!r}")
 
     if errors:
         raise SystemExit("Config validation failed:\n  " + "\n  ".join(errors))
+
+
+def _validate_settings_types(settings: dict, errors: list[str]) -> None:
+    """Validate types of common settings values."""
+    output_dir = settings.get("output_dir")
+    if output_dir is not None and not isinstance(output_dir, str):
+        errors.append(f"settings.output_dir: must be a string, got {type(output_dir).__name__}")
+
+    poll_interval = settings.get("poll_interval")
+    if poll_interval is not None:
+        if not isinstance(poll_interval, int) or isinstance(poll_interval, bool):
+            errors.append(f"settings.poll_interval: must be a positive integer, got {type(poll_interval).__name__}")
+        elif poll_interval <= 0:
+            errors.append(f"settings.poll_interval: must be a positive integer, got {poll_interval}")
+
+    # ad_detection sub-keys must be dicts, not scalars
+    ad_detection = settings.get("ad_detection")
+    if isinstance(ad_detection, dict):
+        for key in ("whisper", "llm"):
+            val = ad_detection.get(key)
+            if val is not None and not isinstance(val, dict):
+                errors.append(f"settings.ad_detection.{key}: must be a mapping, not {type(val).__name__}")
+
+    # Validate client required keys
+    for name, client_cfg in settings.get("clients", {}).items():
+        if not isinstance(client_cfg, dict):
+            errors.append(f"settings.clients.{name}: must be a mapping")
+            continue
+        for key in ("url", "username", "password"):
+            if not client_cfg.get(key):
+                errors.append(f"settings.clients.{name}: missing required key {key!r}")
+
+    # Validate tracker required keys
+    for name, tracker_cfg in settings.get("trackers", {}).items():
+        if not isinstance(tracker_cfg, dict):
+            errors.append(f"settings.trackers.{name}: must be a mapping")
+            continue
+        for key in ("url", "announce_url"):
+            if not tracker_cfg.get(key):
+                errors.append(f"settings.trackers.{name}: missing required key {key!r}")
+        has_cookie = tracker_cfg.get("remember_cookie")
+        has_login = tracker_cfg.get("username") and tracker_cfg.get("password")
+        if not has_cookie and not has_login:
+            errors.append(f"settings.trackers.{name}: must specify 'remember_cookie' or both 'username' and 'password'")
+
+
+def _validate_step_requirements(
+    step_names: list[str], feed: dict, feed_label: str, settings: dict, errors: list[str],
+) -> None:
+    """Check that required config exists for steps in the pipeline."""
+    step_set = set(step_names) if isinstance(step_names, list) else set()
+
+    if step_set & {"stage", "torrent", "seed"} and not settings.get("torrent_data_dir"):
+        errors.append(f"Feed {feed_label!r}: pipeline includes stage/torrent/seed but settings.torrent_data_dir is not set")
+
+    if "upload" in step_set:
+        if not feed.get("category_id"):
+            errors.append(f"Feed {feed_label!r}: pipeline includes 'upload' but 'category_id' is not set")
+        if not feed.get("type_id"):
+            errors.append(f"Feed {feed_label!r}: pipeline includes 'upload' but 'type_id' is not set")
 
 
 def _validate_feed_overrides(
@@ -260,6 +336,16 @@ def add(ctx: click.Context, feed_url: str, name: str | None, steps: tuple[str, .
             click.echo(f"Feed already exists: {feed_url}")
             return
 
+    if steps:
+        unknown = [s for s in steps if s not in STEP_REGISTRY]
+        if unknown:
+            raise click.UsageError(f"Unknown pipeline step(s): {', '.join(unknown)}. Available: {', '.join(STEP_REGISTRY)}")
+
+    if name:
+        existing_names = [f.get("name") for f in config["feeds"] if f.get("name")]
+        if name in existing_names:
+            click.echo(f"Warning: feed name {name!r} is already used by another feed", err=True)
+
     entry: dict = {"url": feed_url}
     if name:
         entry["name"] = name
@@ -281,6 +367,10 @@ def fetch(ctx: click.Context, feed_url: str | None, fetch_all: bool) -> None:
 
     if feed_url:
         feed_config = find_feed_config(config, feed_url)
+        if feed_config is None and not feed_url.startswith(("http://", "https://")):
+            raise click.UsageError(
+                f"Feed {feed_url!r} not found in config. Use a feed name, URL, or 'podcast-etl add' to add it first."
+            )
         urls = [feed_config["url"] if feed_config else feed_url]
     elif fetch_all:
         urls = [f["url"] for f in config.get("feeds", [])]
@@ -295,7 +385,10 @@ def fetch(ctx: click.Context, feed_url: str | None, fetch_all: bool) -> None:
     blacklist = config.get("settings", {}).get("blacklist", [])
     for url in urls:
         click.echo(f"Fetching {url}...")
-        podcast = fetch_feed(url, output_dir, blacklist=blacklist)
+        try:
+            podcast = fetch_feed(url, output_dir, blacklist=blacklist)
+        except ValueError as exc:
+            raise click.ClickException(str(exc))
         click.echo(f"  {podcast.title}: {len(podcast.episodes)} episodes")
 
 
@@ -324,6 +417,10 @@ def run(ctx: click.Context, feed_url: str | None, run_all: bool, step_filter: st
 
     if feed_url:
         feed_config = find_feed_config(config, feed_url)
+        if feed_config is None and not feed_url.startswith(("http://", "https://")):
+            raise click.UsageError(
+                f"Feed {feed_url!r} not found in config. Use a feed name, URL, or 'podcast-etl add' to add it first."
+            )
         feeds_to_run = [(feed_config["url"] if feed_config else feed_url, feed_config)]
     elif run_all:
         feeds_to_run = [(f["url"], f) for f in config.get("feeds", [])]
@@ -338,9 +435,15 @@ def run(ctx: click.Context, feed_url: str | None, run_all: bool, step_filter: st
     blacklist = config.get("settings", {}).get("blacklist", [])
     for url, feed_config in feeds_to_run:
         click.echo(f"Processing {url}...")
-        podcast = fetch_feed(url, output_dir, blacklist=blacklist)
+        try:
+            podcast = fetch_feed(url, output_dir, blacklist=blacklist)
+        except ValueError as exc:
+            raise click.ClickException(str(exc))
         click.echo(f"  {podcast.title}: {len(podcast.episodes)} episodes")
-        run_pipeline(podcast, output_dir, config, feed_config=feed_config, step_filter=step_filter, last=last, date_range=date_range, overwrite=overwrite)
+        try:
+            run_pipeline(podcast, output_dir, config, feed_config=feed_config, step_filter=step_filter, last=last, date_range=date_range, overwrite=overwrite)
+        except ValueError as exc:
+            raise click.ClickException(str(exc))
 
 
 @main.command()
