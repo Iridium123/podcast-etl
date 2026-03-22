@@ -98,6 +98,11 @@ class ModifiedUnit3dTracker:
 
         name = _build_torrent_name(episode, podcast, feed_config, audio_path)
         description = episode.description or ""
+        if feed_config.get("description_suffix"):
+            logger.warning(
+                "Top-level 'description_suffix' in feed config is deprecated; "
+                "move it to tracker config or feed tracker_config overrides"
+            )
         description_suffix = self._defaults.get("description_suffix")
         if description_suffix:
             description = f"{description}\n\n{description_suffix}" if description else description_suffix
