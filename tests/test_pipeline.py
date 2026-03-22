@@ -226,3 +226,7 @@ class TestMergeConfig:
     def test_feed_replaces_scalar_with_scalar(self):
         result = merge_config({"min_confidence": 0.5}, {"min_confidence": 0.8})
         assert result == {"min_confidence": 0.8}
+
+    def test_feed_adds_new_dict_key(self):
+        result = merge_config({}, {"llm": {"model": "haiku"}})
+        assert result == {"llm": {"model": "haiku"}}
