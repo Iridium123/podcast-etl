@@ -102,7 +102,7 @@ def _validate_feed_overrides(
     feed: dict, settings: dict, feed_label: str, errors: list[str],
 ) -> None:
     """Check that per-feed override sections have compatible types with global settings."""
-    for section in ("ad_detection", "audiobookshelf"):
+    for section in ("ad_detection", "audiobookshelf", "title_cleaning"):
         global_cfg = settings.get(section, {})
         feed_cfg = feed.get(section, {})
         if global_cfg and feed_cfg:

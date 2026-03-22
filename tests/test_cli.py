@@ -361,3 +361,20 @@ def test_validate_config_collects_multiple_errors():
     with pytest.raises(SystemExit, match="missing 'url'") as exc_info:
         validate_config(config)
     assert "nonexistent" in str(exc_info.value)
+
+
+def test_validate_config_catches_title_cleaning_type_mismatch():
+    config = {
+        "feeds": [{"url": "https://example.com/rss", "title_cleaning": {"strip_date": {"nested": "bad"}}}],
+        "settings": {"title_cleaning": {"strip_date": True}},
+    }
+    with pytest.raises(SystemExit, match="title_cleaning"):
+        validate_config(config)
+
+
+def test_validate_config_passes_valid_title_cleaning():
+    config = {
+        "feeds": [{"url": "https://example.com/rss", "title_cleaning": {"strip_date": True}}],
+        "settings": {"title_cleaning": {"reorder_parts": True}},
+    }
+    validate_config(config)  # should not raise
