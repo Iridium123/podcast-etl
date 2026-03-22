@@ -1,5 +1,5 @@
 """Tests for title_clean.py: strip_date, reorder_parts, clean_title."""
-from podcast_etl.title_clean import reorder_parts, strip_date
+from podcast_etl.title_clean import clean_title, reorder_parts, strip_date
 
 
 class TestStripDate:
@@ -107,3 +107,26 @@ class TestReorderParts:
     # Part at start — already at front, but brackets should be removed
     def test_part_at_start_parens(self):
         assert reorder_parts("(Part 1) The Great Episode") == "Part 1 - The Great Episode"
+
+
+class TestCleanTitle:
+    def test_empty_config_no_change(self):
+        assert clean_title("Title (3_19_26)", {}) == "Title (3_19_26)"
+
+    def test_none_config_no_change(self):
+        assert clean_title("Title (3_19_26)", None) == "Title (3_19_26)"
+
+    def test_both_false_no_change(self):
+        assert clean_title("Title (3_19_26)", {"strip_date": False, "reorder_parts": False}) == "Title (3_19_26)"
+
+    def test_strip_date_only(self):
+        assert clean_title("Guest (3_19_26)", {"strip_date": True}) == "Guest"
+
+    def test_reorder_parts_only(self):
+        assert clean_title("Episode (Part 1)", {"reorder_parts": True}) == "Part 1 - Episode"
+
+    def test_both_enabled(self):
+        assert clean_title("Episode (Part 1) (3_19_26)", {"strip_date": True, "reorder_parts": True}) == "Part 1 - Episode"
+
+    def test_both_enabled_reverse_order_in_title(self):
+        assert clean_title("Episode (3_19_26) (Part 1)", {"strip_date": True, "reorder_parts": True}) == "Part 1 - Episode"

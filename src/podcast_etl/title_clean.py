@@ -85,3 +85,17 @@ def reorder_parts(title: str) -> str:
     remainder = re.sub(r"^[-\u2013\u2014]\s*", "", remainder)
     remainder = re.sub(r"\s*[-\u2013\u2014]$", "", remainder)
     return f"{part_text} - {remainder}" if remainder else part_text
+
+
+def clean_title(title: str, config: dict | None) -> str:
+    """Apply enabled title cleaning rules based on config flags.
+
+    Rules are applied in order: strip_date first, then reorder_parts.
+    """
+    if not config:
+        return title
+    if config.get("strip_date"):
+        title = strip_date(title)
+    if config.get("reorder_parts"):
+        title = reorder_parts(title)
+    return title
