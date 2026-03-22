@@ -328,23 +328,6 @@ class TestUpload:
         posted_data = upload_call.kwargs["data"]
         assert posted_data["description"] == "A great episode."
 
-    def test_deprecated_feed_level_description_suffix_warns(self, torrent_path, caplog):
-        import logging
-        feed_with_old_suffix = {"category_id": 14, "type_id": 9, "description_suffix": "Old style"}
-        tracker = _make_tracker()
-        episode = _make_episode()
-        podcast = _make_podcast()
-        client = _mock_client_for_login()
-
-        with caplog.at_level(logging.WARNING, logger="podcast_etl.trackers.unit3d"):
-            with patch("httpx.Client", return_value=client):
-                tracker.upload(torrent_path, episode, podcast, feed_with_old_suffix)
-
-        assert "deprecated" in caplog.text.lower()
-        upload_call = client.post.call_args_list[1]
-        posted_data = upload_call.kwargs["data"]
-        assert "Old style" not in posted_data["description"]
-
     def test_hardcodes_media_db_ids_to_zero(self, torrent_path, feed_config):
         tracker = _make_tracker()
         episode = _make_episode()
