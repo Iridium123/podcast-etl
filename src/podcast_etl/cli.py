@@ -147,6 +147,15 @@ def get_pipeline_steps(config: dict, feed_config: dict | None = None) -> list[st
     return config.get("settings", {}).get("pipeline", ["download"])
 
 
+def resolve_title_cleaning(config: dict, feed_config: dict | None = None) -> dict | None:
+    """Merge global and per-feed title_cleaning config."""
+    global_cfg = config.get("settings", {}).get("title_cleaning", {})
+    feed_cfg = (feed_config or {}).get("title_cleaning", {})
+    if not global_cfg and not feed_cfg:
+        return None
+    return merge_config(global_cfg, feed_cfg) if global_cfg and feed_cfg else (feed_cfg or global_cfg)
+
+
 def setup_logging(level: str) -> None:
     logging.disable(logging.NOTSET)
     logging.basicConfig(
@@ -161,8 +170,9 @@ def fetch_feed(
     url: str,
     output_dir: Path,
     blacklist: list[str] | None = None,
+    title_cleaning: dict | None = None,
 ) -> Podcast:
-    podcast = parse_feed(url, output_dir=output_dir, blacklist=blacklist)
+    podcast = parse_feed(url, output_dir=output_dir, blacklist=blacklist, title_cleaning=title_cleaning)
     podcast.save(output_dir)
     return podcast
 
@@ -294,8 +304,10 @@ def fetch(ctx: click.Context, feed_url: str | None, fetch_all: bool) -> None:
 
     blacklist = config.get("settings", {}).get("blacklist", [])
     for url in urls:
+        fc = find_feed_config(config, url)
+        title_cleaning = resolve_title_cleaning(config, fc)
         click.echo(f"Fetching {url}...")
-        podcast = fetch_feed(url, output_dir, blacklist=blacklist)
+        podcast = fetch_feed(url, output_dir, blacklist=blacklist, title_cleaning=title_cleaning)
         click.echo(f"  {podcast.title}: {len(podcast.episodes)} episodes")
 
 
@@ -337,8 +349,9 @@ def run(ctx: click.Context, feed_url: str | None, run_all: bool, step_filter: st
 
     blacklist = config.get("settings", {}).get("blacklist", [])
     for url, feed_config in feeds_to_run:
+        title_cleaning = resolve_title_cleaning(config, feed_config)
         click.echo(f"Processing {url}...")
-        podcast = fetch_feed(url, output_dir, blacklist=blacklist)
+        podcast = fetch_feed(url, output_dir, blacklist=blacklist, title_cleaning=title_cleaning)
         click.echo(f"  {podcast.title}: {len(podcast.episodes)} episodes")
         run_pipeline(podcast, output_dir, config, feed_config=feed_config, step_filter=step_filter, last=last, date_range=date_range, overwrite=overwrite)
 
