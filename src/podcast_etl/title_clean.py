@@ -4,6 +4,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from podcast_etl.models import format_date
+
 # Date patterns (used inside bracket groups)
 _MONTH_NAMES = (
     r"(?:January|February|March|April|May|June|July|August|September|October|November|December"
@@ -71,6 +73,9 @@ _BRACKETED_PART_RE = re.compile(
 )
 
 
+# Minimum common prefix length to insert part after prefix rather than prepend.
+# Below this threshold, the prefix is likely a short word (e.g. "The") rather
+# than a meaningful series name.
 _MIN_PREFIX_LEN = 5
 
 
@@ -106,11 +111,10 @@ def _common_prefix(strings: list[str]) -> str:
 
 def _normalize_date(published: str | None) -> str | None:
     """Normalize a published date string to YYYY-MM-DD for grouping."""
-    from podcast_etl.models import format_date
     return format_date(published)
 
 
-def reorder_parts(title: str, published: str | None = None, all_entries: list[dict[str, Any]] | None = None) -> str:
+def reorder_parts(title: str, published: str | None = None, all_entries: list[Any] | None = None) -> str:
     """Reorder a bracketed part indicator using same-day sibling context.
 
     When sibling entries from the same publish date are available, computes
@@ -175,7 +179,7 @@ def clean_title(
     title: str,
     config: dict | None,
     published: str | None = None,
-    all_entries: list[dict[str, Any]] | None = None,
+    all_entries: list[Any] | None = None,
 ) -> str:
     """Apply enabled title cleaning rules based on config flags.
 
@@ -188,5 +192,8 @@ def clean_title(
     if config.get("strip_date"):
         title = strip_date(title)
     if config.get("reorder_parts"):
+        # Note: all_entries still contain original titles (before strip_date).
+        # This is fine because reorder_parts strips part indicators first, and
+        # dates typically appear after the episode-specific suffix.
         title = reorder_parts(title, published=published, all_entries=all_entries)
     return title

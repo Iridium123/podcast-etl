@@ -57,7 +57,7 @@ class TestStripDate:
     def test_date_only_returns_original(self):
         assert strip_date("(3_19_26)") == "(3_19_26)"
 
-    # Multiple dates
+    # Multiple dates — only bracketed dates are removed, connectors like "and" remain
     def test_multiple_dates_all_stripped(self):
         assert strip_date("Ep (1/2/26) and (3/4/26)") == "Ep and"
 
