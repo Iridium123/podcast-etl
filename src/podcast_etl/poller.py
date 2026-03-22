@@ -7,6 +7,7 @@ from pathlib import Path
 
 from podcast_etl.feed import parse_feed
 from podcast_etl.pipeline import Pipeline, PipelineContext, get_step
+from podcast_etl.cli import resolve_title_cleaning
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +59,8 @@ def run_poll_loop(config: dict, config_path: Path) -> None:
                 try:
                     logger.info("Fetching %s", url)
                     blacklist = config.get("settings", {}).get("blacklist", [])
-                    podcast = parse_feed(url, output_dir=output_dir, blacklist=blacklist)
+                    title_cleaning = resolve_title_cleaning(config, feed_config)
+                    podcast = parse_feed(url, output_dir=output_dir, blacklist=blacklist, title_cleaning=title_cleaning)
                     podcast.save(output_dir)
 
                     last = feed_config.get("last") if "last" in feed_config else config.get("settings", {}).get("last")
