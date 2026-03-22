@@ -341,6 +341,9 @@ class TestUpload:
                 tracker.upload(torrent_path, episode, podcast, feed_with_old_suffix)
 
         assert "deprecated" in caplog.text.lower()
+        upload_call = client.post.call_args_list[1]
+        posted_data = upload_call.kwargs["data"]
+        assert "Old style" not in posted_data["description"]
 
     def test_hardcodes_media_db_ids_to_zero(self, torrent_path, feed_config):
         tracker = _make_tracker()

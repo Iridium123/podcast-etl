@@ -100,8 +100,9 @@ class ModifiedUnit3dTracker:
         description = episode.description or ""
         if feed_config.get("description_suffix"):
             logger.warning(
-                "Top-level 'description_suffix' in feed config is deprecated; "
-                "move it to tracker config or feed tracker_config overrides"
+                "Top-level 'description_suffix' in feed config is deprecated and will be ignored; "
+                "move it to settings.trackers.unit3d.description_suffix "
+                "or use tracker_config.description_suffix for a per-feed override"
             )
         description_suffix = self._defaults.get("description_suffix")
         if description_suffix:
