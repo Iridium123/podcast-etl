@@ -35,9 +35,14 @@ def run_poll_loop(config: dict, config_path: Path) -> None:
 
         if config_path.exists():
             try:
-                config = yaml.safe_load(config_path.read_text()) or config
+                new_config = yaml.safe_load(config_path.read_text()) or config
+                from podcast_etl.cli import validate_config
+                validate_config(new_config)
+                config = new_config
             except yaml.YAMLError as exc:
                 logger.error("Failed to parse config %s, using previous config: %s", config_path, exc)
+            except SystemExit as exc:
+                logger.error("Config validation failed, using previous config: %s", exc)
 
         feeds = config.get("feeds", [])
         if not feeds:
