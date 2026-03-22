@@ -13,4 +13,6 @@ wheels/
 output/
 *.DS_Store
 feeds.yaml
-.claude/
+# Claude Code (share settings + agents, keep local config personal)
+.claude/settings.local.json
+.claude/worktrees/

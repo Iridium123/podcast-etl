@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "file=\"$TOOL_INPUT_FILE_PATH\"; case \"$file\" in */podcast_etl/*|*/tests/*) uv run pytest tests/ -x -q 2>&1 | tail -5 ;; esac"
+          }
+        ]
+      }
+    ]
+  }
+}
