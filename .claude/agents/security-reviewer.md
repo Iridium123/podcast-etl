@@ -27,7 +27,7 @@ When reviewing changes, check for:
 
 ## How to review
 
-1. Run `git diff main` to see what changed
+1. Run `git diff origin/main` to see what changed
 2. Read each modified file
 3. Check each item on the checklist above
 4. Report findings with file path, line number, severity (critical/high/medium/low), and recommended fix
