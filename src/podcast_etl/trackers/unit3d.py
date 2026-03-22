@@ -177,7 +177,7 @@ class ModifiedUnit3dTracker:
     @classmethod
     def from_config(cls, config: dict[str, Any]) -> ModifiedUnit3dTracker:
         for key in ("url", "announce_url"):
-            if key not in config:
+            if not config.get(key):
                 raise ValueError(f"Tracker config missing required key {key!r}")
         return cls(
             url=config["url"],

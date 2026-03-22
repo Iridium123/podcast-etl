@@ -56,7 +56,7 @@ class QBittorrentClient:
     @classmethod
     def from_config(cls, config: dict[str, Any]) -> "QBittorrentClient":
         for key in ("url", "username", "password"):
-            if key not in config:
+            if not config.get(key):
                 raise ValueError(f"qBittorrent client config missing required key {key!r}")
         return cls(
             url=config["url"],

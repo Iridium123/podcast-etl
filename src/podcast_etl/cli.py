@@ -99,9 +99,10 @@ def validate_config(config: dict) -> None:
 
         # Check required config for steps in this feed's pipeline
         feed_steps = feed.get("pipeline") if isinstance(feed.get("pipeline"), list) else None
-        _validate_step_requirements(feed_steps or settings.get("pipeline", []), feed, feed_label, settings, errors)
+        if feed_steps:
+            _validate_step_requirements(feed_steps, feed, feed_label, settings, errors)
 
-    # Check global pipeline step names
+    # Check global pipeline step names and requirements
     global_pipeline = settings.get("pipeline", [])
     if global_pipeline and not isinstance(global_pipeline, list):
         errors.append(f"settings.pipeline: must be a list, not {type(global_pipeline).__name__}")
@@ -109,6 +110,10 @@ def validate_config(config: dict) -> None:
         for step_name in global_pipeline:
             if step_name not in STEP_REGISTRY:
                 errors.append(f"settings.pipeline: unknown step {step_name!r}")
+        # Validate global pipeline requirements once (applies to feeds without their own pipeline)
+        feeds_using_global = [f for f in feeds if not isinstance(f.get("pipeline"), list)]
+        if feeds_using_global and isinstance(global_pipeline, list):
+            _validate_step_requirements(global_pipeline, {}, "settings.pipeline (global)", settings, errors)
 
     if errors:
         raise SystemExit("Config validation failed:\n  " + "\n  ".join(errors))
@@ -162,7 +167,7 @@ def _validate_step_requirements(
     step_names: list[str], feed: dict, feed_label: str, settings: dict, errors: list[str],
 ) -> None:
     """Check that required config exists for steps in the pipeline."""
-    step_set = set(step_names) if isinstance(step_names, list) else set()
+    step_set = set(step_names)
 
     if step_set & {"stage", "torrent", "seed"} and not settings.get("torrent_data_dir"):
         errors.append(f"Feed {feed_label!r}: pipeline includes stage/torrent/seed but settings.torrent_data_dir is not set")
@@ -344,7 +349,7 @@ def add(ctx: click.Context, feed_url: str, name: str | None, steps: tuple[str, .
     if name:
         existing_names = [f.get("name") for f in config["feeds"] if f.get("name")]
         if name in existing_names:
-            click.echo(f"Warning: feed name {name!r} is already used by another feed", err=True)
+            raise click.UsageError(f"Feed name {name!r} is already used by another feed")
 
     entry: dict = {"url": feed_url}
     if name:
