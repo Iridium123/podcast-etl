@@ -46,12 +46,13 @@ def merge_config(global_config: dict[str, Any], feed_overrides: dict[str, Any]) 
     to change.  Non-dict values are replaced outright.
     """
     merged: dict[str, Any] = {}
-    for key in set(list(global_config.keys()) + list(feed_overrides.keys())):
+    for key in global_config.keys() | feed_overrides.keys():
         global_val = global_config.get(key, {})
         feed_val = feed_overrides.get(key, {})
         if isinstance(global_val, dict) and isinstance(feed_val, dict):
             merged[key] = {**global_val, **feed_val}
         else:
+            # If types differ, the feed value wins (or global if key not in feed).
             merged[key] = feed_val if key in feed_overrides else global_val
     return merged
 
