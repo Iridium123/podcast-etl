@@ -165,6 +165,9 @@ feeds:
     ad_detection:                     # optional per-feed overrides
       llm:
         model: claude-sonnet-4-20250514
+    title_cleaning:                   # optional per-feed title cleaning
+      strip_date: true                # remove bracketed dates from titles
+      reorder_parts: true             # move (Part N) to front of title
 
 settings:
   poll_interval: 3600
@@ -174,6 +177,10 @@ settings:
   pipeline: [download, tag]         # default for feeds without their own pipeline
   blacklist:                        # strings to reject from descriptions (case-insensitive)
     - "John Doe"                    # any description containing this is blanked to null
+
+  title_cleaning:                     # global title cleaning (default off)
+    strip_date: false                 # remove bracketed dates from episode titles
+    reorder_parts: false              # move (Part N) to front of episode title
 
   ad_detection:
     whisper:
@@ -270,6 +277,14 @@ settings:
 | 15 | Video - Premium |
 
 </details>
+
+### Title Cleaning
+
+Optional rules to clean episode titles at feed parse time. Both rules are off by default and can be enabled globally in `settings.title_cleaning` or per-feed in `title_cleaning`. Per-feed values override global values.
+
+**`strip_date`** — Removes dates wrapped in brackets `()`, `[]`, or `{}` from episode titles. Useful when the pipeline already prepends dates to filenames and upload titles. Supported formats: `(3_19_26)`, `(03/22/2026)`, `(2026-03-22)`, `(March 22, 2026)`, etc. Bare dates without brackets are not affected.
+
+**`reorder_parts`** — Moves part indicators like `(Part 1)`, `(Pt. 2)`, `[Pt 3]` from anywhere in the title to the front, so multi-part episodes sort correctly. For example, `"The Great Episode (Part 1)"` becomes `"Part 1 - The Great Episode"`. Only matches parts inside brackets; bare `Part 1` is not affected.
 
 To get the `remember_cookie` value: log in to the tracker in your browser, then open DevTools → Application → Cookies → copy the value of `remember_web_59ba36addc2b2f9401580f014c7f58ea4e30989d`. This works with 2FA-enabled accounts. The cookie is long-lived but will eventually expire, requiring a fresh copy.
 
