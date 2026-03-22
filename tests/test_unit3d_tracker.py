@@ -289,6 +289,47 @@ class TestUpload:
         assert "torrent-cover" not in file_names
         assert "torrent-banner" not in file_names
 
+    def test_description_suffix_appended(self, torrent_path, feed_config):
+        feed_with_suffix = {**feed_config, "description_suffix": "Uploaded by Bot"}
+        tracker = _make_tracker()
+        episode = _make_episode(description="A great episode.")
+        podcast = _make_podcast()
+        client = _mock_client_for_login()
+
+        with patch("httpx.Client", return_value=client):
+            tracker.upload(torrent_path, episode, podcast, feed_with_suffix)
+
+        upload_call = client.post.call_args_list[1]
+        posted_data = upload_call.kwargs["data"]
+        assert posted_data["description"] == "A great episode.\n\nUploaded by Bot"
+
+    def test_description_suffix_with_empty_description(self, torrent_path, feed_config):
+        feed_with_suffix = {**feed_config, "description_suffix": "Uploaded by Bot"}
+        tracker = _make_tracker()
+        episode = _make_episode(description=None)
+        podcast = _make_podcast()
+        client = _mock_client_for_login()
+
+        with patch("httpx.Client", return_value=client):
+            tracker.upload(torrent_path, episode, podcast, feed_with_suffix)
+
+        upload_call = client.post.call_args_list[1]
+        posted_data = upload_call.kwargs["data"]
+        assert posted_data["description"] == "Uploaded by Bot"
+
+    def test_description_without_suffix(self, torrent_path, feed_config):
+        tracker = _make_tracker()
+        episode = _make_episode(description="A great episode.")
+        podcast = _make_podcast()
+        client = _mock_client_for_login()
+
+        with patch("httpx.Client", return_value=client):
+            tracker.upload(torrent_path, episode, podcast, feed_config)
+
+        upload_call = client.post.call_args_list[1]
+        posted_data = upload_call.kwargs["data"]
+        assert posted_data["description"] == "A great episode."
+
     def test_hardcodes_media_db_ids_to_zero(self, torrent_path, feed_config):
         tracker = _make_tracker()
         episode = _make_episode()

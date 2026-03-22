@@ -68,6 +68,7 @@ feeds:
     type_id: 9                # required for upload step (see README.md for full ID tables)
     cover_image: /config/cover.jpg   # optional; uploaded as torrent cover (1:1, JPEG)
     banner_image: /config/banner.jpg # optional; uploaded as torrent banner (16:9, JPEG)
+    description_suffix: "Uploaded by MyBot"  # optional; appended to tracker description
 
     ad_detection:                       # optional per-feed overrides
       llm:

@@ -98,6 +98,9 @@ class ModifiedUnit3dTracker:
 
         name = _build_torrent_name(episode, podcast, feed_config, audio_path)
         description = episode.description or ""
+        description_suffix = feed_config.get("description_suffix")
+        if description_suffix:
+            description = f"{description}\n\n{description_suffix}" if description else description_suffix
 
         with httpx.Client(follow_redirects=False, timeout=120) as client:
             self._authenticate(client)
