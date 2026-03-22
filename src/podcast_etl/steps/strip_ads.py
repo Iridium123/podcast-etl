@@ -200,7 +200,10 @@ class StripAdsStep:
         else:
             cmd = _build_ffmpeg_args(audio_path, output_path, segments, audio_duration)
             logger.info("Stripping %d ad segment(s) from %s", len(segments), audio_path.name)
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=3600)
+            try:
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=3600)
+            except FileNotFoundError:
+                raise RuntimeError("ffmpeg is not installed or not in PATH") from None
             if result.returncode != 0:
                 raise RuntimeError(f"ffmpeg failed (exit {result.returncode}): {result.stderr.strip()}")
 

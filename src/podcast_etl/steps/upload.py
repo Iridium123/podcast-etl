@@ -65,11 +65,12 @@ def _get_tracker(context: PipelineContext) -> ModifiedUnit3dTracker:
 
     if tracker_name:
         tracker_config = trackers.get(tracker_name)
+        if not tracker_config:
+            raise ValueError(f"Tracker {tracker_name!r} not found in settings.trackers")
     else:
         tracker_config = next(iter(trackers.values()), None) if trackers else None
-
-    if not tracker_config:
-        raise ValueError("No tracker configured")
+        if not tracker_config:
+            raise ValueError("No tracker configured")
 
     feed_overrides = context.feed_config.get("tracker_config", {})
     merged = merge_config(tracker_config, feed_overrides)

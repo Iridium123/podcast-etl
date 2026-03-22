@@ -70,10 +70,11 @@ def _get_client(context: PipelineContext) -> QBittorrentClient:
 
     if client_name:
         client_config = clients.get(client_name)
+        if not client_config:
+            raise ValueError(f"Client {client_name!r} not found in settings.clients")
     else:
         client_config = next(iter(clients.values()), None) if clients else None
-
-    if not client_config:
-        raise ValueError("No torrent client configured")
+        if not client_config:
+            raise ValueError("No torrent client configured")
 
     return QBittorrentClient.from_config(client_config)
