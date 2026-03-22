@@ -422,3 +422,64 @@ def test_validate_config_ad_detection_whisper_must_be_dict():
     config = {"feeds": [], "settings": {"ad_detection": {"whisper": "base"}}}
     with pytest.raises(SystemExit, match="ad_detection.whisper.*must be a mapping"):
         validate_config(config)
+
+
+def test_validate_config_global_pipeline_upload_checks_each_feed():
+    """Global pipeline with 'upload' should validate per-feed config, not fail with empty feed."""
+    config = {
+        "feeds": [
+            {"url": "https://a.com/rss", "category_id": 14, "type_id": 9},
+            {"url": "https://b.com/rss", "category_id": 5, "type_id": 3},
+        ],
+        "settings": {"pipeline": ["upload"]},
+    }
+    validate_config(config)  # should not raise — both feeds have required keys
+
+
+def test_validate_config_global_pipeline_upload_reports_feed_missing_keys():
+    """Global pipeline with 'upload' should report the specific feed missing category_id."""
+    config = {
+        "feeds": [
+            {"url": "https://a.com/rss", "category_id": 14, "type_id": 9},
+            {"url": "https://b.com/rss"},  # missing category_id and type_id
+        ],
+        "settings": {"pipeline": ["upload"]},
+    }
+    with pytest.raises(SystemExit, match="b.com") as exc_info:
+        validate_config(config)
+    # First feed should NOT appear in errors
+    assert "a.com" not in str(exc_info.value)
+
+
+# ---------------------------------------------------------------------------
+# run/fetch with unknown feed name
+# ---------------------------------------------------------------------------
+
+def test_run_unknown_feed_name_raises(tmp_path):
+    from click.testing import CliRunner
+    from podcast_etl.cli import main
+
+    cfg_file = tmp_path / "feeds.yaml"
+    cfg_file.write_text(yaml.dump({
+        "feeds": [{"url": "https://example.com/rss", "name": "real-show"}],
+        "settings": {},
+    }))
+    runner = CliRunner()
+    result = runner.invoke(main, ["-c", str(cfg_file), "run", "--feed", "nonexistent"])
+    assert result.exit_code != 0
+    assert "not found in config" in result.output
+
+
+def test_fetch_unknown_feed_name_raises(tmp_path):
+    from click.testing import CliRunner
+    from podcast_etl.cli import main
+
+    cfg_file = tmp_path / "feeds.yaml"
+    cfg_file.write_text(yaml.dump({
+        "feeds": [{"url": "https://example.com/rss", "name": "real-show"}],
+        "settings": {},
+    }))
+    runner = CliRunner()
+    result = runner.invoke(main, ["-c", str(cfg_file), "fetch", "--feed", "nonexistent"])
+    assert result.exit_code != 0
+    assert "not found in config" in result.output

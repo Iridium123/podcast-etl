@@ -110,10 +110,21 @@ def validate_config(config: dict) -> None:
         for step_name in global_pipeline:
             if step_name not in STEP_REGISTRY:
                 errors.append(f"settings.pipeline: unknown step {step_name!r}")
-        # Validate global pipeline requirements once (applies to feeds without their own pipeline)
-        feeds_using_global = [f for f in feeds if not isinstance(f.get("pipeline"), list)]
-        if feeds_using_global and isinstance(global_pipeline, list):
-            _validate_step_requirements(global_pipeline, {}, "settings.pipeline (global)", settings, errors)
+        # Validate global pipeline requirements against each feed that uses it
+        if isinstance(global_pipeline, list):
+            seen_global_errors: set[str] = set()
+            for feed in feeds:
+                if isinstance(feed.get("pipeline"), list):
+                    continue  # feed has its own pipeline, already validated above
+                feed_label = feed.get("name") or feed.get("url") or "feed"
+                before = len(errors)
+                _validate_step_requirements(global_pipeline, feed, feed_label, settings, errors)
+                # Deduplicate settings-level errors (e.g. torrent_data_dir) across feeds
+                for err in errors[before:]:
+                    if err in seen_global_errors:
+                        errors.remove(err)
+                    else:
+                        seen_global_errors.add(err)
 
     if errors:
         raise SystemExit("Config validation failed:\n  " + "\n  ".join(errors))
@@ -170,13 +181,13 @@ def _validate_step_requirements(
     step_set = set(step_names)
 
     if step_set & {"stage", "torrent", "seed"} and not settings.get("torrent_data_dir"):
-        errors.append(f"Feed {feed_label!r}: pipeline includes stage/torrent/seed but settings.torrent_data_dir is not set")
+        errors.append(f"{feed_label!r}: pipeline includes stage/torrent/seed but settings.torrent_data_dir is not set")
 
     if "upload" in step_set:
         if not feed.get("category_id"):
-            errors.append(f"Feed {feed_label!r}: pipeline includes 'upload' but 'category_id' is not set")
+            errors.append(f"{feed_label!r}: pipeline includes 'upload' but 'category_id' is not set")
         if not feed.get("type_id"):
-            errors.append(f"Feed {feed_label!r}: pipeline includes 'upload' but 'type_id' is not set")
+            errors.append(f"{feed_label!r}: pipeline includes 'upload' but 'type_id' is not set")
 
 
 def _validate_feed_overrides(
