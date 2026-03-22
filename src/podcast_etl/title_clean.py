@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+from typing import Any
 
 # Date patterns (used inside bracket groups)
 _MONTH_NAMES = (
@@ -70,38 +71,122 @@ _BRACKETED_PART_RE = re.compile(
 )
 
 
-def reorder_parts(title: str) -> str:
-    """Move the first bracketed part indicator to the front of the title.
+_MIN_PREFIX_LEN = 5
 
-    Transforms 'Title (Part 1)' to 'Part 1 - Title'. Only moves the
-    first match — additional part indicators stay in place. Preserves
-    original casing. Only matches Part/Pt./Pt inside (), [], or {}.
+
+def _extract_part(title: str) -> tuple[str, str] | None:
+    """Extract a bracketed part indicator and return (part_text, remainder).
+
+    Returns None if no bracketed part indicator is found.
     """
-    if not title:
-        return title
     match = _BRACKETED_PART_RE.search(title)
     if not match:
-        return title
-    # One of the three capture groups will have the match
+        return None
     part_text = match.group(1) or match.group(2) or match.group(3)
     before = title[:match.start()]
     after = title[match.end():]
     remainder = (before + " " + after).strip() if before.strip() and after.strip() else (before + after).strip()
-    # Clean up dangling separators
     remainder = re.sub(r"^[-\u2013\u2014]\s*", "", remainder)
     remainder = re.sub(r"\s*[-\u2013\u2014]$", "", remainder)
-    return f"{part_text} - {remainder}" if remainder else part_text
+    return part_text, remainder
 
 
-def clean_title(title: str, config: dict | None) -> str:
+def _common_prefix(strings: list[str]) -> str:
+    """Return the longest common prefix of a list of strings."""
+    if not strings:
+        return ""
+    prefix = strings[0]
+    for s in strings[1:]:
+        while not s.startswith(prefix):
+            prefix = prefix[:-1]
+            if not prefix:
+                return ""
+    return prefix
+
+
+def _normalize_date(published: str | None) -> str | None:
+    """Normalize a published date string to YYYY-MM-DD for grouping."""
+    from podcast_etl.models import format_date
+    return format_date(published)
+
+
+def reorder_parts(title: str, published: str | None = None, all_entries: list[dict[str, Any]] | None = None) -> str:
+    """Reorder a bracketed part indicator using same-day sibling context.
+
+    When sibling entries from the same publish date are available, computes
+    the longest common prefix across all sibling titles (after stripping
+    part indicators) and inserts the part number after the prefix:
+    'World War II - D-Day (Part 3)' -> 'World War II - Part 3 - D-Day'
+
+    If the common prefix is shorter than 5 characters, falls back to
+    prepending: 'Title (Part 1)' -> 'Part 1 - Title'
+
+    If no same-day siblings have part indicators, the title is returned
+    unchanged. Only matches Part/Pt./Pt inside (), [], or {}.
+    """
+    if not title:
+        return title
+    extracted = _extract_part(title)
+    if not extracted:
+        return title
+    part_text, remainder = extracted
+
+    # Find same-day siblings with part indicators
+    siblings: list[str] = []
+    if published and all_entries:
+        my_date = _normalize_date(published)
+        if my_date:
+            for entry in all_entries:
+                entry_date = _normalize_date(entry.get("published"))
+                if entry_date != my_date:
+                    continue
+                entry_title = entry.get("title", "")
+                entry_extracted = _extract_part(entry_title)
+                if entry_extracted:
+                    siblings.append(entry_extracted[1])  # remainder after stripping part
+
+    # No siblings — leave unchanged
+    if len(siblings) < 2:
+        return title
+
+    # Compute common prefix across all sibling remainders, snapped to
+    # the last word boundary so we don't split mid-word.
+    raw_prefix = _common_prefix(siblings)
+    # Snap to last space or separator boundary
+    boundary = max(raw_prefix.rfind(" "), raw_prefix.rfind("-"), raw_prefix.rfind("\u2013"), raw_prefix.rfind("\u2014"))
+    prefix = raw_prefix[:boundary].rstrip() if boundary > 0 else ""
+    # Clean trailing separators from prefix
+    prefix = re.sub(r"\s*[-\u2013\u2014]\s*$", "", prefix).rstrip()
+
+    if len(prefix) >= _MIN_PREFIX_LEN:
+        # Insert part after common prefix
+        suffix = remainder[len(prefix):].strip()
+        suffix = re.sub(r"^[-\u2013\u2014]\s*", "", suffix)
+        if suffix:
+            return f"{prefix} - {part_text} - {suffix}"
+        else:
+            return f"{prefix} - {part_text}"
+    else:
+        # Short prefix — prepend part to front
+        return f"{part_text} - {remainder}" if remainder else part_text
+
+
+def clean_title(
+    title: str,
+    config: dict | None,
+    published: str | None = None,
+    all_entries: list[dict[str, Any]] | None = None,
+) -> str:
     """Apply enabled title cleaning rules based on config flags.
 
     Rules are applied in order: strip_date first, then reorder_parts.
+    When reorder_parts is enabled, *published* and *all_entries* provide
+    same-day sibling context for intelligent part reordering.
     """
     if not config:
         return title
     if config.get("strip_date"):
         title = strip_date(title)
     if config.get("reorder_parts"):
-        title = reorder_parts(title)
+        title = reorder_parts(title, published=published, all_entries=all_entries)
     return title

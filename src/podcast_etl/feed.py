@@ -58,7 +58,7 @@ def parse_feed(
                 break
 
         title = entry.get("title", "Untitled")
-        title = clean_title(title, title_cleaning)
+        title = clean_title(title, title_cleaning, published=entry.get("published"), all_entries=feed.entries)
         guid = entry.get("id", entry.get("link", title))
         ep_slug = slugify(title)
 

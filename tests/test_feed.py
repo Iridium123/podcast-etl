@@ -325,12 +325,24 @@ def test_parse_feed_applies_strip_date():
     assert podcast.episodes[0].title == "Guest Name"
 
 
-def test_parse_feed_applies_reorder_parts():
+def test_parse_feed_applies_reorder_parts_with_siblings():
+    """Two same-day episodes with parts get reordered using common prefix."""
+    e1 = _Entry(title="World War II - D-Day (Part 1)", guid="guid-1", links=[_audio_link()])
+    e2 = _Entry(title="World War II - Normandy (Part 2)", guid="guid-2", links=[_audio_link()])
+    feed = _make_parsed_feed(entries=[e1, e2])
+    with patch("podcast_etl.feed.feedparser.parse", return_value=feed):
+        podcast = parse_feed("https://example.com/feed.xml", title_cleaning={"reorder_parts": True})
+    assert podcast.episodes[0].title == "World War II - Part 1 - D-Day"
+    assert podcast.episodes[1].title == "World War II - Part 2 - Normandy"
+
+
+def test_parse_feed_reorder_parts_solo_unchanged():
+    """A single episode with a part indicator is left unchanged."""
     entry = _Entry(title="The Show (Part 1)", links=[_audio_link()])
     feed = _make_parsed_feed(entries=[entry])
     with patch("podcast_etl.feed.feedparser.parse", return_value=feed):
         podcast = parse_feed("https://example.com/feed.xml", title_cleaning={"reorder_parts": True})
-    assert podcast.episodes[0].title == "Part 1 - The Show"
+    assert podcast.episodes[0].title == "The Show (Part 1)"
 
 
 def test_parse_feed_no_title_cleaning_by_default():
