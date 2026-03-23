@@ -73,7 +73,10 @@ class TestUploadStep:
         mock_tracker = MagicMock()
         mock_tracker.upload.return_value = {"torrent_id": 42, "url": "https://tracker.example.com/torrents/42"}
 
-        with patch("podcast_etl.steps.upload.ModifiedUnit3dTracker.from_config", return_value=mock_tracker):
+        with (
+            patch("podcast_etl.steps.upload.ModifiedUnit3dTracker.from_config", return_value=mock_tracker),
+            patch("podcast_etl.steps.upload.resolve_episode_image", return_value=None),
+        ):
             result = UploadStep().process(episode, context)
 
         mock_tracker.upload.assert_called_once_with(
@@ -82,6 +85,7 @@ class TestUploadStep:
             podcast=context.podcast,
             feed_config=context.feed_config,
             audio_path=None,
+            cover_image_override=None,
         )
         assert result.data["torrent_id"] == 42
         assert result.data["url"] == "https://tracker.example.com/torrents/42"
@@ -258,8 +262,54 @@ class TestUploadStep:
         mock_tracker = MagicMock()
         mock_tracker.upload.return_value = {"torrent_id": 50, "url": "https://tracker.example.com/torrents/50"}
 
-        with patch("podcast_etl.steps.upload.ModifiedUnit3dTracker.from_config", return_value=mock_tracker):
+        with (
+            patch("podcast_etl.steps.upload.ModifiedUnit3dTracker.from_config", return_value=mock_tracker),
+            patch("podcast_etl.steps.upload.resolve_episode_image", return_value=None),
+        ):
             result = UploadStep().process(episode, context)
 
         mock_tracker.upload.assert_called_once()
         assert result.data["torrent_id"] == 50
+
+
+class TestUploadStepCoverOverride:
+    def test_passes_episode_image_as_cover_override(self, tmp_path):
+        context = _make_context(tmp_path)
+        episode = _make_episode()
+
+        # Create a fake resolved image
+        images_dir = context.podcast_dir / "images"
+        images_dir.mkdir(parents=True)
+        raw_image = images_dir / "raw.jpg"
+        raw_image.write_bytes(b"raw-data")
+        converted = images_dir / "cover.jpg"
+        converted.write_bytes(b"converted-data")
+
+        mock_tracker = MagicMock()
+        mock_tracker.upload.return_value = {"torrent_id": 42, "url": "https://tracker.example.com/torrents/42"}
+
+        with (
+            patch("podcast_etl.steps.upload.ModifiedUnit3dTracker.from_config", return_value=mock_tracker),
+            patch("podcast_etl.steps.upload.resolve_episode_image", return_value=raw_image),
+            patch("podcast_etl.steps.upload.convert_image", return_value=converted),
+        ):
+            UploadStep().process(episode, context)
+
+        call_kwargs = mock_tracker.upload.call_args.kwargs
+        assert call_kwargs["cover_image_override"] == converted
+
+    def test_no_episode_image_passes_none(self, tmp_path):
+        context = _make_context(tmp_path)
+        episode = _make_episode()
+
+        mock_tracker = MagicMock()
+        mock_tracker.upload.return_value = {"torrent_id": 42, "url": "https://tracker.example.com/torrents/42"}
+
+        with (
+            patch("podcast_etl.steps.upload.ModifiedUnit3dTracker.from_config", return_value=mock_tracker),
+            patch("podcast_etl.steps.upload.resolve_episode_image", return_value=None),
+        ):
+            UploadStep().process(episode, context)
+
+        call_kwargs = mock_tracker.upload.call_args.kwargs
+        assert call_kwargs.get("cover_image_override") is None
