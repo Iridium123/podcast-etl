@@ -12,6 +12,7 @@ dependencies = [
     "torf>=4.3.1",
     "anthropic>=0.40",
     "faster-whisper>=1.1",
+    "Pillow>=10.0",
 ]
 
 [project.scripts]
