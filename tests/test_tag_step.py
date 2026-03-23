@@ -1,8 +1,9 @@
 """Tests for TagStep: release date tagging of downloaded MP3 files."""
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pytest
-from mutagen.id3 import ID3, TALB, TPE1
+from mutagen.id3 import APIC, ID3, TALB, TPE1
 
 from podcast_etl.models import Episode, Podcast, StepStatus
 from podcast_etl.pipeline import PipelineContext
@@ -170,3 +171,43 @@ def test_tag_step_raises_for_unparseable_date(tmp_path: Path):
 
     with pytest.raises(ValueError, match="Cannot parse published date"):
         TagStep().process(ep, ctx)
+
+
+# --- Album art embedding ---
+
+def test_tag_step_embeds_episode_image(tmp_path):
+    ctx = _make_context(tmp_path)
+    _make_audio_file(ctx, "ep-1", ".mp3")
+    ep = _make_episode(
+        status=_download_status("audio/ep-1.mp3"),
+        image_url="https://example.com/ep1.jpg",
+    )
+
+    # Create a fake raw image for resolve_episode_image to return
+    images_dir = ctx.podcast_dir / "images"
+    images_dir.mkdir(parents=True)
+    raw_image = images_dir / "raw.jpg"
+    from PIL import Image as PILImage
+    PILImage.new("RGB", (100, 100), "red").save(raw_image, "JPEG")
+
+    with patch("podcast_etl.steps.tag.resolve_episode_image", return_value=raw_image):
+        result = TagStep().process(ep, ctx)
+
+    audio_path = ctx.podcast_dir / result.data["path"]
+    tags = ID3(audio_path)
+    apic_frames = tags.getall("APIC")
+    assert len(apic_frames) == 1
+    assert apic_frames[0].mime == "image/jpeg"
+
+
+def test_tag_step_no_image_skips_apic(tmp_path):
+    ctx = _make_context(tmp_path)
+    _make_audio_file(ctx, "ep-1", ".mp3")
+    ep = _make_episode(status=_download_status("audio/ep-1.mp3"))
+
+    with patch("podcast_etl.steps.tag.resolve_episode_image", return_value=None):
+        result = TagStep().process(ep, ctx)
+
+    audio_path = ctx.podcast_dir / result.data["path"]
+    tags = ID3(audio_path)
+    assert tags.getall("APIC") == []

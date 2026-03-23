@@ -87,6 +87,7 @@ class ModifiedUnit3dTracker:
         podcast: Podcast,
         feed_config: dict[str, Any],
         audio_path: Path | None = None,
+        cover_image_override: Path | None = None,
     ) -> dict[str, Any]:
         """Upload a torrent via the web form. Returns tracker metadata."""
         category_id = feed_config.get("category_id")
@@ -131,11 +132,12 @@ class ModifiedUnit3dTracker:
             files: list[tuple[str, tuple[str, bytes, str]]] = []
             files.append(("torrent", (torrent_path.name, torrent_path.read_bytes(), "application/x-bittorrent")))
 
-            cover_image_path = feed_config.get("cover_image")
-            if cover_image_path:
-                cover = Path(cover_image_path)
-                mime = mimetypes.guess_type(cover.name)[0] or "image/jpeg"
-                files.append(("torrent-cover", (cover.name, cover.read_bytes(), mime)))
+            cover_path = cover_image_override or (
+                Path(feed_config["cover_image"]) if feed_config.get("cover_image") else None
+            )
+            if cover_path:
+                mime = mimetypes.guess_type(cover_path.name)[0] or "image/jpeg"
+                files.append(("torrent-cover", (cover_path.name, cover_path.read_bytes(), mime)))
 
             banner_image_path = feed_config.get("banner_image")
             if banner_image_path:

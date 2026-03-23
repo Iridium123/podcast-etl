@@ -363,6 +363,49 @@ class TestUpload:
                 tracker.upload(torrent_path, episode, podcast, feed_config)
 
 
+    def test_cover_image_override_takes_priority(self, torrent_path, feed_config, tmp_path):
+        override_cover = tmp_path / "override.jpg"
+        override_cover.write_bytes(b"override-jpeg")
+        config_cover = tmp_path / "config-cover.jpg"
+        config_cover.write_bytes(b"config-jpeg")
+        feed_with_cover = {**feed_config, "cover_image": str(config_cover)}
+
+        tracker = _make_tracker()
+        episode = _make_episode()
+        podcast = _make_podcast()
+        client = _mock_client_for_login()
+
+        with patch("httpx.Client", return_value=client):
+            tracker.upload(
+                torrent_path, episode, podcast, feed_with_cover,
+                cover_image_override=override_cover,
+            )
+
+        upload_call = client.post.call_args_list[1]
+        files = upload_call.kwargs["files"]
+        cover_entries = [(name, data) for name, data in files if name == "torrent-cover"]
+        assert len(cover_entries) == 1
+        assert cover_entries[0][1][1] == b"override-jpeg"
+
+    def test_no_override_uses_feed_config_cover(self, torrent_path, feed_config, tmp_path):
+        config_cover = tmp_path / "config-cover.jpg"
+        config_cover.write_bytes(b"config-jpeg")
+        feed_with_cover = {**feed_config, "cover_image": str(config_cover)}
+
+        tracker = _make_tracker()
+        episode = _make_episode()
+        podcast = _make_podcast()
+        client = _mock_client_for_login()
+
+        with patch("httpx.Client", return_value=client):
+            tracker.upload(torrent_path, episode, podcast, feed_with_cover)
+
+        upload_call = client.post.call_args_list[1]
+        files = upload_call.kwargs["files"]
+        cover_entries = [(name, data) for name, data in files if name == "torrent-cover"]
+        assert len(cover_entries) == 1
+        assert cover_entries[0][1][1] == b"config-jpeg"
+
     def test_raises_with_errors_on_validation_failure(self, torrent_path, feed_config):
         tracker = _make_tracker()
         episode = _make_episode()

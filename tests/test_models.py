@@ -157,3 +157,16 @@ def test_episode_from_dict_with_none_status_value():
     d["status"]["download"] = None
     loaded = Episode.from_dict(d)
     assert loaded.status["download"] is None
+
+
+def test_episode_dict_roundtrip_with_image_url():
+    ep = _make_episode(image_url="https://example.com/ep1.jpg")
+    assert Episode.from_dict(ep.to_dict()) == ep
+    assert ep.to_dict()["image_url"] == "https://example.com/ep1.jpg"
+
+
+def test_episode_dict_roundtrip_without_image_url():
+    ep = _make_episode()
+    assert ep.image_url is None
+    roundtripped = Episode.from_dict(ep.to_dict())
+    assert roundtripped.image_url is None
