@@ -1,5 +1,5 @@
-"""Tests for title_clean.py: strip_date, reorder_parts, clean_title."""
-from podcast_etl.title_clean import clean_title, reorder_parts, strip_date
+"""Tests for title_clean.py: strip_date, reorder_parts, sanitize, clean_title."""
+from podcast_etl.title_clean import clean_title, reorder_parts, sanitize, strip_date
 
 
 class TestStripDate:
@@ -174,6 +174,81 @@ class TestReorderParts:
         assert reorder_parts("Series - Alpha (Part 1)", _PUB, entries) == "Series - Alpha (Part 1)"
 
 
+class TestSanitize:
+    # --- Invalid character replacement ---
+
+    def test_colon_replaced_and_collapsed(self):
+        assert sanitize("Title: Subtitle") == "Title - Subtitle"
+
+    def test_backslash_replaced(self):
+        assert sanitize("Path\\Name") == "Path - Name"
+
+    def test_forward_slash_replaced(self):
+        assert sanitize("Either/Or") == "Either - Or"
+
+    def test_asterisk_replaced(self):
+        assert sanitize("Best*Episode") == "Best - Episode"
+
+    def test_question_mark_trailing(self):
+        assert sanitize("What?") == "What"
+
+    def test_pipe_replaced(self):
+        assert sanitize("Option A | Option B") == "Option A - Option B"
+
+    def test_angle_brackets_replaced(self):
+        assert sanitize("foo<bar>baz") == "foo - bar - baz"
+
+    def test_quotes_replaced(self):
+        assert sanitize('He said "hello"') == "He said - hello"
+
+    def test_control_char_replaced(self):
+        assert sanitize("Line\x00One") == "Line - One"
+
+    # --- Separator collapsing ---
+
+    def test_double_dash_collapsed(self):
+        assert sanitize("Foo - - Bar") == "Foo - Bar"
+
+    def test_triple_dash_collapsed(self):
+        assert sanitize("Foo - - - Bar") == "Foo - Bar"
+
+    def test_underscore_between_words(self):
+        assert sanitize("Foo_Bar") == "Foo - Bar"
+
+    def test_mixed_separators_collapsed(self):
+        assert sanitize("Foo _-_ Bar") == "Foo - Bar"
+
+    def test_existing_separator_preserved(self):
+        assert sanitize("Show - Episode") == "Show - Episode"
+
+    def test_single_space_preserved(self):
+        assert sanitize("Hello World") == "Hello World"
+
+    # --- Edge cases ---
+
+    def test_empty_string(self):
+        assert sanitize("") == ""
+
+    def test_no_changes_needed(self):
+        assert sanitize("Normal Title") == "Normal Title"
+
+    def test_leading_invalid_char_cleaned(self):
+        assert sanitize(":Title") == "Title"
+
+    def test_trailing_invalid_char_cleaned(self):
+        assert sanitize("Title:") == "Title"
+
+    def test_all_invalid_returns_original(self):
+        assert sanitize(":::") == ":::"
+
+    # --- Real-world regression: double-dash from reorder_parts ---
+
+    def test_double_dash_from_reorder(self):
+        assert sanitize("The Ku Klux Klan - - Part 3 - Birth of a Nation") == (
+            "The Ku Klux Klan - Part 3 - Birth of a Nation"
+        )
+
+
 class TestCleanTitle:
     def test_empty_config_no_change(self):
         assert clean_title("Title (3_19_26)", {}) == "Title (3_19_26)"
@@ -205,5 +280,25 @@ class TestCleanTitle:
         )
         result = clean_title("Series - Alpha (Part 1) (3_19_26)", {"strip_date": True, "reorder_parts": True}, published=_PUB, all_entries=entries)
         assert result == "Series - Part 1 - Alpha"
+
+    def test_sanitize_only(self):
+        assert clean_title("Title: Subtitle", {"sanitize": True}) == "Title - Subtitle"
+
+    def test_sanitize_false_no_change(self):
+        assert clean_title("Title: Subtitle", {"sanitize": False}) == "Title: Subtitle"
+
+    def test_sanitize_runs_after_reorder(self):
+        """Sanitize cleans up double-dashes left by reorder_parts."""
+        entries = _same_day_entries(
+            ("The Ku Klux Klan - The Rise of Evil (Part 1)", _PUB),
+            ("The Ku Klux Klan - Birth of a Nation (Part 3)", _PUB),
+        )
+        result = clean_title(
+            "The Ku Klux Klan - Birth of a Nation (Part 3)",
+            {"reorder_parts": True, "sanitize": True},
+            published=_PUB,
+            all_entries=entries,
+        )
+        assert " - - " not in result
 
 

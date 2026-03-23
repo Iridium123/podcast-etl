@@ -6,6 +6,12 @@ from typing import Any
 
 from podcast_etl.models import format_date
 
+# Characters invalid on macOS, Windows, or Linux filesystems (plus colon)
+_INVALID_FS_CHARS_RE = re.compile(r'[\\/:*?"<>|\x00-\x1f]')
+
+# Any sequence of underscores/whitespace/dashes containing at least one underscore or dash
+_SEPARATOR_COLLAPSE_RE = re.compile(r'[\s_-]*[_-][\s_-]*')
+
 # Date patterns (used inside bracket groups)
 _MONTH_NAMES = (
     r"(?:January|February|March|April|May|June|July|August|September|October|November|December"
@@ -175,6 +181,23 @@ def reorder_parts(title: str, published: str | None = None, all_entries: list[An
         return f"{part_text} - {remainder}" if remainder else part_text
 
 
+def sanitize(title: str) -> str:
+    """Replace filesystem-invalid characters and normalize separators.
+
+    Replaces characters that are invalid on macOS, Windows, or Linux
+    (plus colon) with underscores, then collapses any mix of underscores,
+    whitespace, and dashes into a single ' - '.
+    """
+    if not title:
+        return title
+    result = _INVALID_FS_CHARS_RE.sub('_', title)
+    result = _SEPARATOR_COLLAPSE_RE.sub(' - ', result)
+    result = result.strip()
+    result = re.sub(r'^[\s_-]+', '', result)
+    result = re.sub(r'[\s_-]+$', '', result)
+    return result if result else title
+
+
 def clean_title(
     title: str,
     config: dict | None,
@@ -196,4 +219,6 @@ def clean_title(
         # This is fine because reorder_parts strips part indicators first, and
         # dates typically appear after the episode-specific suffix.
         title = reorder_parts(title, published=published, all_entries=all_entries)
+    if config.get("sanitize"):
+        title = sanitize(title)
     return title

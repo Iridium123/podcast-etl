@@ -161,6 +161,7 @@ defaults:
   title_cleaning:                   # global title cleaning (default off)
     strip_date: false               # remove bracketed dates from episode titles
     reorder_parts: false            # move (Part N) to front of episode title
+    sanitize: false                 # replace invalid filesystem chars, normalize separators
 
   ad_detection:
     whisper:
@@ -216,6 +217,7 @@ feeds:
     title_cleaning:                   # optional per-feed title cleaning
       strip_date: true                # remove bracketed dates from titles
       reorder_parts: true             # move (Part N) to front of title
+      sanitize: true                  # replace invalid filesystem chars, normalize separators
 ```
 
 <details>
@@ -278,11 +280,13 @@ feeds:
 
 ### Title Cleaning
 
-Optional rules to clean episode titles at feed parse time. Both rules are off by default and can be enabled globally in `defaults.title_cleaning` or per-feed in `title_cleaning`. Per-feed values override global values.
+Optional rules to clean episode titles at feed parse time. All rules are off by default and can be enabled globally in `defaults.title_cleaning` or per-feed in `title_cleaning`. Per-feed values override global values.
 
 **`strip_date`** — Removes dates wrapped in brackets `()`, `[]`, or `{}` from episode titles. Useful when the pipeline already prepends dates to filenames and upload titles. Supported formats: `(3_19_26)`, `(03/22/2026)`, `(2026-03-22)`, `(March 22, 2026)`, etc. Bare dates without brackets are not affected.
 
 **`reorder_parts`** — Reorders part indicators like `(Part 1)`, `(Pt. 2)`, `[Pt 3]` so multi-part episodes released on the same day sort correctly. Uses same-day sibling episodes from the RSS feed to find a common series prefix and inserts the part number after it. For example, `"World War II - D-Day (Part 3)"` becomes `"World War II - Part 3 - D-Day"`. If the common prefix is too short (< 5 chars), the part is prepended instead. Only triggers when multiple same-day episodes have part indicators; solo episodes are left unchanged. Only matches parts inside brackets; bare `Part 1` is not affected.
+
+**`sanitize`** — Replaces characters that are invalid on any of macOS, Windows, or Linux filesystems (`\ / : * ? " < > |` and control characters) with `_`, then collapses any sequence of underscores, whitespace, and dashes into a single ` - `. Cleans up double-dash artifacts from other rules (e.g. `"Show - - Part 3"` → `"Show - Part 3"`) and makes titles like `"Title: Subtitle"` filesystem-safe (`"Title - Subtitle"`). Runs after all other title cleaning rules.
 
 To get the `remember_cookie` value: log in to the tracker in your browser, then open DevTools → Application → Cookies → copy the value of `remember_web_59ba36addc2b2f9401580f014c7f58ea4e30989d`. This works with 2FA-enabled accounts. The cookie is long-lived but will eventually expire, requiring a fresh copy.
 
