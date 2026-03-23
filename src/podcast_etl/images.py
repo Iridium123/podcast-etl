@@ -84,15 +84,14 @@ def resolve_episode_image(
 
 def convert_image(source: Path, dest: Path, *, max_size: tuple[int, int]) -> Path:
     """Convert an image to JPEG, resizing to fit within max_size. No upscaling."""
-    img = Image.open(source)
+    with Image.open(source) as img:
+        # Resize to fit within max_size, preserving aspect ratio, no upscale
+        img.thumbnail(max_size, Image.LANCZOS)
 
-    # Resize to fit within max_size, preserving aspect ratio, no upscale
-    img.thumbnail(max_size, Image.LANCZOS)
+        # Convert RGBA/P/LA to RGB for JPEG
+        if img.mode != "RGB":
+            img = img.convert("RGB")
 
-    # Convert RGBA/P/LA to RGB for JPEG
-    if img.mode not in ("RGB",):
-        img = img.convert("RGB")
-
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    img.save(dest, "JPEG", quality=85)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        img.save(dest, "JPEG", quality=85)
     return dest
