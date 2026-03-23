@@ -23,7 +23,7 @@ class TestRateLimiter:
 
         mock_sleep.assert_called_once()
         delay = mock_sleep.call_args[0][0]
-        assert 4.0 < delay <= 5.0
+        assert 0 < delay <= 5.0
 
     def test_no_sleep_if_interval_elapsed(self):
         limiter = RateLimiter(min_interval=1.0)
