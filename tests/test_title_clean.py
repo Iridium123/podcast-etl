@@ -224,6 +224,10 @@ class TestSanitize:
     def test_single_space_preserved(self):
         assert sanitize("Hello World") == "Hello World"
 
+    def test_hyphenated_compound_word_expanded(self):
+        """Trade-off: bare hyphens in compound words also get spaced out."""
+        assert sanitize("Spider-Man") == "Spider - Man"
+
     # --- Edge cases ---
 
     def test_empty_string(self):

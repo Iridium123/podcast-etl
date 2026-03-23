@@ -193,8 +193,8 @@ def sanitize(title: str) -> str:
     result = _INVALID_FS_CHARS_RE.sub('_', title)
     result = _SEPARATOR_COLLAPSE_RE.sub(' - ', result)
     result = result.strip()
-    result = re.sub(r'^[\s_-]+', '', result)
-    result = re.sub(r'[\s_-]+$', '', result)
+    result = re.sub(r'^[_-]+\s*', '', result)
+    result = re.sub(r'\s*[_-]+$', '', result)
     return result if result else title
 
 
@@ -206,7 +206,7 @@ def clean_title(
 ) -> str:
     """Apply enabled title cleaning rules based on config flags.
 
-    Rules are applied in order: strip_date first, then reorder_parts.
+    Rules are applied in order: strip_date, reorder_parts, then sanitize.
     When reorder_parts is enabled, *published* and *all_entries* provide
     same-day sibling context for intelligent part reordering.
     """
