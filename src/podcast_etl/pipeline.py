@@ -71,6 +71,15 @@ def merge_config(global_config: dict[str, Any], feed_overrides: dict[str, Any]) 
     return merged
 
 
+def resolve_title_cleaning(config: dict, feed_config: dict | None = None) -> dict | None:
+    """Merge global and per-feed title_cleaning config."""
+    global_cfg = config.get("settings", {}).get("title_cleaning", {})
+    feed_cfg = (feed_config or {}).get("title_cleaning", {})
+    if not global_cfg and not feed_cfg:
+        return None
+    return merge_config(global_cfg, feed_cfg) if global_cfg and feed_cfg else (feed_cfg or global_cfg)
+
+
 STEP_REGISTRY: dict[str, Step] = {}
 
 

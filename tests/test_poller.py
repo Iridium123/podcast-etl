@@ -28,7 +28,7 @@ def _run_one_cycle(config: dict, tmp_path: Path, episodes: list | None = None) -
     fetched_urls: list[str] = []
     run_calls: list[list] = []
 
-    def fake_parse_feed(url, *, output_dir, blacklist=None):
+    def fake_parse_feed(url, *, output_dir, blacklist=None, title_cleaning=None):
         fetched_urls.append(url)
         podcast = MagicMock()
         podcast.episodes = episodes if episodes is not None else []

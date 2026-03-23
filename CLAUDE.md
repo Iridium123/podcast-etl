@@ -32,6 +32,7 @@ Tests live in `tests/` and use pytest:
 - `test_seed_step.py` — `SeedStep` add_torrent, idempotency, client resolution
 - `test_upload_step.py` — `UploadStep` tracker.upload call, tracker resolution, cover image override, error cases
 - `test_images.py` — `download_image` (caching, extension extraction, fallback), `resolve_episode_image` (episode/feed fallback, dedup, error handling), `convert_image` (resize, format conversion, no upscale)
+- `test_title_clean.py` — `strip_date`, `reorder_parts`, `clean_title` (date formats, bracket types, part variants, config flags)
 - `test_text.py` — `clean_description` (HTML, entity-encoded, CDATA, plain text), `contains_blacklisted`, `apply_blacklist`
 - `test_poller.py` — `run_poll_loop` enabled/disabled feed filtering
 - `test_audiobookshelf_step.py` — `AudiobookshelfStep` copy and scan trigger, audio resolution, config merging, error cases
@@ -52,8 +53,9 @@ The pipeline is step-based and resumable. Each episode tracks its own completion
 7. `trackers/unit3d.py` — `ModifiedUnit3dTracker` implementing `Tracker` protocol; multipart upload to UNIT3D REST API
 8. `text.py` — `clean_description` (HTML/entity/CDATA → plain text), `apply_blacklist` / `contains_blacklisted` for rejecting text containing configured strings
 9. `images.py` — `download_image` (URL download with caching), `resolve_episode_image` (episode/feed image resolution with fallback and deduplication), `convert_image` (Pillow resize + JPEG conversion)
-10. `detectors/__init__.py` — `AdSegment` dataclass, `Detector` and `LLMProvider` protocols, `merge_segments` utility
-11. `detectors/transcription.py` — `TranscriptionDetector` (whisper transcription + LLM classification); supports local transcription via `faster-whisper` (default) or remote via OpenAI-compatible API; `AnthropicProvider` for Claude API
+10. `title_clean.py` — `strip_date` (remove bracketed dates), `reorder_parts` (move part indicators to front), `clean_title` (orchestrator applying enabled rules based on config)
+11. `detectors/__init__.py` — `AdSegment` dataclass, `Detector` and `LLMProvider` protocols, `merge_segments` utility
+12. `detectors/transcription.py` — `TranscriptionDetector` (whisper transcription + LLM classification); supports local transcription via `faster-whisper` (default) or remote via OpenAI-compatible API; `AnthropicProvider` for Claude API
 
 **Feed config (`feeds.yaml`):** Each feed entry supports optional `name` (short identifier), `enabled` (boolean, defaults to `false` — must be set to `true` for poll to process it), and `pipeline` (list of step names). If `pipeline` is omitted, the feed uses `settings.pipeline` as the default. The `--feed` flag on `run`/`fetch`/`status` accepts either a name or a full URL; `enabled: false` only affects `poll` mode, not explicit `--feed` runs.
 
@@ -78,12 +80,19 @@ feeds:
         model: claude-sonnet-4-20250514
     audiobookshelf:                     # optional per-feed overrides
       library_id: lib_override
+    title_cleaning:                     # optional per-feed title cleaning
+      strip_date: true                  # remove bracketed dates from titles
+      reorder_parts: true               # move (Part N) to front of title
 
 settings:
   output_dir: ./output
   torrent_data_dir: /torrent-data   # staging dir readable by both app and torrent client
   blacklist:                        # strings to reject from descriptions (case-insensitive)
     - "John Doe"                    # any description containing this is blanked to null
+
+  title_cleaning:                     # global title cleaning (default off)
+    strip_date: false                 # remove bracketed dates from episode titles
+    reorder_parts: false              # move (Part N) to front of episode title
 
   ad_detection:
     whisper:

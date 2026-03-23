@@ -18,7 +18,7 @@ from podcast_etl.feed import parse_feed
 from podcast_etl.models import Episode, Podcast
 
 logger = logging.getLogger(__name__)
-from podcast_etl.pipeline import Pipeline, PipelineContext, STEP_REGISTRY, get_step, merge_config, register_step
+from podcast_etl.pipeline import Pipeline, PipelineContext, STEP_REGISTRY, get_step, merge_config, register_step, resolve_title_cleaning
 from podcast_etl.steps.download import DownloadStep
 from podcast_etl.steps.tag import TagStep
 from podcast_etl.steps.stage import StageStep
@@ -102,7 +102,7 @@ def _validate_feed_overrides(
     feed: dict, settings: dict, feed_label: str, errors: list[str],
 ) -> None:
     """Check that per-feed override sections have compatible types with global settings."""
-    for section in ("ad_detection", "audiobookshelf"):
+    for section in ("ad_detection", "audiobookshelf", "title_cleaning"):
         global_cfg = settings.get(section, {})
         feed_cfg = feed.get(section, {})
         if global_cfg and feed_cfg:
@@ -161,8 +161,9 @@ def fetch_feed(
     url: str,
     output_dir: Path,
     blacklist: list[str] | None = None,
+    title_cleaning: dict | None = None,
 ) -> Podcast:
-    podcast = parse_feed(url, output_dir=output_dir, blacklist=blacklist)
+    podcast = parse_feed(url, output_dir=output_dir, blacklist=blacklist, title_cleaning=title_cleaning)
     podcast.save(output_dir)
     return podcast
 
@@ -294,8 +295,10 @@ def fetch(ctx: click.Context, feed_url: str | None, fetch_all: bool) -> None:
 
     blacklist = config.get("settings", {}).get("blacklist", [])
     for url in urls:
+        fc = find_feed_config(config, url)
+        title_cleaning = resolve_title_cleaning(config, fc)
         click.echo(f"Fetching {url}...")
-        podcast = fetch_feed(url, output_dir, blacklist=blacklist)
+        podcast = fetch_feed(url, output_dir, blacklist=blacklist, title_cleaning=title_cleaning)
         click.echo(f"  {podcast.title}: {len(podcast.episodes)} episodes")
 
 
@@ -337,8 +340,9 @@ def run(ctx: click.Context, feed_url: str | None, run_all: bool, step_filter: st
 
     blacklist = config.get("settings", {}).get("blacklist", [])
     for url, feed_config in feeds_to_run:
+        title_cleaning = resolve_title_cleaning(config, feed_config)
         click.echo(f"Processing {url}...")
-        podcast = fetch_feed(url, output_dir, blacklist=blacklist)
+        podcast = fetch_feed(url, output_dir, blacklist=blacklist, title_cleaning=title_cleaning)
         click.echo(f"  {podcast.title}: {len(podcast.episodes)} episodes")
         run_pipeline(podcast, output_dir, config, feed_config=feed_config, step_filter=step_filter, last=last, date_range=date_range, overwrite=overwrite)
 

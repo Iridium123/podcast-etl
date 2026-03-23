@@ -7,6 +7,7 @@ import feedparser
 
 from podcast_etl.models import Episode, Podcast, slugify
 from podcast_etl.text import apply_blacklist, clean_description
+from podcast_etl.title_clean import clean_title
 
 logger = logging.getLogger(__name__)
 
@@ -15,6 +16,7 @@ def parse_feed(
     url: str,
     output_dir: Path | None = None,
     blacklist: list[str] | None = None,
+    title_cleaning: dict | None = None,
 ) -> Podcast:
     """Fetch and parse an RSS feed, returning a Podcast with episodes.
 
@@ -56,6 +58,7 @@ def parse_feed(
                 break
 
         title = entry.get("title", "Untitled")
+        title = clean_title(title, title_cleaning, published=entry.get("published"), all_entries=feed.entries)
         guid = entry.get("id", entry.get("link", title))
         ep_slug = slugify(title)
 
