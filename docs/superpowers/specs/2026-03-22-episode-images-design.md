@@ -64,7 +64,7 @@ Before calling `tracker.upload()`, call:
 ```python
 raw = resolve_episode_image(episode, context, allow_feed_fallback=False)
 if raw:
-    converted = convert_image(raw, <images_dir>/<basename>-cover.jpg, max_size=(1400, 1400))
+    converted = convert_image(raw, <images_dir>/<basename>-cover.jpg, max_size=(500, 500))
     # pass to tracker as cover override
 ```
 
