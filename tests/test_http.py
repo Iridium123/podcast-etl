@@ -121,7 +121,7 @@ class TestRetryTransport:
         # Should use the Retry-After value (30s) instead of the default (60s)
         mock_sleep.assert_called_once_with(30)
 
-    def test_caps_retry_after_at_max_delay(self):
+    def test_uses_retry_after_even_when_large(self):
         mock_transport = MagicMock()
 
         rate_limit_response = MagicMock()
@@ -137,8 +137,8 @@ class TestRetryTransport:
         with patch("podcast_etl.http.time.sleep") as mock_sleep:
             transport.handle_request(MagicMock())
 
-        # Should cap at max(RETRY_DELAYS) = 1200
-        mock_sleep.assert_called_once_with(max(RETRY_DELAYS))
+        # Should use the Retry-After value directly
+        mock_sleep.assert_called_once_with(9999)
 
     def test_close_delegates_to_wrapped_transport(self):
         mock_transport = MagicMock()

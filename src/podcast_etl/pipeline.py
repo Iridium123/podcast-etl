@@ -126,5 +126,5 @@ class Pipeline:
                     logger.exception("  %s failed for %s", step.name, episode.slug)
                     if fail_fast:
                         raise
-                    logger.info("  skipping remaining steps for %s", episode.slug)
+                    logger.info("  step %s failed for %s; skipping remaining steps for this episode", step.name, episode.slug)
                     break

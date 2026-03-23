@@ -31,8 +31,7 @@ class RetryTransport(httpx.BaseTransport):
 
         for delay in RETRY_DELAYS:
             retry_after = response.headers.get("Retry-After")
-            if retry_after and retry_after.isdigit():
-                delay = min(int(retry_after), max(RETRY_DELAYS))
+            delay = int(retry_after) if retry_after and retry_after.isdigit() else delay
             logger.warning(
                 "Rate limited (429) on %s %s, retrying in %ds...",
                 request.method,
