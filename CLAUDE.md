@@ -18,19 +18,20 @@ Tests live in `tests/` and use pytest:
 
 - `test_models.py` — `slugify`, `StepStatus`, `Episode`, `Podcast` (dict roundtrips, save/load)
 - `test_pipeline.py` — `Pipeline` step execution, skipping already-completed steps, step filters, `merge_config`
-- `test_feed.py` — `parse_feed` (audio extraction, slug dedup, status preservation)
+- `test_feed.py` — `parse_feed` (audio extraction, slug dedup, status preservation, episode image extraction)
 - `test_cli.py` — `load_config`, `save_config`, `get_output_dir`, `find_feed_config`, `get_pipeline_steps`, `filter_episodes`, `validate_config`
 - `test_download_step.py` — `DownloadStep` filename construction, skip-existing, download
-- `test_tag_step.py` — `TagStep` MP3 tagging, audio file discovery, error cases
+- `test_tag_step.py` — `TagStep` MP3 tagging, APIC album art embedding, audio file discovery, error cases
 - `test_qbittorrent_client.py` — `QBittorrentClient` login, has_torrent, add_torrent
-- `test_unit3d_tracker.py` — `ModifiedUnit3dTracker` upload, field construction, image handling
+- `test_unit3d_tracker.py` — `ModifiedUnit3dTracker` upload, field construction, image handling, cover override precedence
 - `test_transcription_detector.py` — `TranscriptionDetector` whisper API, local transcription, `AnthropicProvider` LLM calls, `merge_segments`, `_parse_llm_response`
 - `test_detect_ads_step.py` — `DetectAdsStep` orchestration, config merging, transcript saving/reuse, segment merging
 - `test_strip_ads_step.py` — `StripAdsStep` ffmpeg args, idempotency, no-ads passthrough
 - `test_stage_step.py` — `StageStep` copy, idempotency, client_path rebasing, strip_ads fallback
 - `test_torrent_step.py` — `TorrentStep` mktorrent args, idempotency, error cases
 - `test_seed_step.py` — `SeedStep` add_torrent, idempotency, client resolution
-- `test_upload_step.py` — `UploadStep` tracker.upload call, tracker resolution, error cases
+- `test_upload_step.py` — `UploadStep` tracker.upload call, tracker resolution, cover image override, error cases
+- `test_images.py` — `download_image` (caching, extension extraction, fallback), `resolve_episode_image` (episode/feed fallback, dedup, error handling), `convert_image` (resize, format conversion, no upscale)
 - `test_text.py` — `clean_description` (HTML, entity-encoded, CDATA, plain text), `contains_blacklisted`, `apply_blacklist`
 - `test_poller.py` — `run_poll_loop` enabled/disabled feed filtering
 - `test_audiobookshelf_step.py` — `AudiobookshelfStep` copy and scan trigger, audio resolution, config merging, error cases
@@ -43,15 +44,16 @@ The pipeline is step-based and resumable. Each episode tracks its own completion
 
 **Data flow:**
 1. `feed.py` — fetches RSS via `feedparser`, parses into `Podcast`/`Episode` models, merges existing on-disk step status to preserve progress
-2. `models.py` — `Podcast`, `Episode`, `StepStatus` dataclasses with `save()`/`load()` methods; persisted to `output/<podcast-slug>/podcast.json` and `output/<podcast-slug>/episodes/<ep-slug>.json`
+2. `models.py` — `Podcast`, `Episode`, `StepStatus` dataclasses with `save()`/`load()` methods; persisted to `output/<podcast-slug>/podcast.json` and `output/<podcast-slug>/episodes/<ep-slug>.json`; `Episode.image_url` stores per-episode artwork URL from RSS `<itunes:image>`
 3. `pipeline.py` — `Pipeline` runs registered `Step` instances over episodes, skipping any where `episode.status[step.name]` is already set; writes status back to disk after each step; `PipelineContext` carries `output_dir`, `podcast`, `config` (full YAML), and `feed_config` (per-feed overrides)
 4. `cli.py` — Click commands (`add`, `fetch`, `run`, `reset`, `status`, `poll`); registers built-in steps at import time via `register_step()`; `find_feed_config(config, identifier)` resolves a feed by name or URL
 5. `poller.py` — long-running loop that reloads config each cycle and handles SIGTERM/SIGINT gracefully; uses per-feed `pipeline` list when set
 6. `clients/qbittorrent.py` — `QBittorrentClient` implementing `TorrentClient` protocol; session-based auth, `has_torrent`, `add_torrent`
 7. `trackers/unit3d.py` — `ModifiedUnit3dTracker` implementing `Tracker` protocol; multipart upload to UNIT3D REST API
 8. `text.py` — `clean_description` (HTML/entity/CDATA → plain text), `apply_blacklist` / `contains_blacklisted` for rejecting text containing configured strings
-9. `detectors/__init__.py` — `AdSegment` dataclass, `Detector` and `LLMProvider` protocols, `merge_segments` utility
-10. `detectors/transcription.py` — `TranscriptionDetector` (whisper transcription + LLM classification); supports local transcription via `faster-whisper` (default) or remote via OpenAI-compatible API; `AnthropicProvider` for Claude API
+9. `images.py` — `download_image` (URL download with caching), `resolve_episode_image` (episode/feed image resolution with fallback and deduplication), `convert_image` (Pillow resize + JPEG conversion)
+10. `detectors/__init__.py` — `AdSegment` dataclass, `Detector` and `LLMProvider` protocols, `merge_segments` utility
+11. `detectors/transcription.py` — `TranscriptionDetector` (whisper transcription + LLM classification); supports local transcription via `faster-whisper` (default) or remote via OpenAI-compatible API; `AnthropicProvider` for Claude API
 
 **Feed config (`feeds.yaml`):** Each feed entry supports optional `name` (short identifier), `enabled` (boolean, defaults to `false` — must be set to `true` for poll to process it), and `pipeline` (list of step names). If `pipeline` is omitted, the feed uses `settings.pipeline` as the default. The `--feed` flag on `run`/`fetch`/`status` accepts either a name or a full URL; `enabled: false` only affects `poll` mode, not explicit `--feed` runs.
 
@@ -121,13 +123,13 @@ settings:
 
 **Pipeline steps:**
 - `download` — fetch audio file from RSS `audio_url`, save to `output/<podcast>/audio/`
-- `tag` — write ID3 metadata (title, artist, date) to the downloaded MP3 file
+- `tag` — write ID3 metadata (title, artist, date) to the downloaded MP3 file; embeds episode artwork as APIC album art when available (episode image → feed image fallback), resized to 600x600 JPEG
 - `detect_ads` — transcribe audio via local `faster-whisper` (default) or remote whisper server, then classify ad segments via LLM (Anthropic Claude); saves transcript to `output/<podcast>/transcripts/` and reuses it on retry to avoid re-transcribing
 - `strip_ads` — remove detected ad segments from audio via ffmpeg with crossfade at splice points; output in `output/<podcast>/cleaned/`
 - `stage` — copy audio to `torrent_data_dir/` for seeding; prefers cleaned audio from `strip_ads` if available, falls back to `download`; computes both local and qBittorrent-side paths
 - `torrent` — create `.torrent` file via `mktorrent` CLI; extracts `info_hash` via `torf`; output in `output/<podcast>/torrents/`
 - `seed` — add torrent to qBittorrent via Web API; sets `save_path` to client-side episode directory
-- `upload` — upload `.torrent` + metadata to UNIT3D tracker via web form (login → CSRF token → POST); supports `torrent-cover` and `torrent-banner` image uploads; requires `category_id` and `type_id` in feed config
+- `upload` — upload `.torrent` + metadata to UNIT3D tracker via web form (login → CSRF token → POST); supports `torrent-cover` and `torrent-banner` image uploads; uses episode artwork as cover when available (no feed fallback), resized to 500x500 JPEG, falling back to `cover_image` config; requires `category_id` and `type_id` in feed config
 - `audiobookshelf` — copy audio into `audiobookshelf.dir/<podcast title>/` (using `title_override` if set) and trigger a library scan; prefers cleaned audio from `strip_ads`, falls back to `download`; requires `audiobookshelf` config in settings (url, api_key, library_id, dir); supports per-feed overrides
 
 **Adding a new pipeline step:**
