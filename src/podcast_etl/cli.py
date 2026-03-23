@@ -75,6 +75,9 @@ def validate_config(config: dict) -> None:
             if step_name not in STEP_REGISTRY:
                 errors.append(f"Feed {feed_label!r}: unknown pipeline step {step_name!r}")
 
+        # deep_merge is called on the full feed dict (including metadata keys
+        # like url/name/enabled).  This is safe because defaults doesn't define
+        # those keys as dicts, so no spurious type-mismatch errors fire.
         try:
             deep_merge(defaults, feed)
         except TypeError as exc:
@@ -395,8 +398,6 @@ def status(ctx: click.Context, feed_url: str | None) -> None:
             return
 
     defaults = config.get("defaults", {})
-    resolved = resolve_feed_config(defaults, resolved_feed_config or {})
-    step_names = get_pipeline_steps(resolved)
 
     for podcast_dir in podcast_dirs:
         if not podcast_dir.is_dir():
@@ -405,6 +406,9 @@ def status(ctx: click.Context, feed_url: str | None) -> None:
         if not podcast_json.exists():
             continue
         podcast = Podcast.load(podcast_dir)
+        fc = find_feed_config(config, podcast.url) or {}
+        resolved = resolve_feed_config(defaults, fc)
+        step_names = get_pipeline_steps(resolved)
         click.echo(f"\n{podcast.title} ({len(podcast.episodes)} episodes)")
         click.echo(f"  {'Episode':<40} " + " ".join(f"{s:<12}" for s in step_names))
         click.echo(f"  {'─' * 40} " + " ".join("─" * 12 for _ in step_names))

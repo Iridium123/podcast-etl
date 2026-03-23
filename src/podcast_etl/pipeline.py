@@ -38,7 +38,6 @@ class Step(Protocol):
     def process(self, episode: Episode, context: PipelineContext) -> StepResult: ...
 
 
-
 def deep_merge(base: dict[str, Any], overrides: dict[str, Any]) -> dict[str, Any]:
     """Recursively merge *overrides* into *base*.
 
@@ -72,9 +71,12 @@ def deep_merge(base: dict[str, Any], overrides: dict[str, Any]) -> dict[str, Any
 
 
 def resolve_feed_config(defaults: dict[str, Any], feed: dict[str, Any]) -> dict[str, Any]:
-    """Merge global defaults with per-feed overrides using deep merge."""
-    return deep_merge(defaults, feed)
+    """Merge global defaults with per-feed overrides using deep merge.
 
+    Use this rather than calling ``deep_merge`` directly so any future
+    pre/post-processing (e.g. env-var expansion) can be added in one place.
+    """
+    return deep_merge(defaults, feed)
 
 
 STEP_REGISTRY: dict[str, Step] = {}

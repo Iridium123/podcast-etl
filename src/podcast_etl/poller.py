@@ -44,6 +44,7 @@ def run_poll_loop(config: dict, config_path: Path) -> None:
             except SystemExit as exc:
                 logger.error("Config validation failed, using previous config: %s", exc)
 
+        interval = config.get("poll_interval", 3600)
         defaults = config.get("defaults", {})
         output_dir = Path(defaults.get("output_dir", "./output"))
 
