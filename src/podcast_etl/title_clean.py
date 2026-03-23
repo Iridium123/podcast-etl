@@ -6,11 +6,12 @@ from typing import Any
 
 from podcast_etl.models import format_date
 
-# Characters invalid on macOS, Windows, or Linux filesystems (plus colon)
-_INVALID_FS_CHARS_RE = re.compile(r'[\\/:*?"<>|\x00-\x1f]')
+# Characters invalid on macOS, Windows, or Linux filesystems (plus colon);
+# double quotes are converted to single quotes rather than replaced
+_INVALID_FS_CHARS_RE = re.compile(r'[\\/:*?<>|\x00-\x1f]')
 
-# Any sequence of underscores/whitespace/dashes containing at least one underscore or dash
-_SEPARATOR_COLLAPSE_RE = re.compile(r'[\s_-]*[_-][\s_-]*')
+# Two or more consecutive separator characters (whitespace, underscore, dashes)
+_SEPARATOR_COLLAPSE_RE = re.compile(r'[\s_\-\u2013\u2014]{2,}')
 
 # Date patterns (used inside bracket groups)
 _MONTH_NAMES = (
@@ -184,13 +185,15 @@ def reorder_parts(title: str, published: str | None = None, all_entries: list[An
 def sanitize(title: str) -> str:
     """Replace filesystem-invalid characters and normalize separators.
 
-    Replaces characters that are invalid on macOS, Windows, or Linux
-    (plus colon) with underscores, then collapses any mix of underscores,
-    whitespace, and dashes into a single ' - '.
+    Converts double quotes to single quotes, replaces other characters
+    invalid on macOS, Windows, or Linux (plus colon) with underscores,
+    then collapses runs of 2+ separator characters (whitespace,
+    underscores, dashes) into a single ' - '.
     """
     if not title:
         return title
-    result = _INVALID_FS_CHARS_RE.sub('_', title)
+    result = title.replace('"', "'")
+    result = _INVALID_FS_CHARS_RE.sub('_', result)
     result = _SEPARATOR_COLLAPSE_RE.sub(' - ', result)
     result = result.strip()
     result = re.sub(r'^[_-]+\s*', '', result)
