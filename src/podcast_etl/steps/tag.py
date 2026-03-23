@@ -5,9 +5,10 @@ from dataclasses import dataclass
 from email.utils import parsedate_to_datetime
 from pathlib import Path
 
-from mutagen.id3 import COMM, ID3, ID3NoHeaderError, TDRC, TDRL, TIT2, TPE1
+from mutagen.id3 import APIC, COMM, ID3, ID3NoHeaderError, TDRC, TDRL, TIT2, TPE1
 
-from podcast_etl.models import Episode
+from podcast_etl.images import convert_image, resolve_episode_image
+from podcast_etl.models import Episode, episode_basename
 from podcast_etl.pipeline import PipelineContext, StepResult
 
 logger = logging.getLogger(__name__)
@@ -35,6 +36,18 @@ class TagStep:
         description = episode.description or ""
         self._tag_mp3(audio_path, episode.title, podcast_title, description, date_str, year_str)
 
+        # Embed episode image as album art
+        raw_image = resolve_episode_image(episode, context, allow_feed_fallback=True)
+        if raw_image:
+            images_dir = context.podcast_dir / "images"
+            basename = episode_basename(context.effective_title, episode.title, episode.published)
+            embed_path = images_dir / f"{basename}-embed.jpg"
+            try:
+                convert_image(raw_image, embed_path, max_size=(600, 600))
+                self._embed_cover(audio_path, embed_path)
+            except Exception:
+                logger.warning("Failed to embed cover image for %s", episode.slug, exc_info=True)
+
         logger.info("Tagged %s with release date %s", audio_path.name, date_str)
         return StepResult(data={"release_date": date_str, "path": str(audio_path.relative_to(context.podcast_dir))})
 
@@ -53,6 +66,21 @@ class TagStep:
                 return f
 
         raise FileNotFoundError(f"Audio file not found for episode {episode.slug}")
+
+    def _embed_cover(self, audio_path: Path, image_path: Path) -> None:
+        try:
+            tags = ID3(audio_path)
+        except ID3NoHeaderError:
+            tags = ID3()
+        tags.delall("APIC")
+        tags.add(APIC(
+            encoding=3,
+            mime="image/jpeg",
+            type=3,  # Cover (front)
+            desc="Cover",
+            data=image_path.read_bytes(),
+        ))
+        tags.save(audio_path)
 
     def _tag_mp3(self, path: Path, title: str, artist: str, description: str, date_str: str, year_str: str) -> None:
         try:

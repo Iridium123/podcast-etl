@@ -75,6 +75,11 @@ def parse_feed(
         if bl:
             description = apply_blacklist(description, bl)
 
+        ep_image_url = None
+        ep_image = entry.get("image")
+        if ep_image:
+            ep_image_url = ep_image.get("href")
+
         episode = Episode(
             title=title,
             guid=guid,
@@ -83,6 +88,7 @@ def parse_feed(
             duration=entry.get("itunes_duration"),
             description=description,
             slug=ep_slug,
+            image_url=ep_image_url,
         )
 
         # Preserve step status from existing data
