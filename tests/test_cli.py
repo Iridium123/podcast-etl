@@ -344,13 +344,13 @@ def test_validate_config_global_pipeline_must_be_list():
 
 
 def test_validate_config_poll_interval_must_be_positive_int():
-    config = {"feeds": [], "defaults": {"poll_interval": -10}}
+    config = {"feeds": [], "poll_interval": -10}
     with pytest.raises(SystemExit, match="positive integer"):
         validate_config(config)
 
 
 def test_validate_config_poll_interval_rejects_string():
-    config = {"feeds": [], "defaults": {"poll_interval": "hourly"}}
+    config = {"feeds": [], "poll_interval": "hourly"}
     with pytest.raises(SystemExit, match="positive integer"):
         validate_config(config)
 
@@ -401,6 +401,18 @@ def test_validate_config_tracker_auth_validated():
     }
     with pytest.raises(SystemExit, match="remember_cookie.*username"):
         validate_config(config)
+
+
+def test_validate_config_tracker_auth_not_required_for_torrent_only():
+    """Tracker auth is not required when only torrent (not upload) is in the pipeline."""
+    config = {
+        "feeds": [{"url": "https://example.com/rss", "pipeline": ["torrent"]}],
+        "defaults": {
+            "tracker": {"url": "https://t.example.com", "announce_url": "https://t.example.com/announce"},
+            "torrent_data_dir": "/data",
+        },
+    }
+    validate_config(config)  # should not raise — no auth needed for torrent-only
 
 
 def test_validate_config_client_not_validated_when_unreferenced():

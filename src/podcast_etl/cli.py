@@ -65,6 +65,14 @@ def validate_config(config: dict) -> None:
     feeds = config.get("feeds", [])
     errors: list[str] = []
 
+    # Validate top-level poll_interval (not inside defaults)
+    poll_interval = config.get("poll_interval")
+    if poll_interval is not None:
+        if not isinstance(poll_interval, int) or isinstance(poll_interval, bool):
+            errors.append(f"poll_interval: must be a positive integer, got {type(poll_interval).__name__}")
+        elif poll_interval <= 0:
+            errors.append(f"poll_interval: must be a positive integer, got {poll_interval}")
+
     # Validate defaults types
     _validate_defaults_types(defaults, errors)
 
@@ -86,10 +94,11 @@ def validate_config(config: dict) -> None:
             for key in ("url", "announce_url"):
                 if not tracker_config.get(key):
                     errors.append(f"defaults.tracker: missing required key {key!r}")
-            has_cookie = tracker_config.get("remember_cookie")
-            has_login = tracker_config.get("username") and tracker_config.get("password")
-            if not has_cookie and not has_login:
-                errors.append("defaults.tracker: must specify 'remember_cookie' or both 'username' and 'password'")
+            if "upload" in all_steps:
+                has_cookie = tracker_config.get("remember_cookie")
+                has_login = tracker_config.get("username") and tracker_config.get("password")
+                if not has_cookie and not has_login:
+                    errors.append("defaults.tracker: must specify 'remember_cookie' or both 'username' and 'password'")
 
     # Validate client config only if seed step is referenced
     if "seed" in all_steps:
@@ -152,13 +161,6 @@ def _validate_defaults_types(defaults: dict, errors: list[str]) -> None:
     output_dir = defaults.get("output_dir")
     if output_dir is not None and not isinstance(output_dir, str):
         errors.append(f"defaults.output_dir: must be a string, got {type(output_dir).__name__}")
-
-    poll_interval = defaults.get("poll_interval")
-    if poll_interval is not None:
-        if not isinstance(poll_interval, int) or isinstance(poll_interval, bool):
-            errors.append(f"defaults.poll_interval: must be a positive integer, got {type(poll_interval).__name__}")
-        elif poll_interval <= 0:
-            errors.append(f"defaults.poll_interval: must be a positive integer, got {poll_interval}")
 
     # ad_detection sub-keys must be dicts, not scalars
     ad_detection = defaults.get("ad_detection")
