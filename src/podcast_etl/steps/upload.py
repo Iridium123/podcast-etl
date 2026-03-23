@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from podcast_etl.models import Episode
-from podcast_etl.pipeline import PipelineContext, StepResult, merge_config
+from podcast_etl.pipeline import PipelineContext, StepResult
 from podcast_etl.trackers.unit3d import ModifiedUnit3dTracker
 
 logger = logging.getLogger(__name__)
@@ -43,7 +43,7 @@ class UploadStep:
             torrent_path=Path(torrent_path),
             episode=episode,
             podcast=context.podcast,
-            feed_config=context.feed_config,
+            feed_config=context.config,
             audio_path=audio_path,
         )
 
@@ -60,20 +60,10 @@ def _checkpoint_path(context: PipelineContext, episode: Episode) -> Path:
 
 
 def _get_tracker(context: PipelineContext) -> ModifiedUnit3dTracker:
-    tracker_name = context.feed_config.get("tracker")
-    trackers = context.config.get("settings", {}).get("trackers", {})
-
-    if tracker_name:
-        tracker_config = trackers.get(tracker_name)
-    else:
-        tracker_config = next(iter(trackers.values()), None) if trackers else None
-
+    tracker_config = context.config.get("tracker", {})
     if not tracker_config:
         raise ValueError("No tracker configured")
-
-    feed_overrides = context.feed_config.get("tracker_config", {})
-    merged = merge_config(tracker_config, feed_overrides)
-    return ModifiedUnit3dTracker.from_config(merged)
+    return ModifiedUnit3dTracker.from_config(tracker_config)
 
 
 def _resolve_audio_path(episode: Episode) -> Path | None:

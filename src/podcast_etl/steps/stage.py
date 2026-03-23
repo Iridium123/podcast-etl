@@ -53,30 +53,19 @@ class StageStep:
 
 
 def _get_torrent_data_dir(context: PipelineContext) -> Path:
-    torrent_data_dir = context.config.get("settings", {}).get("torrent_data_dir")
+    torrent_data_dir = context.config.get("torrent_data_dir")
     if not torrent_data_dir:
-        raise ValueError("settings.torrent_data_dir is not configured")
+        raise ValueError("torrent_data_dir is not configured")
     return Path(torrent_data_dir)
 
 
 def _to_client_path(local_path: Path, torrent_data_dir: Path, context: PipelineContext) -> str:
     """Rebase a local path from torrent_data_dir onto the client's save_path."""
-    client_name = context.feed_config.get("client")
-    clients = context.config.get("settings", {}).get("clients", {})
-
-    if client_name:
-        client_config = clients.get(client_name)
-    else:
-        # Fall back to first configured client
-        client_config = next(iter(clients.values()), None) if clients else None
-
+    client_config = context.config.get("client", {})
     if not client_config:
-        # No client configured — return local path as-is
         return str(local_path)
-
     save_path = client_config.get("save_path", "")
     if not save_path:
         return str(local_path)
-
     relative = local_path.relative_to(torrent_data_dir)
     return str(Path(save_path) / relative)

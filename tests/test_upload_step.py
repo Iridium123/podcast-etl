@@ -43,25 +43,22 @@ def _make_episode(with_torrent: bool = True) -> Episode:
     )
 
 
-def _make_context(tmp_path: Path, feed_config: dict | None = None) -> PipelineContext:
+def _make_context(tmp_path: Path) -> PipelineContext:
     podcast = _make_podcast()
     config = {
-        "settings": {
-            "trackers": {
-                "unit3d": {
-                    "url": "https://tracker.example.com",
-                    "username": "user",
-                    "password": "pass",
-                    "announce_url": "https://tracker.example.com/announce/passkey/announce",
-                }
-            }
-        }
+        "tracker": {
+            "url": "https://tracker.example.com",
+            "username": "user",
+            "password": "pass",
+            "announce_url": "https://tracker.example.com/announce/passkey/announce",
+        },
+        "category_id": 14,
+        "type_id": 9,
     }
     return PipelineContext(
         output_dir=tmp_path / "output",
         podcast=podcast,
         config=config,
-        feed_config=feed_config or {"category_id": 14, "type_id": 9},
     )
 
 
@@ -80,38 +77,11 @@ class TestUploadStep:
             torrent_path=Path(TORRENT_PATH),
             episode=episode,
             podcast=context.podcast,
-            feed_config=context.feed_config,
+            feed_config=context.config,
             audio_path=None,
         )
         assert result.data["torrent_id"] == 42
         assert result.data["url"] == "https://tracker.example.com/torrents/42"
-
-    def test_tracker_resolved_by_feed_config_name(self, tmp_path):
-        podcast = _make_podcast()
-        config = {
-            "settings": {
-                "trackers": {
-                    "other": {"url": "https://other.example.com", "username": "u", "password": "p", "announce_url": "https://other.example.com/a"},
-                    "unit3d": {"url": "https://tracker.example.com", "username": "u", "password": "p", "announce_url": "https://tracker.example.com/a"},
-                }
-            }
-        }
-        context = PipelineContext(
-            output_dir=tmp_path / "output",
-            podcast=podcast,
-            config=config,
-            feed_config={"tracker": "unit3d", "category_id": 14, "type_id": 9},
-        )
-        episode = _make_episode()
-
-        mock_tracker = MagicMock()
-        mock_tracker.upload.return_value = {"torrent_id": 1, "url": ""}
-
-        with patch("podcast_etl.steps.upload.ModifiedUnit3dTracker.from_config", return_value=mock_tracker) as mock_from_config:
-            UploadStep().process(episode, context)
-
-        called_config = mock_from_config.call_args[0][0]
-        assert called_config["url"] == "https://tracker.example.com"
 
     def test_raises_if_no_torrent_status(self, tmp_path):
         context = _make_context(tmp_path)
@@ -125,7 +95,7 @@ class TestUploadStep:
         context = PipelineContext(
             output_dir=tmp_path / "output",
             podcast=podcast,
-            config={"settings": {}},
+            config={"category_id": 14, "type_id": 9},
         )
         episode = _make_episode()
 
@@ -192,12 +162,23 @@ class TestUploadStep:
         assert result.data["torrent_id"] == 100
         assert json.loads(checkpoint.read_text())["torrent_id"] == 100
 
-    def test_feed_tracker_config_overrides_settings(self, tmp_path):
-        context = _make_context(tmp_path, feed_config={
-            "category_id": 14,
-            "type_id": 9,
-            "tracker_config": {"mod_queue_opt_in": 1},
-        })
+    def test_tracker_config_from_resolved_config(self, tmp_path):
+        podcast = _make_podcast()
+        context = PipelineContext(
+            output_dir=tmp_path / "output",
+            podcast=podcast,
+            config={
+                "tracker": {
+                    "url": "https://tracker.example.com",
+                    "username": "user",
+                    "password": "pass",
+                    "announce_url": "https://tracker.example.com/announce/passkey/announce",
+                    "mod_queue_opt_in": 1,
+                },
+                "category_id": 14,
+                "type_id": 9,
+            },
+        )
         episode = _make_episode()
 
         mock_tracker = MagicMock()
@@ -208,32 +189,23 @@ class TestUploadStep:
 
         called_config = mock_from_config.call_args[0][0]
         assert called_config["mod_queue_opt_in"] == 1
-        # Original settings are preserved
         assert called_config["url"] == "https://tracker.example.com"
 
-    def test_feed_tracker_config_overrides_description_suffix(self, tmp_path):
+    def test_tracker_description_suffix_in_resolved_config(self, tmp_path):
         podcast = _make_podcast()
-        config = {
-            "settings": {
-                "trackers": {
-                    "unit3d": {
-                        "url": "https://tracker.example.com",
-                        "username": "u",
-                        "password": "p",
-                        "announce_url": "https://tracker.example.com/a",
-                        "description_suffix": "Global suffix",
-                    }
-                }
-            }
-        }
         context = PipelineContext(
             output_dir=tmp_path / "output",
             podcast=podcast,
-            config=config,
-            feed_config={
+            config={
+                "tracker": {
+                    "url": "https://tracker.example.com",
+                    "username": "u",
+                    "password": "p",
+                    "announce_url": "https://tracker.example.com/a",
+                    "description_suffix": "Per-feed suffix",
+                },
                 "category_id": 14,
                 "type_id": 9,
-                "tracker_config": {"description_suffix": "Per-feed suffix"},
             },
         )
         episode = _make_episode()

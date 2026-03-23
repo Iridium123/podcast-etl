@@ -44,24 +44,19 @@ def _make_episode(local_path: str | None = "/torrent-data/my-podcast/episode-one
     )
 
 
-def _make_context(tmp_path: Path, feed_config: dict | None = None, tracker_config: dict | None = None) -> PipelineContext:
+def _make_context(tmp_path: Path, tracker_config: dict | None = None) -> PipelineContext:
     podcast = _make_podcast()
     config: dict = {
-        "settings": {
-            "trackers": {
-                "unit3d": tracker_config or {
-                    "url": "https://tracker.example.com",
-                    "api_key": "key",
-                    "announce_url": "https://tracker.example.com/announce/passkey/announce",
-                }
-            }
+        "tracker": tracker_config or {
+            "url": "https://tracker.example.com",
+            "api_key": "key",
+            "announce_url": "https://tracker.example.com/announce/passkey/announce",
         }
     }
     return PipelineContext(
         output_dir=tmp_path / "output",
         podcast=podcast,
         config=config,
-        feed_config=feed_config or {},
     )
 
 
@@ -206,48 +201,13 @@ class TestTorrentStep:
         cmd = mock_run.call_args[0][0]
         assert "-p" not in cmd
 
-    def test_tracker_resolved_by_feed_config_name(self, tmp_path):
+    def test_tracker_config_with_private_false(self, tmp_path):
         audio = _make_audio_file(tmp_path)
-        podcast = _make_podcast()
-        config = {
-            "settings": {
-                "trackers": {
-                    "other": {
-                        "url": "https://other.example.com",
-                        "api_key": "key",
-                        "announce_url": "https://other.example.com/announce",
-                    },
-                    "unit3d": {
-                        "url": "https://tracker.example.com",
-                        "api_key": "key",
-                        "announce_url": "https://tracker.example.com/announce/passkey/announce",
-                    },
-                }
-            }
-        }
-        context = PipelineContext(
-            output_dir=tmp_path / "output",
-            podcast=podcast,
-            config=config,
-            feed_config={"tracker": "unit3d"},
-        )
-        episode = _make_episode(local_path=str(audio))
-
-        mock_result = MagicMock(returncode=0)
-        mock_torrent = MagicMock()
-        mock_torrent.infohash = "abcdef1234567890abcdef1234567890abcdef12"
-
-        with patch("podcast_etl.steps.torrent.subprocess.run", return_value=mock_result) as mock_run, \
-             patch("torf.Torrent.read", return_value=mock_torrent):
-            TorrentStep().process(episode, context)
-
-        cmd = mock_run.call_args[0][0]
-        assert "https://tracker.example.com/announce/passkey/announce" in cmd
-
-    def test_feed_tracker_config_overrides_settings(self, tmp_path):
-        audio = _make_audio_file(tmp_path)
-        context = _make_context(tmp_path, feed_config={
-            "tracker_config": {"private": False},
+        context = _make_context(tmp_path, tracker_config={
+            "url": "https://tracker.example.com",
+            "api_key": "key",
+            "announce_url": "https://tracker.example.com/announce/passkey/announce",
+            "private": False,
         })
         episode = _make_episode(local_path=str(audio))
 
@@ -260,9 +220,9 @@ class TestTorrentStep:
             TorrentStep().process(episode, context)
 
         cmd = mock_run.call_args[0][0]
-        # private=False from feed override should suppress -p flag
+        # private=False should suppress -p flag
         assert "-p" not in cmd
-        # announce_url from global settings is still used
+        # announce_url is still used
         assert "https://tracker.example.com/announce/passkey/announce" in cmd
 
     def test_raises_if_no_stage_status(self, tmp_path):
@@ -285,7 +245,7 @@ class TestTorrentStep:
         context = PipelineContext(
             output_dir=tmp_path / "output",
             podcast=podcast,
-            config={"settings": {}},
+            config={},
         )
         episode = _make_episode(local_path=str(audio))
 

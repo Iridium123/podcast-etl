@@ -29,15 +29,15 @@ def test_load_config_missing_file_returns_defaults(tmp_path: Path):
     config = load_config(missing)
     assert "feeds" in config
     assert config["feeds"] == []
-    assert "settings" in config
+    assert "defaults" in config
 
 
 def test_load_config_valid_yaml(tmp_path: Path):
     cfg_file = tmp_path / "feeds.yaml"
-    cfg_file.write_text(yaml.dump({"feeds": [{"url": "https://example.com/rss"}], "settings": {"poll_interval": 600}}))
+    cfg_file.write_text(yaml.dump({"feeds": [{"url": "https://example.com/rss"}], "poll_interval": 600}))
     config = load_config(cfg_file)
     assert config["feeds"][0]["url"] == "https://example.com/rss"
-    assert config["settings"]["poll_interval"] == 600
+    assert config["poll_interval"] == 600
 
 
 def test_load_config_empty_yaml_returns_empty_dict(tmp_path: Path):
@@ -61,16 +61,16 @@ def test_load_config_invalid_yaml_exits(tmp_path: Path):
 
 def test_save_config_writes_valid_yaml(tmp_path: Path):
     cfg_file = tmp_path / "feeds.yaml"
-    data = {"feeds": [{"url": "https://example.com/rss"}], "settings": {"poll_interval": 3600}}
+    data = {"feeds": [{"url": "https://example.com/rss"}], "defaults": {"output_dir": "./output"}, "poll_interval": 3600}
     save_config(data, cfg_file)
     loaded = yaml.safe_load(cfg_file.read_text())
     assert loaded["feeds"][0]["url"] == "https://example.com/rss"
-    assert loaded["settings"]["poll_interval"] == 3600
+    assert loaded["poll_interval"] == 3600
 
 
 def test_save_config_roundtrip(tmp_path: Path):
     cfg_file = tmp_path / "feeds.yaml"
-    original = {"feeds": [{"url": "https://a.com/rss", "name": "a"}], "settings": {"pipeline": ["download", "tag"]}}
+    original = {"feeds": [{"url": "https://a.com/rss", "name": "a"}], "defaults": {"pipeline": ["download", "tag"]}}
     save_config(original, cfg_file)
     assert load_config(cfg_file) == original
 
@@ -84,12 +84,12 @@ def test_get_output_dir_default_on_empty_config():
 
 
 def test_get_output_dir_from_settings():
-    config = {"settings": {"output_dir": "/tmp/podcast-data"}}
+    config = {"defaults": {"output_dir": "/tmp/podcast-data"}}
     assert get_output_dir(config) == Path("/tmp/podcast-data")
 
 
 def test_get_output_dir_missing_settings_key():
-    config = {"settings": {}}
+    config = {"defaults": {}}
     assert get_output_dir(config) == Path("./output")
 
 
@@ -148,31 +148,18 @@ def test_find_feed_config_no_feeds_key():
 # ---------------------------------------------------------------------------
 
 def test_get_pipeline_steps_uses_feed_specific_pipeline():
-    config = {"settings": {"pipeline": ["download"]}}
-    feed_config = {"url": "...", "pipeline": ["download", "tag"]}
-    assert get_pipeline_steps(config, feed_config) == ["download", "tag"]
+    resolved = {"pipeline": ["download", "tag"]}
+    assert get_pipeline_steps(resolved) == ["download", "tag"]
 
 
-def test_get_pipeline_steps_falls_back_to_settings():
-    config = {"settings": {"pipeline": ["download", "tag"]}}
-    feed_config = {"url": "..."}  # no pipeline key
-    assert get_pipeline_steps(config, feed_config) == ["download", "tag"]
+def test_get_pipeline_steps_falls_back_to_default():
+    resolved = {}
+    assert get_pipeline_steps(resolved) == ["download"]
 
 
-def test_get_pipeline_steps_falls_back_to_default_when_no_settings():
-    assert get_pipeline_steps({}) == ["download"]
-
-
-def test_get_pipeline_steps_no_feed_config_uses_settings():
-    config = {"settings": {"pipeline": ["tag"]}}
-    assert get_pipeline_steps(config, None) == ["tag"]
-
-
-def test_get_pipeline_steps_empty_feed_pipeline_falls_back_to_settings():
-    """An explicitly empty list in feed config should still fall back to settings."""
-    config = {"settings": {"pipeline": ["download"]}}
-    feed_config = {"url": "...", "pipeline": []}  # empty list is falsy
-    assert get_pipeline_steps(config, feed_config) == ["download"]
+def test_get_pipeline_steps_empty_pipeline_falls_back():
+    resolved = {"pipeline": []}
+    assert get_pipeline_steps(resolved) == ["download"]
 
 
 # ---------------------------------------------------------------------------
@@ -287,14 +274,14 @@ def test_parse_date_range_invalid_format_raises():
 def test_validate_config_passes_valid_config():
     config = {
         "feeds": [{"url": "https://example.com/rss", "pipeline": ["download"], "ad_detection": {"llm": {"model": "haiku"}}}],
-        "settings": {"ad_detection": {"llm": {"provider": "anthropic", "model": "sonnet"}}},
+        "defaults": {"ad_detection": {"llm": {"provider": "anthropic", "model": "sonnet"}}},
     }
     validate_config(config)  # should not raise
 
 
 def test_validate_config_empty():
     validate_config({})  # should not raise
-    validate_config({"feeds": [], "settings": {}})  # should not raise
+    validate_config({"feeds": [], "defaults": {}})  # should not raise
 
 
 def test_validate_config_feed_missing_url():
@@ -309,45 +296,18 @@ def test_validate_config_unknown_pipeline_step_in_feed():
         validate_config(config)
 
 
-def test_validate_config_unknown_pipeline_step_in_settings():
-    config = {"feeds": [], "settings": {"pipeline": ["bogus"]}}
-    with pytest.raises(SystemExit, match="settings.pipeline.*'bogus'"):
+def test_validate_config_unknown_pipeline_step_in_defaults():
+    config = {"feeds": [], "defaults": {"pipeline": ["bogus"]}}
+    with pytest.raises(SystemExit, match="defaults.pipeline.*'bogus'"):
         validate_config(config)
 
 
-def test_validate_config_unknown_tracker_reference():
-    config = {
-        "feeds": [{"url": "https://example.com/rss", "tracker": "missing"}],
-        "settings": {"trackers": {"unit3d": {"url": "https://t.example.com"}}},
-    }
-    with pytest.raises(SystemExit, match="tracker 'missing' not found"):
-        validate_config(config)
-
-
-def test_validate_config_unknown_client_reference():
-    config = {
-        "feeds": [{"url": "https://example.com/rss", "client": "missing"}],
-        "settings": {"clients": {"qbittorrent": {"url": "http://localhost:8080"}}},
-    }
-    with pytest.raises(SystemExit, match="client 'missing' not found"):
-        validate_config(config)
-
-
-def test_validate_config_catches_ad_detection_type_mismatch():
+def test_validate_config_catches_type_mismatch():
     config = {
         "feeds": [{"url": "https://example.com/rss", "ad_detection": {"llm": "haiku"}}],
-        "settings": {"ad_detection": {"llm": {"provider": "anthropic"}}},
+        "defaults": {"ad_detection": {"llm": {"provider": "anthropic"}}},
     }
-    with pytest.raises(SystemExit, match="ad_detection"):
-        validate_config(config)
-
-
-def test_validate_config_catches_tracker_config_type_mismatch():
-    config = {
-        "feeds": [{"url": "https://example.com/rss", "tracker_config": {"announce_url": {"nested": "bad"}}}],
-        "settings": {"trackers": {"unit3d": {"url": "https://t.example.com", "announce_url": "https://t.example.com/a"}}},
-    }
-    with pytest.raises(SystemExit, match="tracker_config"):
+    with pytest.raises(SystemExit, match="Type mismatch"):
         validate_config(config)
 
 
@@ -363,18 +323,9 @@ def test_validate_config_collects_multiple_errors():
     assert "nonexistent" in str(exc_info.value)
 
 
-def test_validate_config_catches_title_cleaning_type_mismatch():
-    config = {
-        "feeds": [{"url": "https://example.com/rss", "title_cleaning": {"strip_date": {"nested": "bad"}}}],
-        "settings": {"title_cleaning": {"strip_date": True}},
-    }
-    with pytest.raises(SystemExit, match="title_cleaning"):
-        validate_config(config)
-
-
 def test_validate_config_passes_valid_title_cleaning():
     config = {
         "feeds": [{"url": "https://example.com/rss", "title_cleaning": {"strip_date": True}}],
-        "settings": {"title_cleaning": {"reorder_parts": True}},
+        "defaults": {"title_cleaning": {"reorder_parts": True}},
     }
     validate_config(config)  # should not raise

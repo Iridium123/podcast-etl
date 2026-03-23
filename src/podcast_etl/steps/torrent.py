@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from podcast_etl.models import Episode, episode_basename
-from podcast_etl.pipeline import PipelineContext, StepResult, merge_config
+from podcast_etl.pipeline import PipelineContext, StepResult
 
 logger = logging.getLogger(__name__)
 
@@ -55,24 +55,12 @@ class TorrentStep:
 
 
 def _get_tracker_info(context: PipelineContext) -> tuple[dict[str, Any], str]:
-    tracker_name = context.feed_config.get("tracker")
-    trackers = context.config.get("settings", {}).get("trackers", {})
-
-    if tracker_name:
-        tracker_config = trackers.get(tracker_name)
-    else:
-        tracker_config = next(iter(trackers.values()), None) if trackers else None
-
+    tracker_config = context.config.get("tracker", {})
     if not tracker_config:
         raise ValueError("No tracker configured; cannot determine announce URL")
-
-    feed_overrides = context.feed_config.get("tracker_config", {})
-    tracker_config = merge_config(tracker_config, feed_overrides)
-
     announce_url = tracker_config.get("announce_url")
     if not announce_url:
         raise ValueError("Tracker config missing 'announce_url'")
-
     return tracker_config, announce_url
 
 

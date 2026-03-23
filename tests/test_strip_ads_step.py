@@ -71,8 +71,7 @@ def _make_context(tmp_path):
     return PipelineContext(
         output_dir=tmp_path / "output",
         podcast=podcast,
-        config={"settings": {}},
-        feed_config={},
+        config={},
     )
 
 

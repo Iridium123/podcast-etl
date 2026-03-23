@@ -9,7 +9,7 @@ from typing import Any
 from podcast_etl.detectors import AdSegment, merge_segments
 from podcast_etl.detectors.transcription import TranscriptionDetector, transcribe
 from podcast_etl.models import Episode
-from podcast_etl.pipeline import PipelineContext, StepResult, merge_config
+from podcast_etl.pipeline import PipelineContext, StepResult
 
 logger = logging.getLogger(__name__)
 
@@ -28,10 +28,8 @@ def _get_audio_path(episode: Episode, context: PipelineContext) -> Path:
 
 
 def _get_ad_detection_config(context: PipelineContext) -> dict[str, Any]:
-    """Merge global and per-feed ad_detection config."""
-    global_config = context.config.get("settings", {}).get("ad_detection", {})
-    feed_overrides = context.feed_config.get("ad_detection", {})
-    return merge_config(global_config, feed_overrides)
+    """Return ad_detection config from resolved feed config."""
+    return context.config.get("ad_detection", {})
 
 
 def _get_audio_duration(audio_path: Path) -> float:
