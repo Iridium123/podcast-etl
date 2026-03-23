@@ -23,7 +23,7 @@ Tests live in `tests/` and use pytest:
 - `test_download_step.py` — `DownloadStep` filename construction, skip-existing, download
 - `test_tag_step.py` — `TagStep` MP3 tagging, APIC album art embedding, audio file discovery, error cases
 - `test_qbittorrent_client.py` — `QBittorrentClient` login, has_torrent, add_torrent
-- `test_unit3d_tracker.py` — `ModifiedUnit3dTracker` upload, field construction, image handling, cover override precedence
+- `test_unit3d_tracker.py` — `ModifiedUnit3dTracker` upload, field construction, image handling, cover override precedence, `from_config` auth validation
 - `test_transcription_detector.py` — `TranscriptionDetector` whisper API, local transcription, `AnthropicProvider` LLM calls, `merge_segments`, `_parse_llm_response`
 - `test_detect_ads_step.py` — `DetectAdsStep` orchestration, config merging, transcript saving/reuse, segment merging
 - `test_strip_ads_step.py` — `StripAdsStep` ffmpeg args, idempotency, no-ads passthrough
@@ -47,7 +47,7 @@ The pipeline is step-based and resumable. Each episode tracks its own completion
 1. `feed.py` — fetches RSS via `feedparser`, parses into `Podcast`/`Episode` models, merges existing on-disk step status to preserve progress
 2. `models.py` — `Podcast`, `Episode`, `StepStatus` dataclasses with `save()`/`load()` methods; persisted to `output/<podcast-slug>/podcast.json` and `output/<podcast-slug>/episodes/<ep-slug>.json`; `Episode.image_url` stores per-episode artwork URL from RSS `<itunes:image>`
 3. `pipeline.py` — `Pipeline` runs registered `Step` instances over episodes, skipping any where `episode.status[step.name]` is already set; writes status back to disk after each step; `PipelineContext` carries `output_dir`, `podcast`, and a single resolved config dict produced by `resolve_feed_config` (deep-merging `defaults` with per-feed overrides via `deep_merge`)
-4. `cli.py` — Click commands (`add`, `fetch`, `run`, `reset`, `status`, `poll`); registers built-in steps at import time via `register_step()`; `find_feed_config(config, identifier)` resolves a feed by name or URL
+4. `cli.py` — Click commands (`add`, `fetch`, `run`, `reset`, `status`, `poll`); registers built-in steps at import time via `register_step()`; `find_feed_config(config, identifier)` resolves a feed by name or URL; `validate_config` checks types, required keys, and step-specific config requirements at startup (only validates tracker/client config when actually referenced by a pipeline)
 5. `poller.py` — long-running loop that reloads config each cycle and handles SIGTERM/SIGINT gracefully; uses per-feed `pipeline` list when set
 6. `clients/qbittorrent.py` — `QBittorrentClient` implementing `TorrentClient` protocol; session-based auth, `has_torrent`, `add_torrent`
 7. `trackers/unit3d.py` — `ModifiedUnit3dTracker` implementing `Tracker` protocol; multipart upload to UNIT3D REST API

@@ -630,6 +630,33 @@ class TestFromConfig:
         assert tracker._defaults["description_suffix"] == "Uploaded by Bot"
 
 
+class TestFromConfigAuth:
+    def test_from_config_with_cookie(self):
+        config = {"url": "https://t.example.com", "announce_url": "https://t.example.com/a", "remember_cookie": "abc"}
+        tracker = ModifiedUnit3dTracker.from_config(config)
+        assert tracker._url == "https://t.example.com"
+
+    def test_from_config_with_login(self):
+        config = {"url": "https://t.example.com", "announce_url": "https://t.example.com/a", "username": "u", "password": "p"}
+        tracker = ModifiedUnit3dTracker.from_config(config)
+        assert tracker._url == "https://t.example.com"
+
+    def test_from_config_missing_auth_raises(self):
+        config = {"url": "https://t.example.com", "announce_url": "https://t.example.com/a"}
+        with pytest.raises(ValueError, match="remember_cookie.*username"):
+            ModifiedUnit3dTracker.from_config(config)
+
+    def test_from_config_missing_url_raises(self):
+        config = {"announce_url": "https://t.example.com/a", "remember_cookie": "abc"}
+        with pytest.raises(ValueError, match="url"):
+            ModifiedUnit3dTracker.from_config(config)
+
+    def test_from_config_missing_announce_url_raises(self):
+        config = {"url": "https://t.example.com", "remember_cookie": "abc"}
+        with pytest.raises(ValueError, match="announce_url"):
+            ModifiedUnit3dTracker.from_config(config)
+
+
 class TestBuildTorrentName:
     def test_with_date_and_bitrate(self):
         episode = _make_episode(published="Fri, 15 Mar 2024 06:00:00 +0000")

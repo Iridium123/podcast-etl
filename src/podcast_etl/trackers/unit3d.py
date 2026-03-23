@@ -178,6 +178,13 @@ class ModifiedUnit3dTracker:
 
     @classmethod
     def from_config(cls, config: dict[str, Any]) -> ModifiedUnit3dTracker:
+        for key in ("url", "announce_url"):
+            if not config.get(key):
+                raise ValueError(f"Tracker config missing required key {key!r}")
+        has_cookie = config.get("remember_cookie")
+        has_login = config.get("username") and config.get("password")
+        if not has_cookie and not has_login:
+            raise ValueError("Tracker config must specify 'remember_cookie' or both 'username' and 'password'")
         return cls(
             url=config["url"],
             username=config.get("username"),

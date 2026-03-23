@@ -329,3 +329,121 @@ def test_validate_config_passes_valid_title_cleaning():
         "defaults": {"title_cleaning": {"reorder_parts": True}},
     }
     validate_config(config)  # should not raise
+
+
+def test_validate_config_pipeline_must_be_list():
+    config = {"feeds": [{"url": "https://example.com/rss", "pipeline": "download"}]}
+    with pytest.raises(SystemExit, match="must be a list"):
+        validate_config(config)
+
+
+def test_validate_config_global_pipeline_must_be_list():
+    config = {"feeds": [], "defaults": {"pipeline": "download"}}
+    with pytest.raises(SystemExit, match="must be a list"):
+        validate_config(config)
+
+
+def test_validate_config_poll_interval_must_be_positive_int():
+    config = {"feeds": [], "defaults": {"poll_interval": -10}}
+    with pytest.raises(SystemExit, match="positive integer"):
+        validate_config(config)
+
+
+def test_validate_config_poll_interval_rejects_string():
+    config = {"feeds": [], "defaults": {"poll_interval": "hourly"}}
+    with pytest.raises(SystemExit, match="positive integer"):
+        validate_config(config)
+
+
+def test_validate_config_upload_requires_category_and_type_id():
+    config = {"feeds": [{"url": "https://example.com/rss", "pipeline": ["upload"]}]}
+    with pytest.raises(SystemExit, match="category_id") as exc_info:
+        validate_config(config)
+    assert "type_id" in str(exc_info.value)
+
+
+def test_validate_config_stage_requires_torrent_data_dir():
+    config = {"feeds": [{"url": "https://example.com/rss", "pipeline": ["stage"]}], "defaults": {}}
+    with pytest.raises(SystemExit, match="torrent_data_dir"):
+        validate_config(config)
+
+
+def test_validate_config_ad_detection_whisper_must_be_dict():
+    config = {"feeds": [], "defaults": {"ad_detection": {"whisper": "base"}}}
+    with pytest.raises(SystemExit, match="ad_detection.whisper.*must be a mapping"):
+        validate_config(config)
+
+
+def test_validate_config_tracker_not_validated_when_unreferenced():
+    """Tracker config is not validated when no pipeline includes upload/torrent."""
+    config = {
+        "feeds": [{"url": "https://example.com/rss", "pipeline": ["download"]}],
+        "defaults": {"tracker": {"url": "https://t.example.com"}},  # incomplete — but unused
+    }
+    validate_config(config)  # should not raise
+
+
+def test_validate_config_tracker_validated_when_upload_in_pipeline():
+    """Tracker config is validated when a pipeline includes upload."""
+    config = {
+        "feeds": [{"url": "https://example.com/rss", "pipeline": ["upload"], "category_id": 1, "type_id": 1}],
+        "defaults": {"tracker": {"url": "https://t.example.com"}},  # missing announce_url and auth
+    }
+    with pytest.raises(SystemExit, match="announce_url"):
+        validate_config(config)
+
+
+def test_validate_config_tracker_auth_validated():
+    """Tracker config must have remember_cookie or username+password."""
+    config = {
+        "feeds": [{"url": "https://example.com/rss", "pipeline": ["upload"], "category_id": 1, "type_id": 1}],
+        "defaults": {"tracker": {"url": "https://t.example.com", "announce_url": "https://t.example.com/announce"}},
+    }
+    with pytest.raises(SystemExit, match="remember_cookie.*username"):
+        validate_config(config)
+
+
+def test_validate_config_client_not_validated_when_unreferenced():
+    """Client config is not validated when no pipeline includes seed."""
+    config = {
+        "feeds": [{"url": "https://example.com/rss", "pipeline": ["download"]}],
+        "defaults": {"client": {"url": "http://qbt:8080"}},  # incomplete — but unused
+    }
+    validate_config(config)  # should not raise
+
+
+def test_validate_config_client_validated_when_seed_in_pipeline():
+    """Client config is validated when a pipeline includes seed."""
+    config = {
+        "feeds": [{"url": "https://example.com/rss", "pipeline": ["seed"]}],
+        "defaults": {"client": {"url": "http://qbt:8080"}, "torrent_data_dir": "/data"},
+    }
+    with pytest.raises(SystemExit, match="missing required key 'username'"):
+        validate_config(config)
+
+
+def test_validate_config_global_pipeline_upload_checks_each_feed():
+    """Global pipeline with 'upload' should validate per-feed config, not fail with empty feed."""
+    config = {
+        "feeds": [
+            {"url": "https://a.com/rss", "category_id": 14, "type_id": 9},
+            {"url": "https://b.com/rss", "category_id": 5, "type_id": 3},
+        ],
+        "defaults": {"pipeline": ["upload"]},
+    }
+    validate_config(config)  # should not raise — both feeds have required keys
+
+
+def test_validate_config_global_pipeline_upload_reports_feed_missing_keys():
+    """Global pipeline with 'upload' should report the specific feed missing category_id."""
+    config = {
+        "feeds": [
+            {"url": "https://a.com/rss", "category_id": 14, "type_id": 9},
+            {"url": "https://b.com/rss"},  # missing category_id and type_id
+        ],
+        "defaults": {"pipeline": ["upload"]},
+    }
+    with pytest.raises(SystemExit, match="b.com") as exc_info:
+        validate_config(config)
+    # First feed should NOT appear in errors
+    assert "a.com" not in str(exc_info.value)
