@@ -53,25 +53,20 @@ def _make_episode(with_torrent: bool = True, with_stage: bool = True) -> Episode
     )
 
 
-def _make_context(tmp_path: Path, feed_config: dict | None = None) -> PipelineContext:
+def _make_context(tmp_path: Path) -> PipelineContext:
     podcast = _make_podcast()
     config = {
-        "settings": {
-            "clients": {
-                "qbittorrent": {
-                    "url": "http://localhost:8080",
-                    "username": "admin",
-                    "password": "secret",
-                    "save_path": "/data",
-                }
-            }
+        "client": {
+            "url": "http://localhost:8080",
+            "username": "admin",
+            "password": "secret",
+            "save_path": "/data",
         }
     }
     return PipelineContext(
         output_dir=tmp_path / "output",
         podcast=podcast,
         config=config,
-        feed_config=feed_config or {},
     )
 
 
@@ -106,33 +101,6 @@ class TestSeedStep:
         mock_client.add_torrent.assert_not_called()
         assert result.data["hash"] == INFO_HASH
 
-    def test_client_resolved_by_feed_config_name(self, tmp_path):
-        podcast = _make_podcast()
-        config = {
-            "settings": {
-                "clients": {
-                    "other": {"url": "http://other:8080", "username": "x", "password": "y"},
-                    "qbittorrent": {"url": "http://localhost:8080", "username": "admin", "password": "secret"},
-                }
-            }
-        }
-        context = PipelineContext(
-            output_dir=tmp_path / "output",
-            podcast=podcast,
-            config=config,
-            feed_config={"client": "qbittorrent"},
-        )
-        episode = _make_episode()
-
-        mock_client = MagicMock()
-        mock_client.has_torrent.return_value = False
-
-        with patch("podcast_etl.steps.seed.QBittorrentClient.from_config", return_value=mock_client) as mock_from_config:
-            SeedStep().process(episode, context)
-
-        called_config = mock_from_config.call_args[0][0]
-        assert called_config["url"] == "http://localhost:8080"
-
     def test_raises_if_no_torrent_status(self, tmp_path):
         context = _make_context(tmp_path)
         episode = _make_episode(with_torrent=False)
@@ -152,7 +120,7 @@ class TestSeedStep:
         context = PipelineContext(
             output_dir=tmp_path / "output",
             podcast=podcast,
-            config={"settings": {}},
+            config={},
         )
         episode = _make_episode()
 

@@ -57,18 +57,13 @@ def _make_context(tmp_path: Path, torrent_data_dir: Path) -> PipelineContext:
         output_dir=tmp_path / "output",
         podcast=_make_podcast(),
         config={
-            "settings": {
-                "torrent_data_dir": str(torrent_data_dir),
-                "trackers": {
-                    "unit3d": {
-                        "url": "https://tracker.example.com",
-                        "api_key": "key",
-                        "announce_url": "https://tracker.example.com/announce/passkey/announce",
-                    }
-                },
-            }
+            "torrent_data_dir": str(torrent_data_dir),
+            "tracker": {
+                "url": "https://tracker.example.com",
+                "api_key": "key",
+                "announce_url": "https://tracker.example.com/announce/passkey/announce",
+            },
         },
-        feed_config={},
     )
 
 

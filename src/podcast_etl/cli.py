@@ -18,7 +18,7 @@ from podcast_etl.feed import parse_feed
 from podcast_etl.models import Episode, Podcast
 
 logger = logging.getLogger(__name__)
-from podcast_etl.pipeline import Pipeline, PipelineContext, STEP_REGISTRY, get_step, merge_config, register_step, resolve_title_cleaning
+from podcast_etl.pipeline import Pipeline, PipelineContext, STEP_REGISTRY, get_step, deep_merge, register_step, resolve_feed_config
 from podcast_etl.steps.download import DownloadStep
 from podcast_etl.steps.tag import TagStep
 from podcast_etl.steps.stage import StageStep
@@ -47,7 +47,7 @@ DEFAULT_OUTPUT_DIR = Path("output")
 def load_config(config_path: Path) -> dict:
     if not config_path.exists():
         logger.warning("Config file not found: %s — using defaults", config_path)
-        return {"feeds": [], "settings": {"poll_interval": 3600, "output_dir": "./output", "pipeline": ["download"]}}
+        return {"feeds": [], "defaults": {"output_dir": "./output", "pipeline": ["download"]}, "poll_interval": 3600}
     try:
         return yaml.safe_load(config_path.read_text()) or {}
     except yaml.YAMLError as exc:
@@ -61,73 +61,38 @@ def save_config(config: dict, config_path: Path) -> None:
 
 def validate_config(config: dict) -> None:
     """Validate config structure and catch common errors early."""
-    settings = config.get("settings", {})
+    defaults = config.get("defaults", {})
     feeds = config.get("feeds", [])
     errors: list[str] = []
 
-    # Validate each feed entry
     for i, feed in enumerate(feeds):
         feed_label = feed.get("name") or feed.get("url") or f"feeds[{i}]"
 
         if not feed.get("url"):
             errors.append(f"Feed {feed_label!r}: missing 'url'")
 
-        # Check pipeline step names are registered
         for step_name in feed.get("pipeline", []):
             if step_name not in STEP_REGISTRY:
                 errors.append(f"Feed {feed_label!r}: unknown pipeline step {step_name!r}")
 
-        # Check tracker/client references exist
-        tracker_name = feed.get("tracker")
-        if tracker_name and tracker_name not in settings.get("trackers", {}):
-            errors.append(f"Feed {feed_label!r}: tracker {tracker_name!r} not found in settings.trackers")
+        # deep_merge is called on the full feed dict (including metadata keys
+        # like url/name/enabled).  This is safe because defaults doesn't define
+        # those keys as dicts, so no spurious type-mismatch errors fire.
+        try:
+            deep_merge(defaults, feed)
+        except TypeError as exc:
+            errors.append(f"Feed {feed_label!r}: {exc}")
 
-        client_name = feed.get("client")
-        if client_name and client_name not in settings.get("clients", {}):
-            errors.append(f"Feed {feed_label!r}: client {client_name!r} not found in settings.clients")
-
-        # Check feed override type compatibility
-        _validate_feed_overrides(feed, settings, feed_label, errors)
-
-    # Check global pipeline step names
-    for step_name in settings.get("pipeline", []):
+    for step_name in defaults.get("pipeline", []):
         if step_name not in STEP_REGISTRY:
-            errors.append(f"settings.pipeline: unknown step {step_name!r}")
+            errors.append(f"defaults.pipeline: unknown step {step_name!r}")
 
     if errors:
         raise SystemExit("Config validation failed:\n  " + "\n  ".join(errors))
 
 
-def _validate_feed_overrides(
-    feed: dict, settings: dict, feed_label: str, errors: list[str],
-) -> None:
-    """Check that per-feed override sections have compatible types with global settings."""
-    for section in ("ad_detection", "audiobookshelf", "title_cleaning"):
-        global_cfg = settings.get(section, {})
-        feed_cfg = feed.get(section, {})
-        if global_cfg and feed_cfg:
-            try:
-                merge_config(global_cfg, feed_cfg)
-            except TypeError as exc:
-                errors.append(f"Feed {feed_label!r}, {section}: {exc}")
-
-    feed_tracker_overrides = feed.get("tracker_config", {})
-    if feed_tracker_overrides:
-        tracker_name = feed.get("tracker")
-        trackers = settings.get("trackers", {})
-        if tracker_name:
-            tracker_cfg = trackers.get(tracker_name, {})
-        else:
-            tracker_cfg = next(iter(trackers.values()), {}) if trackers else {}
-        if tracker_cfg:
-            try:
-                merge_config(tracker_cfg, feed_tracker_overrides)
-            except TypeError as exc:
-                errors.append(f"Feed {feed_label!r}, tracker_config: {exc}")
-
-
 def get_output_dir(config: dict) -> Path:
-    return Path(config.get("settings", {}).get("output_dir", "./output"))
+    return Path(config.get("defaults", {}).get("output_dir", "./output"))
 
 
 def find_feed_config(config: dict, identifier: str) -> dict | None:
@@ -141,10 +106,8 @@ def find_feed_config(config: dict, identifier: str) -> dict | None:
     return None
 
 
-def get_pipeline_steps(config: dict, feed_config: dict | None = None) -> list[str]:
-    if feed_config and feed_config.get("pipeline"):
-        return feed_config["pipeline"]
-    return config.get("settings", {}).get("pipeline", ["download"])
+def get_pipeline_steps(resolved_config: dict) -> list[str]:
+    return resolved_config.get("pipeline") or ["download"]
 
 
 def setup_logging(level: str) -> None:
@@ -157,12 +120,9 @@ def setup_logging(level: str) -> None:
     )
 
 
-def fetch_feed(
-    url: str,
-    output_dir: Path,
-    blacklist: list[str] | None = None,
-    title_cleaning: dict | None = None,
-) -> Podcast:
+def fetch_feed(url: str, output_dir: Path, resolved_config: dict) -> Podcast:
+    blacklist = resolved_config.get("blacklist", [])
+    title_cleaning = resolved_config.get("title_cleaning") or None
     podcast = parse_feed(url, output_dir=output_dir, blacklist=blacklist, title_cleaning=title_cleaning)
     podcast.save(output_dir)
     return podcast
@@ -220,10 +180,10 @@ def filter_episodes(episodes: list[Episode], last: int | None = None, date_range
     return episodes
 
 
-def run_pipeline(podcast: Podcast, output_dir: Path, config: dict, feed_config: dict | None = None, step_filter: str | None = None, last: int | None = None, date_range: tuple[date | None, date | None] | None = None, overwrite: bool = False) -> None:
-    step_names = get_pipeline_steps(config, feed_config)
+def run_pipeline(podcast: Podcast, output_dir: Path, resolved_config: dict, step_filter: str | None = None, last: int | None = None, date_range: tuple[date | None, date | None] | None = None, overwrite: bool = False) -> None:
+    step_names = get_pipeline_steps(resolved_config)
     steps = [get_step(name) for name in step_names]
-    context = PipelineContext(output_dir=output_dir, podcast=podcast, config=config, feed_config=feed_config or {}, overwrite=overwrite)
+    context = PipelineContext(output_dir=output_dir, podcast=podcast, config=resolved_config, overwrite=overwrite)
     pipeline = Pipeline(steps=steps, context=context)
     episodes = filter_episodes(podcast.episodes, last=last, date_range=date_range)
     pipeline.run(episodes, step_filter=step_filter, overwrite=overwrite)
@@ -254,7 +214,8 @@ def add(ctx: click.Context, feed_url: str, name: str | None, steps: tuple[str, .
     """Add a feed URL to the config."""
     config = ctx.obj["config"]
     config.setdefault("feeds", [])
-    config.setdefault("settings", {"poll_interval": 3600, "output_dir": "./output", "pipeline": ["download"]})
+    config.setdefault("defaults", {"output_dir": "./output", "pipeline": ["download"]})
+    config.setdefault("poll_interval", 3600)
 
     for feed in config["feeds"]:
         if feed["url"] == feed_url:
@@ -293,12 +254,12 @@ def fetch(ctx: click.Context, feed_url: str | None, fetch_all: bool) -> None:
         click.echo("No feeds configured. Use 'podcast-etl add <url>' first.")
         return
 
-    blacklist = config.get("settings", {}).get("blacklist", [])
+    defaults = config.get("defaults", {})
     for url in urls:
         fc = find_feed_config(config, url)
-        title_cleaning = resolve_title_cleaning(config, fc)
+        resolved = resolve_feed_config(defaults, fc or {"url": url})
         click.echo(f"Fetching {url}...")
-        podcast = fetch_feed(url, output_dir, blacklist=blacklist, title_cleaning=title_cleaning)
+        podcast = fetch_feed(url, output_dir, resolved)
         click.echo(f"  {podcast.title}: {len(podcast.episodes)} episodes")
 
 
@@ -326,8 +287,8 @@ def run(ctx: click.Context, feed_url: str | None, run_all: bool, step_filter: st
     output_dir = get_output_dir(config)
 
     if feed_url:
-        feed_config = find_feed_config(config, feed_url)
-        feeds_to_run = [(feed_config["url"] if feed_config else feed_url, feed_config)]
+        fc = find_feed_config(config, feed_url)
+        feeds_to_run = [(fc["url"] if fc else feed_url, fc)]
     elif run_all:
         feeds_to_run = [(f["url"], f) for f in config.get("feeds", [])]
     else:
@@ -338,13 +299,13 @@ def run(ctx: click.Context, feed_url: str | None, run_all: bool, step_filter: st
         click.echo("No feeds configured. Use 'podcast-etl add <url>' first.")
         return
 
-    blacklist = config.get("settings", {}).get("blacklist", [])
-    for url, feed_config in feeds_to_run:
-        title_cleaning = resolve_title_cleaning(config, feed_config)
+    defaults = config.get("defaults", {})
+    for url, fc in feeds_to_run:
+        resolved = resolve_feed_config(defaults, fc or {"url": url})
         click.echo(f"Processing {url}...")
-        podcast = fetch_feed(url, output_dir, blacklist=blacklist, title_cleaning=title_cleaning)
+        podcast = fetch_feed(url, output_dir, resolved)
         click.echo(f"  {podcast.title}: {len(podcast.episodes)} episodes")
-        run_pipeline(podcast, output_dir, config, feed_config=feed_config, step_filter=step_filter, last=last, date_range=date_range, overwrite=overwrite)
+        run_pipeline(podcast, output_dir, resolved, step_filter=step_filter, last=last, date_range=date_range, overwrite=overwrite)
 
 
 @main.command()
@@ -359,7 +320,7 @@ def poll(ctx: click.Context, interval: int | None) -> None:
     enabled_feeds = [f for f in config.get("feeds", []) if f.get("enabled", False)]
     logger.info("Config loaded from %s: %d feeds configured, %d enabled for polling", config_path, len(config.get("feeds", [])), len(enabled_feeds))
     if interval:
-        config.setdefault("settings", {})["poll_interval"] = interval
+        config["poll_interval"] = interval
     run_poll_loop(config, config_path)
 
 
@@ -436,7 +397,7 @@ def status(ctx: click.Context, feed_url: str | None) -> None:
             click.echo(f"No data found for feed: {feed_url}")
             return
 
-    step_names = get_pipeline_steps(config, resolved_feed_config)
+    defaults = config.get("defaults", {})
 
     for podcast_dir in podcast_dirs:
         if not podcast_dir.is_dir():
@@ -445,6 +406,9 @@ def status(ctx: click.Context, feed_url: str | None) -> None:
         if not podcast_json.exists():
             continue
         podcast = Podcast.load(podcast_dir)
+        fc = find_feed_config(config, podcast.url) or {}
+        resolved = resolve_feed_config(defaults, fc)
+        step_names = get_pipeline_steps(resolved)
         click.echo(f"\n{podcast.title} ({len(podcast.episodes)} episodes)")
         click.echo(f"  {'Episode':<40} " + " ".join(f"{s:<12}" for s in step_names))
         click.echo(f"  {'─' * 40} " + " ".join("─" * 12 for _ in step_names))

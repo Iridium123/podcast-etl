@@ -11,7 +11,8 @@ from podcast_etl.poller import run_poll_loop
 def _make_config(*feeds: dict) -> dict:
     return {
         "feeds": list(feeds),
-        "settings": {"poll_interval": 1, "output_dir": "./output", "pipeline": ["download"]},
+        "defaults": {"output_dir": "./output", "pipeline": ["download"]},
+        "poll_interval": 1,
     }
 
 
@@ -106,13 +107,13 @@ class TestPollerLast:
     def test_settings_last_applies_globally(self, tmp_path: Path) -> None:
         episodes = _make_episodes(10)
         config = _make_config({"url": "http://a.com/rss", "enabled": True})
-        config["settings"]["last"] = 2
+        config["defaults"]["last"] = 2
         _, run_calls = _run_one_cycle(config, tmp_path, episodes=episodes)
         assert len(run_calls[0]) == 2
 
     def test_feed_last_overrides_settings_last(self, tmp_path: Path) -> None:
         episodes = _make_episodes(10)
         config = _make_config({"url": "http://a.com/rss", "enabled": True, "last": 5})
-        config["settings"]["last"] = 2
+        config["defaults"]["last"] = 2
         _, run_calls = _run_one_cycle(config, tmp_path, episodes=episodes)
         assert len(run_calls[0]) == 5

@@ -16,7 +16,6 @@ class PipelineContext:
     output_dir: Path
     podcast: Podcast
     config: dict[str, Any] = field(default_factory=dict)
-    feed_config: dict[str, Any] = field(default_factory=dict)
     overwrite: bool = False
 
     @property
@@ -25,7 +24,7 @@ class PipelineContext:
 
     @property
     def effective_title(self) -> str:
-        return self.feed_config.get("title_override") or self.podcast.title
+        return self.config.get("title_override") or self.podcast.title
 
 
 @dataclass
@@ -39,45 +38,45 @@ class Step(Protocol):
     def process(self, episode: Episode, context: PipelineContext) -> StepResult: ...
 
 
-def merge_config(global_config: dict[str, Any], feed_overrides: dict[str, Any]) -> dict[str, Any]:
-    """Shallow-merge global settings with per-feed overrides (one level deep).
+def deep_merge(base: dict[str, Any], overrides: dict[str, Any]) -> dict[str, Any]:
+    """Recursively merge *overrides* into *base*.
 
-    Dict values are merged so the feed only needs to specify the keys it wants
-    to change.  Non-dict values are replaced outright.  Raises TypeError if a
-    key present in both configs has mismatched types (dict vs non-dict).
+    Dict values are merged recursively so the override only needs to specify
+    the keys it wants to change at any depth.  Non-dict values (scalars, lists)
+    are replaced outright.  Raises TypeError if a key is a dict in one side
+    and a non-dict in the other.
     """
     merged: dict[str, Any] = {}
-    for key in global_config.keys() | feed_overrides.keys():
-        in_global = key in global_config
-        in_feed = key in feed_overrides
-
-        if in_global and in_feed:
-            global_val = global_config[key]
-            feed_val = feed_overrides[key]
-            if isinstance(global_val, dict) and isinstance(feed_val, dict):
-                merged[key] = {**global_val, **feed_val}
-            elif isinstance(global_val, dict) != isinstance(feed_val, dict):
+    for key in base.keys() | overrides.keys():
+        in_base = key in base
+        in_over = key in overrides
+        if in_base and in_over:
+            base_val = base[key]
+            over_val = overrides[key]
+            if isinstance(base_val, dict) and isinstance(over_val, dict):
+                merged[key] = deep_merge(base_val, over_val)
+            elif isinstance(base_val, dict) != isinstance(over_val, dict):
                 raise TypeError(
                     f"Type mismatch for key {key!r}: "
-                    f"global is {type(global_val).__name__}, "
-                    f"feed override is {type(feed_val).__name__}"
+                    f"base is {type(base_val).__name__}, "
+                    f"override is {type(over_val).__name__}"
                 )
             else:
-                merged[key] = feed_val
-        elif in_feed:
-            merged[key] = feed_overrides[key]
+                merged[key] = over_val
+        elif in_over:
+            merged[key] = overrides[key]
         else:
-            merged[key] = global_config[key]
+            merged[key] = base[key]
     return merged
 
 
-def resolve_title_cleaning(config: dict, feed_config: dict | None = None) -> dict | None:
-    """Merge global and per-feed title_cleaning config."""
-    global_cfg = config.get("settings", {}).get("title_cleaning", {})
-    feed_cfg = (feed_config or {}).get("title_cleaning", {})
-    if not global_cfg and not feed_cfg:
-        return None
-    return merge_config(global_cfg, feed_cfg) if global_cfg and feed_cfg else (feed_cfg or global_cfg)
+def resolve_feed_config(defaults: dict[str, Any], feed: dict[str, Any]) -> dict[str, Any]:
+    """Merge global defaults with per-feed overrides using deep merge.
+
+    Use this rather than calling ``deep_merge`` directly so any future
+    pre/post-processing (e.g. env-var expansion) can be added in one place.
+    """
+    return deep_merge(defaults, feed)
 
 
 STEP_REGISTRY: dict[str, Step] = {}

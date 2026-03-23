@@ -11,6 +11,7 @@ wheels/
 
 # Pipeline output
 output/
+torrent-data/
 *.DS_Store
 feeds.yaml
 # Claude Code (share settings + agents, keep local config personal)

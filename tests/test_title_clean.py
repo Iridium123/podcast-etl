@@ -1,5 +1,4 @@
-"""Tests for title_clean.py: strip_date, reorder_parts, clean_title, resolve_title_cleaning."""
-from podcast_etl.pipeline import resolve_title_cleaning
+"""Tests for title_clean.py: strip_date, reorder_parts, clean_title."""
 from podcast_etl.title_clean import clean_title, reorder_parts, strip_date
 
 
@@ -208,25 +207,3 @@ class TestCleanTitle:
         assert result == "Series - Part 1 - Alpha"
 
 
-class TestResolveTitleCleaning:
-    def test_no_config_returns_none(self):
-        assert resolve_title_cleaning({"settings": {}}) is None
-
-    def test_global_only(self):
-        config = {"settings": {"title_cleaning": {"strip_date": True}}}
-        assert resolve_title_cleaning(config) == {"strip_date": True}
-
-    def test_feed_only(self):
-        config = {"settings": {}}
-        feed = {"title_cleaning": {"reorder_parts": True}}
-        assert resolve_title_cleaning(config, feed) == {"reorder_parts": True}
-
-    def test_feed_overrides_global(self):
-        config = {"settings": {"title_cleaning": {"strip_date": True, "reorder_parts": False}}}
-        feed = {"title_cleaning": {"reorder_parts": True}}
-        result = resolve_title_cleaning(config, feed)
-        assert result == {"strip_date": True, "reorder_parts": True}
-
-    def test_none_feed_config(self):
-        config = {"settings": {"title_cleaning": {"strip_date": True}}}
-        assert resolve_title_cleaning(config, None) == {"strip_date": True}

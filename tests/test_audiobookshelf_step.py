@@ -54,18 +54,15 @@ def _abs_config(tmp_path: Path) -> dict:
     }
 
 
-def _make_context(tmp_path: Path, feed_config: dict | None = None, abs_config: dict | None = None) -> PipelineContext:
+def _make_context(tmp_path: Path, abs_config: dict | None = None) -> PipelineContext:
     podcast = _make_podcast()
     config = {
-        "settings": {
-            "audiobookshelf": abs_config or _abs_config(tmp_path),
-        }
+        "audiobookshelf": abs_config or _abs_config(tmp_path),
     }
     return PipelineContext(
         output_dir=tmp_path / "output",
         podcast=podcast,
         config=config,
-        feed_config=feed_config or {},
     )
 
 
@@ -208,7 +205,7 @@ class TestAudiobookshelfStep:
         context = PipelineContext(
             output_dir=tmp_path / "output",
             podcast=podcast,
-            config={"settings": {}},
+            config={},
         )
         episode = _make_episode()
         _create_audio_file(tmp_path, "audio/ep1.mp3")
@@ -224,12 +221,11 @@ class TestAudiobookshelfStep:
         with pytest.raises(ValueError, match="audiobookshelf.api_key"):
             AudiobookshelfStep().process(episode, context)
 
-    def test_feed_config_overrides_settings(self, tmp_path):
+    def test_resolved_config_with_overridden_dir(self, tmp_path):
         override_dir = str(tmp_path / "abs-override")
-        context = _make_context(
-            tmp_path,
-            feed_config={"audiobookshelf": {"dir": override_dir}},
-        )
+        abs_cfg = _abs_config(tmp_path)
+        abs_cfg["dir"] = override_dir
+        context = _make_context(tmp_path, abs_config=abs_cfg)
         episode = _make_episode()
         _create_audio_file(tmp_path, "audio/ep1.mp3")
 

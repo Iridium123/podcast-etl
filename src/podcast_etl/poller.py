@@ -6,16 +6,16 @@ import time
 from pathlib import Path
 
 from podcast_etl.feed import parse_feed
-from podcast_etl.pipeline import Pipeline, PipelineContext, get_step, resolve_title_cleaning
+from podcast_etl.pipeline import Pipeline, PipelineContext, get_step, resolve_feed_config
 
 logger = logging.getLogger(__name__)
 
 
 def run_poll_loop(config: dict, config_path: Path) -> None:
     """Run the fetch+pipeline cycle on all feeds, repeating on an interval."""
-    interval = config.get("settings", {}).get("poll_interval", 3600)
-    output_dir = Path(config.get("settings", {}).get("output_dir", "./output"))
-    step_names = config.get("settings", {}).get("pipeline", ["download"])
+    interval = config.get("poll_interval", 3600)
+    defaults = config.get("defaults", {})
+    output_dir = Path(defaults.get("output_dir", "./output"))
 
     shutdown = False
 
@@ -44,30 +44,35 @@ def run_poll_loop(config: dict, config_path: Path) -> None:
             except SystemExit as exc:
                 logger.error("Config validation failed, using previous config: %s", exc)
 
+        interval = config.get("poll_interval", 3600)
+        defaults = config.get("defaults", {})
+        output_dir = Path(defaults.get("output_dir", "./output"))
+
         feeds = config.get("feeds", [])
         if not feeds:
             logger.warning("No feeds configured")
         else:
-            for feed_config in feeds:
+            for feed_entry in feeds:
                 if shutdown:
                     break
-                if not feed_config.get("enabled", False):
-                    logger.debug("Skipping disabled feed: %s", feed_config.get("name") or feed_config["url"])
+                if not feed_entry.get("enabled", False):
+                    logger.debug("Skipping disabled feed: %s", feed_entry.get("name") or feed_entry["url"])
                     continue
-                url = feed_config["url"]
+                url = feed_entry["url"]
                 try:
                     logger.info("Fetching %s", url)
-                    blacklist = config.get("settings", {}).get("blacklist", [])
-                    title_cleaning = resolve_title_cleaning(config, feed_config)
+                    resolved = resolve_feed_config(defaults, feed_entry)
+                    blacklist = resolved.get("blacklist", [])
+                    title_cleaning = resolved.get("title_cleaning") or None
                     podcast = parse_feed(url, output_dir=output_dir, blacklist=blacklist, title_cleaning=title_cleaning)
                     podcast.save(output_dir)
 
-                    last = feed_config.get("last") if "last" in feed_config else config.get("settings", {}).get("last")
+                    last = resolved.get("last")
                     episodes = podcast.episodes[:last] if last else podcast.episodes
 
-                    feed_step_names = feed_config.get("pipeline") or step_names
+                    feed_step_names = resolved.get("pipeline") or ["download"]
                     steps = [get_step(name) for name in feed_step_names]
-                    context = PipelineContext(output_dir=output_dir, podcast=podcast, config=config, feed_config=feed_config)
+                    context = PipelineContext(output_dir=output_dir, podcast=podcast, config=resolved)
                     pipeline = Pipeline(steps=steps, context=context)
                     pipeline.run(episodes)
                     logger.info("Completed %s: %d episodes processed", podcast.title, len(episodes))

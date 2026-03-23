@@ -46,19 +46,15 @@ def _make_episode(download_path="audio/episode.mp3"):
     )
 
 
-def _make_context(tmp_path, ad_detection_config=None, feed_ad_config=None):
+def _make_context(tmp_path, ad_detection_config=None):
     podcast = _make_podcast()
-    config = {"settings": {}}
+    config: dict = {}
     if ad_detection_config:
-        config["settings"]["ad_detection"] = ad_detection_config
-    feed_config = {}
-    if feed_ad_config:
-        feed_config["ad_detection"] = feed_ad_config
+        config["ad_detection"] = ad_detection_config
     return PipelineContext(
         output_dir=tmp_path / "output",
         podcast=podcast,
         config=config,
-        feed_config=feed_config,
     )
 
 
@@ -86,8 +82,7 @@ class TestGetAdDetectionConfig:
     def test_feed_overrides_global(self, tmp_path):
         context = _make_context(
             tmp_path,
-            ad_detection_config={"llm": {"model": "claude-sonnet-4-20250514", "provider": "anthropic"}},
-            feed_ad_config={"llm": {"model": "claude-haiku-4-5-20251001"}},
+            ad_detection_config={"llm": {"model": "claude-haiku-4-5-20251001", "provider": "anthropic"}},
         )
         config = _get_ad_detection_config(context)
         assert config["llm"]["model"] == "claude-haiku-4-5-20251001"

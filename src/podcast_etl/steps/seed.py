@@ -65,15 +65,7 @@ def _checkpoint_path(context: PipelineContext, episode: Episode) -> Path:
 
 
 def _get_client(context: PipelineContext) -> QBittorrentClient:
-    client_name = context.feed_config.get("client")
-    clients = context.config.get("settings", {}).get("clients", {})
-
-    if client_name:
-        client_config = clients.get(client_name)
-    else:
-        client_config = next(iter(clients.values()), None) if clients else None
-
+    client_config = context.config.get("client", {})
     if not client_config:
         raise ValueError("No torrent client configured")
-
     return QBittorrentClient.from_config(client_config)

@@ -40,21 +40,18 @@ def _make_episode(download_path: str | None = "audio/2024-01-15 Episode One.mp3"
     )
 
 
-def _make_context(tmp_path: Path, torrent_data_dir: str | None = None, save_path: str | None = None, feed_config: dict | None = None) -> PipelineContext:
+def _make_context(tmp_path: Path, torrent_data_dir: str | None = None, save_path: str | None = None) -> PipelineContext:
     podcast = _make_podcast()
     config: dict = {
-        "settings": {
-            "torrent_data_dir": torrent_data_dir or str(tmp_path / "torrent-data"),
-        }
+        "torrent_data_dir": torrent_data_dir or str(tmp_path / "torrent-data"),
     }
     if save_path:
-        config["settings"]["clients"] = {"qbittorrent": {"url": "http://localhost:8080", "username": "a", "password": "b", "save_path": save_path}}
+        config["client"] = {"url": "http://localhost:8080", "username": "a", "password": "b", "save_path": save_path}
 
     return PipelineContext(
         output_dir=tmp_path / "output",
         podcast=podcast,
         config=config,
-        feed_config=feed_config or {},
     )
 
 
@@ -70,7 +67,7 @@ class TestStageStep:
 
         result = StageStep().process(episode, context)
 
-        torrent_data_dir = Path(context.config["settings"]["torrent_data_dir"])
+        torrent_data_dir = Path(context.config["torrent_data_dir"])
         dest = torrent_data_dir / "2024-01-15 Episode One.mp3"
         assert dest.exists()
         assert dest.read_bytes() == b"audio data"
@@ -97,7 +94,7 @@ class TestStageStep:
         source.write_bytes(b"audio data")
 
         # Pre-create destination
-        torrent_data_dir = Path(context.config["settings"]["torrent_data_dir"])
+        torrent_data_dir = Path(context.config["torrent_data_dir"])
         dest = torrent_data_dir / "2024-01-15 Episode One.mp3"
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_bytes(b"existing")
@@ -142,7 +139,7 @@ class TestStageStep:
         source.write_bytes(b"new audio data")
 
         # Pre-create destination with stale content
-        torrent_data_dir = Path(context.config["settings"]["torrent_data_dir"])
+        torrent_data_dir = Path(context.config["torrent_data_dir"])
         dest = torrent_data_dir / "2024-01-15 Episode One.mp3"
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_bytes(b"stale data")
@@ -182,7 +179,7 @@ class TestStageStep:
 
         result = StageStep().process(episode, context)
 
-        torrent_data_dir = Path(context.config["settings"]["torrent_data_dir"])
+        torrent_data_dir = Path(context.config["torrent_data_dir"])
         dest = torrent_data_dir / "2024-01-15 Episode One.mp3"
         assert dest.exists()
         assert dest.read_bytes() == b"cleaned audio"
@@ -199,7 +196,7 @@ class TestStageStep:
 
         result = StageStep().process(episode, context)
 
-        torrent_data_dir = Path(context.config["settings"]["torrent_data_dir"])
+        torrent_data_dir = Path(context.config["torrent_data_dir"])
         dest = torrent_data_dir / "2024-01-15 Episode One.mp3"
         assert dest.read_bytes() == b"original audio"
 
@@ -208,7 +205,7 @@ class TestStageStep:
         context = PipelineContext(
             output_dir=tmp_path / "output",
             podcast=podcast,
-            config={"settings": {}},
+            config={},
         )
         episode = _make_episode()
 

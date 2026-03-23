@@ -146,41 +146,21 @@ docker build -t podcast-etl .
 
 Edit `feeds.yaml` to manage feeds and pipeline settings. See `feeds.yaml.example` for a full example.
 
-```yaml
-feeds:
-  - url: "https://example.com/feed.xml"
-    name: my-podcast
-    enabled: true                 # optional; must be true to run during poll (default: false)
-    last: 5                       # optional; only process N most recent episodes during poll
-    pipeline: [download, tag, detect_ads, strip_ads, stage, torrent, seed, upload]
-    client: qbittorrent       # optional; falls back to first configured client
-    tracker: unit3d           # optional; falls back to first configured tracker
-    category_id: 14           # required for upload step (see ID tables below)
-    type_id: 9                # required for upload step (see ID tables below)
-    cover_image: /config/cover.jpg    # optional; uploaded as torrent cover (1:1 aspect ratio, JPEG)
-    banner_image: /config/banner.jpg  # optional; uploaded as torrent banner (16:9 aspect ratio, JPEG)
-    tracker_config:                   # optional per-feed tracker overrides
-      mod_queue_opt_in: 1
-      description_suffix: "Per-feed suffix"  # optional; overrides global tracker setting
-    ad_detection:                     # optional per-feed overrides
-      llm:
-        model: claude-sonnet-4-20250514
-    title_cleaning:                   # optional per-feed title cleaning
-      strip_date: true                # remove bracketed dates from titles
-      reorder_parts: true             # move (Part N) to front of title
+The `defaults` block contains shared config inherited by all feeds. Any key in `defaults` can appear in a feed entry to override it — overrides are applied via deep merge, so nested keys like `tracker.mod_queue_opt_in` can be set without repeating the whole block.
 
-settings:
-  poll_interval: 3600
-  last: 5                           # optional; default episode limit for poll (per-feed overrides this)
+```yaml
+poll_interval: 3600
+
+defaults:
   output_dir: ./output
   torrent_data_dir: /torrent-data   # staging dir readable by both app and torrent client
   pipeline: [download, tag]         # default for feeds without their own pipeline
   blacklist:                        # strings to reject from descriptions (case-insensitive)
     - "John Doe"                    # any description containing this is blanked to null
 
-  title_cleaning:                     # global title cleaning (default off)
-    strip_date: false                 # remove bracketed dates from episode titles
-    reorder_parts: false              # move (Part N) to front of episode title
+  title_cleaning:                   # global title cleaning (default off)
+    strip_date: false               # remove bracketed dates from episode titles
+    reorder_parts: false            # move (Part N) to front of episode title
 
   ad_detection:
     whisper:
@@ -192,32 +172,50 @@ settings:
       model: claude-sonnet-4-20250514
     min_confidence: 0.5
 
-  clients:
-    qbittorrent:
-      url: http://localhost:8080
-      username: admin
-      password: secret
-      save_path: /data        # path to torrent_data_dir as seen by qBittorrent
-
   audiobookshelf:
     url: https://abs.example.com
     api_key: your-api-key
-    library_id: lib_abc123              # for triggering library scan
-    dir: /podcasts                      # root dir on shared volume; podcast title used as subdir
+    library_id: lib_abc123          # for triggering library scan
+    dir: /podcasts                  # root dir on shared volume; podcast title used as subdir
 
-  trackers:
-    unit3d:
-      url: https://tracker.example.com
-      remember_cookie: "eyJpdi..." # from browser; OR use username+password below
-      # username: your-username   # alternative to remember_cookie (no 2FA support)
-      # password: your-password
-      announce_url: https://tracker.example.com/announce/your-passkey/announce
-      anonymous: 0
-      personal_release: 0
-      mod_queue_opt_in: 0
-      description_suffix: "Uploaded by MyBot"  # optional; appended to episode description on tracker
-      private: true             # optional; sets -p flag in mktorrent (default: true)
-      source: MyTracker         # optional; sets -s flag in mktorrent
+  client:
+    url: http://localhost:8080
+    username: admin
+    password: secret
+    save_path: /data                # path to torrent_data_dir as seen by qBittorrent
+
+  tracker:
+    url: https://tracker.example.com
+    remember_cookie: "eyJpdi..."    # from browser; OR use username+password below
+    # username: your-username       # alternative to remember_cookie (no 2FA support)
+    # password: your-password
+    announce_url: https://tracker.example.com/announce/your-passkey/announce
+    anonymous: 0
+    personal_release: 0
+    mod_queue_opt_in: 0
+    description_suffix: "Uploaded by MyBot"  # optional; appended to episode description on tracker
+    private: true                   # optional; sets -p flag in mktorrent (default: true)
+    source: MyTracker               # optional; sets -s flag in mktorrent
+
+feeds:
+  - url: "https://example.com/feed.xml"
+    name: my-podcast
+    enabled: true                 # optional; must be true to run during poll (default: false)
+    last: 5                       # optional; only process N most recent episodes during poll
+    pipeline: [download, tag, detect_ads, strip_ads, stage, torrent, seed, upload]
+    category_id: 14               # required for upload step (see ID tables below)
+    type_id: 9                    # required for upload step (see ID tables below)
+    cover_image: /config/cover.jpg    # optional; uploaded as torrent cover (1:1 aspect ratio, JPEG)
+    banner_image: /config/banner.jpg  # optional; uploaded as torrent banner (16:9 aspect ratio, JPEG)
+    tracker:                          # optional per-feed tracker overrides (deep-merged)
+      mod_queue_opt_in: 1
+      description_suffix: "Per-feed suffix"
+    ad_detection:                     # optional per-feed overrides (deep-merged)
+      llm:
+        model: claude-sonnet-4-20250514
+    title_cleaning:                   # optional per-feed title cleaning
+      strip_date: true                # remove bracketed dates from titles
+      reorder_parts: true             # move (Part N) to front of title
 ```
 
 <details>
@@ -280,7 +278,7 @@ settings:
 
 ### Title Cleaning
 
-Optional rules to clean episode titles at feed parse time. Both rules are off by default and can be enabled globally in `settings.title_cleaning` or per-feed in `title_cleaning`. Per-feed values override global values.
+Optional rules to clean episode titles at feed parse time. Both rules are off by default and can be enabled globally in `defaults.title_cleaning` or per-feed in `title_cleaning`. Per-feed values override global values.
 
 **`strip_date`** — Removes dates wrapped in brackets `()`, `[]`, or `{}` from episode titles. Useful when the pipeline already prepends dates to filenames and upload titles. Supported formats: `(3_19_26)`, `(03/22/2026)`, `(2026-03-22)`, `(March 22, 2026)`, etc. Bare dates without brackets are not affected.
 

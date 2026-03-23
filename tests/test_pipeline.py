@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from podcast_etl.models import Episode, Podcast, StepStatus
-from podcast_etl.pipeline import Pipeline, PipelineContext, StepResult, merge_config
+from podcast_etl.pipeline import Pipeline, PipelineContext, StepResult, deep_merge, resolve_feed_config
 
 
 # --- Helpers ---
@@ -201,40 +201,89 @@ def test_pipeline_context_podcast_dir(tmp_path: Path):
     assert ctx.podcast_dir == tmp_path / "test-podcast"
 
 
-# --- merge_config ---
+# --- deep_merge ---
 
-class TestMergeConfig:
-    def test_global_only(self):
-        assert merge_config({"a": 1, "b": 2}, {}) == {"a": 1, "b": 2}
+class TestDeepMerge:
+    def test_base_only(self):
+        assert deep_merge({"a": 1, "b": 2}, {}) == {"a": 1, "b": 2}
 
-    def test_feed_overrides_scalar(self):
-        assert merge_config({"a": 1}, {"a": 99}) == {"a": 99}
+    def test_override_scalar(self):
+        assert deep_merge({"a": 1}, {"a": 99}) == {"a": 99}
 
-    def test_feed_adds_new_key(self):
-        assert merge_config({"a": 1}, {"b": 2}) == {"a": 1, "b": 2}
+    def test_adds_new_key(self):
+        assert deep_merge({"a": 1}, {"b": 2}) == {"a": 1, "b": 2}
 
-    def test_nested_dicts_merged(self):
-        result = merge_config(
+    def test_both_empty(self):
+        assert deep_merge({}, {}) == {}
+
+    def test_nested_dicts_merged_recursively(self):
+        result = deep_merge(
             {"llm": {"provider": "anthropic", "model": "sonnet"}},
             {"llm": {"model": "haiku"}},
         )
         assert result == {"llm": {"provider": "anthropic", "model": "haiku"}}
 
-    def test_both_empty(self):
-        assert merge_config({}, {}) == {}
+    def test_three_levels_deep(self):
+        result = deep_merge(
+            {"ad_detection": {"llm": {"provider": "anthropic", "model": "sonnet"}, "min_confidence": 0.5}},
+            {"ad_detection": {"llm": {"model": "haiku"}}},
+        )
+        assert result == {"ad_detection": {"llm": {"provider": "anthropic", "model": "haiku"}, "min_confidence": 0.5}}
 
-    def test_feed_replaces_scalar_with_scalar(self):
-        result = merge_config({"min_confidence": 0.5}, {"min_confidence": 0.8})
-        assert result == {"min_confidence": 0.8}
+    def test_list_replaced_not_merged(self):
+        result = deep_merge({"pipeline": ["a", "b"]}, {"pipeline": ["c"]})
+        assert result == {"pipeline": ["c"]}
 
-    def test_feed_adds_new_dict_key(self):
-        result = merge_config({}, {"llm": {"model": "haiku"}})
-        assert result == {"llm": {"model": "haiku"}}
+    def test_override_adds_new_nested_key(self):
+        result = deep_merge({"a": {"x": 1}}, {"a": {"y": 2}})
+        assert result == {"a": {"x": 1, "y": 2}}
 
     def test_type_mismatch_dict_vs_scalar_raises(self):
         with pytest.raises(TypeError, match="Type mismatch for key 'llm'"):
-            merge_config({"llm": {"model": "sonnet"}}, {"llm": "haiku"})
+            deep_merge({"llm": {"model": "sonnet"}}, {"llm": "haiku"})
 
     def test_type_mismatch_scalar_vs_dict_raises(self):
         with pytest.raises(TypeError, match="Type mismatch for key 'model'"):
-            merge_config({"model": "sonnet"}, {"model": {"name": "haiku"}})
+            deep_merge({"model": "sonnet"}, {"model": {"name": "haiku"}})
+
+    def test_does_not_mutate_inputs(self):
+        base = {"a": {"x": 1}}
+        overrides = {"a": {"y": 2}}
+        deep_merge(base, overrides)
+        assert base == {"a": {"x": 1}}
+        assert overrides == {"a": {"y": 2}}
+
+
+# --- resolve_feed_config ---
+
+class TestResolveFeedConfig:
+    def test_defaults_only(self):
+        defaults = {"output_dir": "./output", "pipeline": ["download"]}
+        result = resolve_feed_config(defaults, {"url": "https://example.com/rss"})
+        assert result["output_dir"] == "./output"
+        assert result["pipeline"] == ["download"]
+        assert result["url"] == "https://example.com/rss"
+
+    def test_feed_overrides_scalar(self):
+        defaults = {"pipeline": ["download"]}
+        feed = {"url": "https://example.com/rss", "pipeline": ["download", "tag"]}
+        result = resolve_feed_config(defaults, feed)
+        assert result["pipeline"] == ["download", "tag"]
+
+    def test_deep_merges_nested_dicts(self):
+        defaults = {"ad_detection": {"llm": {"provider": "anthropic", "model": "sonnet"}, "min_confidence": 0.5}}
+        feed = {"url": "https://example.com/rss", "ad_detection": {"llm": {"model": "haiku"}}}
+        result = resolve_feed_config(defaults, feed)
+        assert result["ad_detection"] == {
+            "llm": {"provider": "anthropic", "model": "haiku"},
+            "min_confidence": 0.5,
+        }
+
+    def test_empty_defaults(self):
+        result = resolve_feed_config({}, {"url": "https://example.com/rss", "pipeline": ["download"]})
+        assert result["pipeline"] == ["download"]
+
+    def test_empty_feed(self):
+        defaults = {"pipeline": ["download"]}
+        result = resolve_feed_config(defaults, {})
+        assert result["pipeline"] == ["download"]
