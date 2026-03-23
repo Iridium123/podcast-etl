@@ -2,9 +2,12 @@
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import httpx
 import pytest
 
-from podcast_etl.images import download_image
+from podcast_etl.images import download_image, resolve_episode_image
+from podcast_etl.models import Episode, Podcast
+from podcast_etl.pipeline import PipelineContext
 
 
 class TestDownloadImage:
@@ -111,3 +114,103 @@ class TestConvertImage:
 
         img = Image.open(dest)
         assert img.mode == "RGB"
+
+
+def _make_context(tmp_path, podcast=None):
+    if podcast is None:
+        podcast = Podcast(
+            title="Test Podcast",
+            url="https://example.com/feed.xml",
+            description=None,
+            image_url="https://example.com/feed-cover.jpg",
+            slug="test-podcast",
+        )
+    return PipelineContext(output_dir=tmp_path, podcast=podcast)
+
+
+def _make_episode(**kwargs):
+    defaults = dict(
+        title="Episode 1",
+        guid="guid-1",
+        published="Mon, 01 Jan 2024 00:00:00 +0000",
+        audio_url="https://example.com/ep.mp3",
+        duration=None,
+        description=None,
+        slug="ep-1",
+    )
+    defaults.update(kwargs)
+    return Episode(**defaults)
+
+
+class TestResolveEpisodeImage:
+    def test_downloads_episode_image(self, tmp_path):
+        ep = _make_episode(image_url="https://example.com/ep1.jpg")
+        ctx = _make_context(tmp_path)
+        mock_response = MagicMock()
+        mock_response.content = b"ep-image"
+        mock_response.raise_for_status = MagicMock()
+
+        with patch("podcast_etl.images.httpx.get", return_value=mock_response):
+            result = resolve_episode_image(ep, ctx)
+
+        assert result is not None
+        assert result.exists()
+        assert result.read_bytes() == b"ep-image"
+
+    def test_returns_none_when_no_image_url(self, tmp_path):
+        ep = _make_episode()
+        ctx = _make_context(tmp_path)
+
+        result = resolve_episode_image(ep, ctx)
+
+        assert result is None
+
+    def test_skips_episode_image_matching_feed_image(self, tmp_path):
+        ep = _make_episode(image_url="https://example.com/feed-cover.jpg")
+        ctx = _make_context(tmp_path)
+
+        result = resolve_episode_image(ep, ctx)
+
+        assert result is None
+
+    def test_falls_back_to_feed_image_when_allowed(self, tmp_path):
+        ep = _make_episode()  # no episode image
+        ctx = _make_context(tmp_path)
+        mock_response = MagicMock()
+        mock_response.content = b"feed-image"
+        mock_response.raise_for_status = MagicMock()
+
+        with patch("podcast_etl.images.httpx.get", return_value=mock_response):
+            result = resolve_episode_image(ep, ctx, allow_feed_fallback=True)
+
+        assert result is not None
+        assert result.read_bytes() == b"feed-image"
+
+    def test_no_fallback_by_default(self, tmp_path):
+        ep = _make_episode()  # no episode image
+        ctx = _make_context(tmp_path)
+
+        result = resolve_episode_image(ep, ctx)
+
+        assert result is None
+
+    def test_returns_none_on_download_failure(self, tmp_path):
+        ep = _make_episode(image_url="https://example.com/broken.jpg")
+        ctx = _make_context(tmp_path)
+
+        with patch("podcast_etl.images.httpx.get", side_effect=httpx.HTTPError("fail")):
+            result = resolve_episode_image(ep, ctx)
+
+        assert result is None
+
+    def test_no_fallback_when_feed_has_no_image(self, tmp_path):
+        podcast = Podcast(
+            title="Test Podcast", url="https://example.com/feed.xml",
+            description=None, image_url=None, slug="test-podcast",
+        )
+        ep = _make_episode()
+        ctx = _make_context(tmp_path, podcast=podcast)
+
+        result = resolve_episode_image(ep, ctx, allow_feed_fallback=True)
+
+        assert result is None
