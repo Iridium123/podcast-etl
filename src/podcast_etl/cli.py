@@ -180,13 +180,13 @@ def filter_episodes(episodes: list[Episode], last: int | None = None, date_range
     return episodes
 
 
-def run_pipeline(podcast: Podcast, output_dir: Path, resolved_config: dict, step_filter: str | None = None, last: int | None = None, date_range: tuple[date | None, date | None] | None = None, overwrite: bool = False) -> None:
+def run_pipeline(podcast: Podcast, output_dir: Path, resolved_config: dict, step_filter: str | None = None, last: int | None = None, date_range: tuple[date | None, date | None] | None = None, overwrite: bool = False, fail_fast: bool = True) -> None:
     step_names = get_pipeline_steps(resolved_config)
     steps = [get_step(name) for name in step_names]
     context = PipelineContext(output_dir=output_dir, podcast=podcast, config=resolved_config, overwrite=overwrite)
     pipeline = Pipeline(steps=steps, context=context)
     episodes = filter_episodes(podcast.episodes, last=last, date_range=date_range)
-    pipeline.run(episodes, step_filter=step_filter, overwrite=overwrite)
+    pipeline.run(episodes, step_filter=step_filter, overwrite=overwrite, fail_fast=fail_fast)
 
 
 @click.group()
@@ -270,8 +270,9 @@ def fetch(ctx: click.Context, feed_url: str | None, fetch_all: bool) -> None:
 @click.option("--last", "last", type=int, default=None, help="Only process the last N episodes")
 @click.option("--date", "date_str", default=None, help="Filter by date: YYYY-MM-DD, START..END, START.., or ..END")
 @click.option("--overwrite", is_flag=True, help="Re-process episodes even if already completed")
+@click.option("--fail-fast/--no-fail-fast", default=None, help="Stop on first episode failure (default: true, or from config)")
 @click.pass_context
-def run(ctx: click.Context, feed_url: str | None, run_all: bool, step_filter: str | None, last: int | None, date_str: str | None, overwrite: bool) -> None:
+def run(ctx: click.Context, feed_url: str | None, run_all: bool, step_filter: str | None, last: int | None, date_str: str | None, overwrite: bool, fail_fast: bool | None) -> None:
     """Fetch feeds and run the processing pipeline."""
     if last is not None and date_str is not None:
         raise click.UsageError("Cannot use --last and --date together.")
@@ -299,13 +300,16 @@ def run(ctx: click.Context, feed_url: str | None, run_all: bool, step_filter: st
         click.echo("No feeds configured. Use 'podcast-etl add <url>' first.")
         return
 
+    if fail_fast is None:
+        fail_fast = config.get("defaults", {}).get("fail_fast", True)
+
     defaults = config.get("defaults", {})
     for url, fc in feeds_to_run:
         resolved = resolve_feed_config(defaults, fc or {"url": url})
         click.echo(f"Processing {url}...")
         podcast = fetch_feed(url, output_dir, resolved)
         click.echo(f"  {podcast.title}: {len(podcast.episodes)} episodes")
-        run_pipeline(podcast, output_dir, resolved, step_filter=step_filter, last=last, date_range=date_range, overwrite=overwrite)
+        run_pipeline(podcast, output_dir, resolved, step_filter=step_filter, last=last, date_range=date_range, overwrite=overwrite, fail_fast=fail_fast)
 
 
 @main.command()

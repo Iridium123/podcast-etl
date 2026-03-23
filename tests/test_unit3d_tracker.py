@@ -146,7 +146,7 @@ class TestUpload:
         podcast = _make_podcast()
         client = _mock_client_for_login()
 
-        with patch("httpx.Client", return_value=client):
+        with patch("podcast_etl.trackers.unit3d.retry_client", return_value=client):
             result = tracker.upload(torrent_path, episode, podcast, feed_config)
 
         assert result["torrent_id"] == 42
@@ -158,7 +158,7 @@ class TestUpload:
         podcast = _make_podcast()
         client = _mock_client_for_login()
 
-        with patch("httpx.Client", return_value=client):
+        with patch("podcast_etl.trackers.unit3d.retry_client", return_value=client):
             tracker.upload(torrent_path, episode, podcast, feed_config)
 
         upload_call = client.post.call_args_list[1]
@@ -171,7 +171,7 @@ class TestUpload:
         podcast = _make_podcast()
         client = _mock_client_for_login()
 
-        with patch("httpx.Client", return_value=client):
+        with patch("podcast_etl.trackers.unit3d.retry_client", return_value=client):
             tracker.upload(torrent_path, episode, podcast, feed_config)
 
         upload_call = client.post.call_args_list[1]
@@ -184,7 +184,7 @@ class TestUpload:
         podcast = _make_podcast()
         client = _mock_client_for_login()
 
-        with patch("httpx.Client", return_value=client):
+        with patch("podcast_etl.trackers.unit3d.retry_client", return_value=client):
             tracker.upload(torrent_path, episode, podcast, feed_config)
 
         upload_call = client.post.call_args_list[1]
@@ -214,7 +214,7 @@ class TestUpload:
         podcast = _make_podcast()
         client = _mock_client_for_login()
 
-        with patch("httpx.Client", return_value=client):
+        with patch("podcast_etl.trackers.unit3d.retry_client", return_value=client):
             tracker.upload(torrent_path, episode, podcast, feed_config)
 
         login_call = client.post.call_args_list[0]
@@ -229,7 +229,7 @@ class TestUpload:
         podcast = _make_podcast()
         client = _mock_client_for_login()
 
-        with patch("httpx.Client", return_value=client):
+        with patch("podcast_etl.trackers.unit3d.retry_client", return_value=client):
             tracker.upload(torrent_path, episode, podcast, feed_config)
 
         upload_call = client.post.call_args_list[1]
@@ -246,7 +246,7 @@ class TestUpload:
         podcast = _make_podcast()
         client = _mock_client_for_login()
 
-        with patch("httpx.Client", return_value=client):
+        with patch("podcast_etl.trackers.unit3d.retry_client", return_value=client):
             tracker.upload(torrent_path, episode, podcast, feed_with_cover)
 
         upload_call = client.post.call_args_list[1]
@@ -265,7 +265,7 @@ class TestUpload:
         podcast = _make_podcast()
         client = _mock_client_for_login()
 
-        with patch("httpx.Client", return_value=client):
+        with patch("podcast_etl.trackers.unit3d.retry_client", return_value=client):
             tracker.upload(torrent_path, episode, podcast, feed_with_banner)
 
         upload_call = client.post.call_args_list[1]
@@ -280,7 +280,7 @@ class TestUpload:
         podcast = _make_podcast()
         client = _mock_client_for_login()
 
-        with patch("httpx.Client", return_value=client):
+        with patch("podcast_etl.trackers.unit3d.retry_client", return_value=client):
             tracker.upload(torrent_path, episode, podcast, feed_config)
 
         upload_call = client.post.call_args_list[1]
@@ -295,7 +295,7 @@ class TestUpload:
         podcast = _make_podcast()
         client = _mock_client_for_login()
 
-        with patch("httpx.Client", return_value=client):
+        with patch("podcast_etl.trackers.unit3d.retry_client", return_value=client):
             tracker.upload(torrent_path, episode, podcast, feed_config)
 
         upload_call = client.post.call_args_list[1]
@@ -308,7 +308,7 @@ class TestUpload:
         podcast = _make_podcast()
         client = _mock_client_for_login()
 
-        with patch("httpx.Client", return_value=client):
+        with patch("podcast_etl.trackers.unit3d.retry_client", return_value=client):
             tracker.upload(torrent_path, episode, podcast, feed_config)
 
         upload_call = client.post.call_args_list[1]
@@ -321,7 +321,7 @@ class TestUpload:
         podcast = _make_podcast()
         client = _mock_client_for_login()
 
-        with patch("httpx.Client", return_value=client):
+        with patch("podcast_etl.trackers.unit3d.retry_client", return_value=client):
             tracker.upload(torrent_path, episode, podcast, feed_config)
 
         upload_call = client.post.call_args_list[1]
@@ -334,7 +334,7 @@ class TestUpload:
         podcast = _make_podcast()
         client = _mock_client_for_login()
 
-        with patch("httpx.Client", return_value=client):
+        with patch("podcast_etl.trackers.unit3d.retry_client", return_value=client):
             tracker.upload(torrent_path, episode, podcast, feed_config)
 
         upload_call = client.post.call_args_list[1]
@@ -348,7 +348,7 @@ class TestUpload:
         podcast = _make_podcast()
         client = _mock_client_for_login(upload_status=419)
 
-        with patch("httpx.Client", return_value=client):
+        with patch("podcast_etl.trackers.unit3d.retry_client", return_value=client):
             with pytest.raises(RuntimeError, match="CSRF token expired"):
                 tracker.upload(torrent_path, episode, podcast, feed_config)
 
@@ -358,7 +358,7 @@ class TestUpload:
         podcast = _make_podcast()
         client = _mock_client_for_login(upload_status=500)
 
-        with patch("httpx.Client", return_value=client):
+        with patch("podcast_etl.trackers.unit3d.retry_client", return_value=client):
             with pytest.raises(RuntimeError, match="Upload failed"):
                 tracker.upload(torrent_path, episode, podcast, feed_config)
 
@@ -421,7 +421,7 @@ class TestUpload:
         error_page.text = '<ul><li>The anon field is required.</li><li>The sd field is required.</li></ul>'
         client.get.side_effect = list(client.get.side_effect) + [error_page]
 
-        with patch("httpx.Client", return_value=client):
+        with patch("podcast_etl.trackers.unit3d.retry_client", return_value=client):
             with pytest.raises(RuntimeError, match="anon field is required.*sd field is required"):
                 tracker.upload(torrent_path, episode, podcast, feed_config)
 
@@ -433,7 +433,7 @@ class TestRememberCookie:
         podcast = _make_podcast()
         client = _mock_client_for_cookie()
 
-        with patch("httpx.Client", return_value=client):
+        with patch("podcast_etl.trackers.unit3d.retry_client", return_value=client):
             result = tracker.upload(torrent_path, episode, podcast, feed_config)
 
         assert result["torrent_id"] == 42
@@ -446,7 +446,7 @@ class TestRememberCookie:
         podcast = _make_podcast()
         client = _mock_client_for_cookie()
 
-        with patch("httpx.Client", return_value=client):
+        with patch("podcast_etl.trackers.unit3d.retry_client", return_value=client):
             tracker.upload(torrent_path, episode, podcast, feed_config)
 
         # Only one POST call (the upload), no login POST
@@ -458,7 +458,7 @@ class TestRememberCookie:
         podcast = _make_podcast()
         client = _mock_client_for_cookie(expired=True)
 
-        with patch("httpx.Client", return_value=client):
+        with patch("podcast_etl.trackers.unit3d.retry_client", return_value=client):
             with pytest.raises(RuntimeError, match="expired or invalid"):
                 tracker.upload(torrent_path, episode, podcast, feed_config)
 
@@ -468,7 +468,7 @@ class TestRememberCookie:
         podcast = _make_podcast()
         client = _mock_client_for_cookie()
 
-        with patch("httpx.Client", return_value=client):
+        with patch("podcast_etl.trackers.unit3d.retry_client", return_value=client):
             tracker.upload(torrent_path, episode, podcast, feed_config)
 
         upload_call = client.post.call_args
@@ -497,7 +497,7 @@ class TestLogin:
         client.__enter__ = MagicMock(return_value=client)
         client.__exit__ = MagicMock(return_value=False)
 
-        with patch("httpx.Client", return_value=client):
+        with patch("podcast_etl.trackers.unit3d.retry_client", return_value=client):
             with pytest.raises(RuntimeError, match="2FA"):
                 tracker.upload(torrent_path, episode, podcast, feed_config)
 
@@ -521,7 +521,7 @@ class TestLogin:
         client.__enter__ = MagicMock(return_value=client)
         client.__exit__ = MagicMock(return_value=False)
 
-        with patch("httpx.Client", return_value=client):
+        with patch("podcast_etl.trackers.unit3d.retry_client", return_value=client):
             with pytest.raises(RuntimeError, match="bad credentials"):
                 tracker.upload(torrent_path, episode, podcast, feed_config)
 

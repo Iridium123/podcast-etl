@@ -6,8 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import httpx
-
+from podcast_etl.http import retry_client
 from podcast_etl.detectors import AdSegment, LLMProvider
 
 logger = logging.getLogger(__name__)
@@ -96,18 +95,18 @@ def _transcribe_remote(audio_path: Path, whisper_config: dict[str, Any]) -> list
     logger.info("Transcribing %s via %s", audio_path.name, endpoint)
 
     with open(audio_path, "rb") as f:
-        response = httpx.post(
-            endpoint,
-            headers=headers,
-            files={"file": (audio_path.name, f, "audio/mpeg")},
-            data={
-                "model": model,
-                "language": language,
-                "response_format": "verbose_json",
-                "timestamp_granularities[]": "segment",
-            },
-            timeout=600,
-        )
+        with retry_client(timeout=600) as client:
+            response = client.post(
+                endpoint,
+                headers=headers,
+                files={"file": (audio_path.name, f, "audio/mpeg")},
+                data={
+                    "model": model,
+                    "language": language,
+                    "response_format": "verbose_json",
+                    "timestamp_granularities[]": "segment",
+                },
+            )
     response.raise_for_status()
     data = response.json()
 

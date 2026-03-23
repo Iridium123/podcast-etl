@@ -125,8 +125,8 @@ def test_pipeline_runs_multiple_episodes(tmp_path: Path):
     assert step.call_count == 3
 
 
-def test_pipeline_continues_to_next_episode_after_failure(tmp_path: Path):
-    """A failing step should be caught; subsequent episodes still run."""
+def test_pipeline_fail_fast_raises_on_first_failure(tmp_path: Path):
+    """With fail_fast=True (default), a failing step should raise and stop all processing."""
     call_log = []
 
     class BoomStep:
@@ -141,7 +141,30 @@ def test_pipeline_continues_to_next_episode_after_failure(tmp_path: Path):
     episodes = [_make_episode(slug=f"ep-{i}") for i in range(3)]
     ctx = _make_context(tmp_path)
 
-    Pipeline(steps=[BoomStep()], context=ctx).run(episodes)
+    with pytest.raises(RuntimeError, match="simulated failure"):
+        Pipeline(steps=[BoomStep()], context=ctx).run(episodes, fail_fast=True)
+
+    # Only the first episode was attempted
+    assert call_log == ["ep-0"]
+
+
+def test_pipeline_continues_to_next_episode_when_not_fail_fast(tmp_path: Path):
+    """With fail_fast=False, a failing step should be caught; subsequent episodes still run."""
+    call_log = []
+
+    class BoomStep:
+        name = "boom"
+
+        def process(self, episode: Episode, context: PipelineContext) -> StepResult:
+            call_log.append(episode.slug)
+            if episode.slug == "ep-0":
+                raise RuntimeError("simulated failure")
+            return StepResult()
+
+    episodes = [_make_episode(slug=f"ep-{i}") for i in range(3)]
+    ctx = _make_context(tmp_path)
+
+    Pipeline(steps=[BoomStep()], context=ctx).run(episodes, fail_fast=False)
 
     # All three episodes were attempted despite the first failing
     assert call_log == ["ep-0", "ep-1", "ep-2"]
@@ -173,7 +196,8 @@ def test_pipeline_stops_remaining_steps_on_failure(tmp_path: Path):
     ep = _make_episode()
     ctx = _make_context(tmp_path)
 
-    Pipeline(steps=[FailingStepA(), StepB()], context=ctx).run([ep])
+    with pytest.raises(RuntimeError, match="step-a failed"):
+        Pipeline(steps=[FailingStepA(), StepB()], context=ctx).run([ep])
 
     assert step_a_log == ["ep-1"]
     assert step_b_log == []

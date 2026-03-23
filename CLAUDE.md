@@ -36,6 +36,7 @@ Tests live in `tests/` and use pytest:
 - `test_text.py` — `clean_description` (HTML, entity-encoded, CDATA, plain text), `contains_blacklisted`, `apply_blacklist`
 - `test_poller.py` — `run_poll_loop` enabled/disabled feed filtering
 - `test_audiobookshelf_step.py` — `AudiobookshelfStep` copy and scan trigger, audio resolution, config merging, error cases
+- `test_http.py` — `RetryTransport` 429 backoff, `RateLimitError` after exhaustion, `retry_client` factory
 
 **After making changes**, run tests and check whether new behaviour should be tested. Always update `README.md` and `CLAUDE.md` to reflect any changes to CLI commands, pipeline steps, architecture, or configuration — do not skip this.
 
@@ -46,16 +47,17 @@ The pipeline is step-based and resumable. Each episode tracks its own completion
 **Data flow:**
 1. `feed.py` — fetches RSS via `feedparser`, parses into `Podcast`/`Episode` models, merges existing on-disk step status to preserve progress
 2. `models.py` — `Podcast`, `Episode`, `StepStatus` dataclasses with `save()`/`load()` methods; persisted to `output/<podcast-slug>/podcast.json` and `output/<podcast-slug>/episodes/<ep-slug>.json`; `Episode.image_url` stores per-episode artwork URL from RSS `<itunes:image>`
-3. `pipeline.py` — `Pipeline` runs registered `Step` instances over episodes, skipping any where `episode.status[step.name]` is already set; writes status back to disk after each step; `PipelineContext` carries `output_dir`, `podcast`, and a single resolved config dict produced by `resolve_feed_config` (deep-merging `defaults` with per-feed overrides via `deep_merge`)
-4. `cli.py` — Click commands (`add`, `fetch`, `run`, `reset`, `status`, `poll`); registers built-in steps at import time via `register_step()`; `find_feed_config(config, identifier)` resolves a feed by name or URL
+3. `pipeline.py` — `Pipeline` runs registered `Step` instances over episodes, skipping any where `episode.status[step.name]` is already set; writes status back to disk after each step; `PipelineContext` carries `output_dir`, `podcast`, and a single resolved config dict produced by `resolve_feed_config` (deep-merging `defaults` with per-feed overrides via `deep_merge`); `fail_fast` (default `True`) controls whether an episode failure stops all processing or continues to the next episode
+4. `cli.py` — Click commands (`add`, `fetch`, `run`, `reset`, `status`, `poll`); registers built-in steps at import time via `register_step()`; `find_feed_config(config, identifier)` resolves a feed by name or URL; `run` command supports `--fail-fast/--no-fail-fast`
 5. `poller.py` — long-running loop that reloads config each cycle and handles SIGTERM/SIGINT gracefully; uses per-feed `pipeline` list when set
-6. `clients/qbittorrent.py` — `QBittorrentClient` implementing `TorrentClient` protocol; session-based auth, `has_torrent`, `add_torrent`
-7. `trackers/unit3d.py` — `ModifiedUnit3dTracker` implementing `Tracker` protocol; multipart upload to UNIT3D REST API
-8. `text.py` — `clean_description` (HTML/entity/CDATA → plain text), `apply_blacklist` / `contains_blacklisted` for rejecting text containing configured strings
-9. `images.py` — `download_image` (URL download with caching), `resolve_episode_image` (episode/feed image resolution with fallback and deduplication), `convert_image` (Pillow resize + JPEG conversion)
-10. `title_clean.py` — `strip_date` (remove bracketed dates), `reorder_parts` (move part indicators to front), `clean_title` (orchestrator applying enabled rules based on config)
-11. `detectors/__init__.py` — `AdSegment` dataclass, `Detector` and `LLMProvider` protocols, `merge_segments` utility
-12. `detectors/transcription.py` — `TranscriptionDetector` (whisper transcription + LLM classification); supports local transcription via `faster-whisper` (default) or remote via OpenAI-compatible API; `AnthropicProvider` for Claude API
+6. `http.py` — `RetryTransport` (httpx transport wrapper with exponential backoff on HTTP 429); `RateLimitError` raised after retries exhausted; `retry_client()` factory for creating retry-aware httpx clients; all HTTP call sites use this
+7. `clients/qbittorrent.py` — `QBittorrentClient` implementing `TorrentClient` protocol; session-based auth, `has_torrent`, `add_torrent`
+8. `trackers/unit3d.py` — `ModifiedUnit3dTracker` implementing `Tracker` protocol; multipart upload to UNIT3D REST API
+9. `text.py` — `clean_description` (HTML/entity/CDATA → plain text), `apply_blacklist` / `contains_blacklisted` for rejecting text containing configured strings
+10. `images.py` — `download_image` (URL download with caching), `resolve_episode_image` (episode/feed image resolution with fallback and deduplication), `convert_image` (Pillow resize + JPEG conversion)
+11. `title_clean.py` — `strip_date` (remove bracketed dates), `reorder_parts` (move part indicators to front), `clean_title` (orchestrator applying enabled rules based on config)
+12. `detectors/__init__.py` — `AdSegment` dataclass, `Detector` and `LLMProvider` protocols, `merge_segments` utility
+13. `detectors/transcription.py` — `TranscriptionDetector` (whisper transcription + LLM classification); supports local transcription via `faster-whisper` (default) or remote via OpenAI-compatible API; `AnthropicProvider` for Claude API
 
 **Feed config (`feeds.yaml`):** The top-level `defaults` block contains shared config (output dirs, pipeline, client, tracker, ad detection, etc.). Any key in `defaults` can appear in a feed entry to override it — overrides are applied via deep merge, so nested keys like `tracker.mod_queue_opt_in` can be set without repeating the whole `tracker` block. Each feed entry supports optional `name` (short identifier) and `enabled` (boolean, defaults to `false` — must be set to `true` for poll to process it). The `--feed` flag on `run`/`fetch`/`status` accepts either a name or a full URL; `enabled: false` only affects `poll` mode, not explicit `--feed` runs.
 

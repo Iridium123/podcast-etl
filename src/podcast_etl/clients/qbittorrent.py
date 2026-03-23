@@ -6,6 +6,8 @@ from typing import Any
 
 import httpx
 
+from podcast_etl.http import retry_client
+
 logger = logging.getLogger(__name__)
 
 
@@ -20,7 +22,7 @@ class QBittorrentClient:
 
     def _session(self) -> httpx.Client:
         if self._client is None:
-            self._client = httpx.Client()
+            self._client = retry_client()
             resp = self._client.post(
                 f"{self._url}/api/v2/auth/login",
                 data={"username": self._username, "password": self._password},
@@ -52,6 +54,11 @@ class QBittorrentClient:
         if resp.text == "Fails.":
             raise RuntimeError("qBittorrent failed to add torrent")
         return _read_info_hash(torrent_path)
+
+    def close(self) -> None:
+        if self._client is not None:
+            self._client.close()
+            self._client = None
 
     @classmethod
     def from_config(cls, config: dict[str, Any]) -> "QBittorrentClient":

@@ -5,8 +5,7 @@ import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
-import httpx
-
+from podcast_etl.http import retry_client
 from podcast_etl.models import Episode, sanitize_filename
 from podcast_etl.pipeline import PipelineContext, StepResult
 
@@ -42,8 +41,9 @@ class AudiobookshelfStep:
             headers = {"Authorization": f"Bearer {abs_config['api_key']}"}
 
             logger.info("Triggering library scan for %s", library_id)
-            response = httpx.post(scan_url, headers=headers, timeout=30)
-            response.raise_for_status()
+            with retry_client(timeout=30) as client:
+                response = client.post(scan_url, headers=headers)
+                response.raise_for_status()
 
         return StepResult(data={
             "path": str(dest),

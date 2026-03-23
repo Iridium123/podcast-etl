@@ -74,6 +74,15 @@ def _create_audio_file(tmp_path: Path, relative_path: str) -> Path:
     return audio_file
 
 
+def _mock_retry_client(mock_response):
+    """Create a mock retry_client that returns a context-managed client with .post()."""
+    mock_client = MagicMock()
+    mock_client.post = MagicMock(return_value=mock_response)
+    mock_client.__enter__ = MagicMock(return_value=mock_client)
+    mock_client.__exit__ = MagicMock(return_value=False)
+    return mock_client
+
+
 class TestAudiobookshelfStep:
     def test_copies_audio_and_triggers_scan(self, tmp_path):
         context = _make_context(tmp_path)
@@ -82,8 +91,9 @@ class TestAudiobookshelfStep:
 
         mock_response = MagicMock()
         mock_response.raise_for_status = MagicMock()
+        mock_client = _mock_retry_client(mock_response)
 
-        with patch("podcast_etl.steps.audiobookshelf.httpx.post", return_value=mock_response) as mock_post:
+        with patch("podcast_etl.steps.audiobookshelf.retry_client", return_value=mock_client):
             result = AudiobookshelfStep().process(episode, context)
 
         # File was copied
@@ -93,10 +103,10 @@ class TestAudiobookshelfStep:
         assert dest.name == "ep1.mp3"
 
         # Scan was triggered
-        mock_post.assert_called_once()
-        call_url = mock_post.call_args.args[0]
+        mock_client.post.assert_called_once()
+        call_url = mock_client.post.call_args.args[0]
         assert call_url == "https://abs.example.com/api/libraries/lib_abc123/scan"
-        assert mock_post.call_args.kwargs["headers"]["Authorization"] == "Bearer test-token"
+        assert mock_client.post.call_args.kwargs["headers"]["Authorization"] == "Bearer test-token"
 
     def test_prefers_strip_ads_over_download(self, tmp_path):
         context = _make_context(tmp_path)
@@ -105,8 +115,9 @@ class TestAudiobookshelfStep:
 
         mock_response = MagicMock()
         mock_response.raise_for_status = MagicMock()
+        mock_client = _mock_retry_client(mock_response)
 
-        with patch("podcast_etl.steps.audiobookshelf.httpx.post", return_value=mock_response):
+        with patch("podcast_etl.steps.audiobookshelf.retry_client", return_value=mock_client):
             result = AudiobookshelfStep().process(episode, context)
 
         assert "cleaned" in result.data["source"]
@@ -118,8 +129,9 @@ class TestAudiobookshelfStep:
 
         mock_response = MagicMock()
         mock_response.raise_for_status = MagicMock()
+        mock_client = _mock_retry_client(mock_response)
 
-        with patch("podcast_etl.steps.audiobookshelf.httpx.post", return_value=mock_response):
+        with patch("podcast_etl.steps.audiobookshelf.retry_client", return_value=mock_client):
             result = AudiobookshelfStep().process(episode, context)
 
         assert "audio" in result.data["source"]
@@ -135,17 +147,14 @@ class TestAudiobookshelfStep:
         dest = abs_dir / "ep1.mp3"
         dest.write_bytes(b"already there")
 
-        mock_response = MagicMock()
-        mock_response.raise_for_status = MagicMock()
-
-        with patch("podcast_etl.steps.audiobookshelf.httpx.post", return_value=mock_response) as mock_post:
+        with patch("podcast_etl.steps.audiobookshelf.retry_client") as mock_rc:
             result = AudiobookshelfStep().process(episode, context)
 
         # File was NOT overwritten
         assert dest.read_bytes() == b"already there"
         assert result.data["path"] == str(dest)
-        # Scan was NOT triggered since no copy happened
-        mock_post.assert_not_called()
+        # retry_client was NOT called since no copy happened
+        mock_rc.assert_not_called()
 
     def test_overwrite_forces_recopy(self, tmp_path):
         context = _make_context(tmp_path)
@@ -161,14 +170,15 @@ class TestAudiobookshelfStep:
 
         mock_response = MagicMock()
         mock_response.raise_for_status = MagicMock()
+        mock_client = _mock_retry_client(mock_response)
 
-        with patch("podcast_etl.steps.audiobookshelf.httpx.post", return_value=mock_response) as mock_post:
+        with patch("podcast_etl.steps.audiobookshelf.retry_client", return_value=mock_client):
             AudiobookshelfStep().process(episode, context)
 
         # File WAS overwritten
         assert dest.read_bytes() == b"fake audio data"
         # Scan was triggered
-        mock_post.assert_called_once()
+        mock_client.post.assert_called_once()
 
     def test_creates_podcast_dir_if_missing(self, tmp_path):
         context = _make_context(tmp_path)
@@ -177,11 +187,12 @@ class TestAudiobookshelfStep:
 
         mock_response = MagicMock()
         mock_response.raise_for_status = MagicMock()
+        mock_client = _mock_retry_client(mock_response)
 
         abs_dir = tmp_path / "abs-podcasts" / "My Podcast"
         assert not abs_dir.exists()
 
-        with patch("podcast_etl.steps.audiobookshelf.httpx.post", return_value=mock_response):
+        with patch("podcast_etl.steps.audiobookshelf.retry_client", return_value=mock_client):
             AudiobookshelfStep().process(episode, context)
 
         assert abs_dir.exists()
@@ -231,8 +242,9 @@ class TestAudiobookshelfStep:
 
         mock_response = MagicMock()
         mock_response.raise_for_status = MagicMock()
+        mock_client = _mock_retry_client(mock_response)
 
-        with patch("podcast_etl.steps.audiobookshelf.httpx.post", return_value=mock_response):
+        with patch("podcast_etl.steps.audiobookshelf.retry_client", return_value=mock_client):
             result = AudiobookshelfStep().process(episode, context)
 
         assert result.data["path"].startswith(str(tmp_path / "abs-override" / "My Podcast"))
@@ -246,11 +258,12 @@ class TestAudiobookshelfStep:
 
         mock_response = MagicMock()
         mock_response.raise_for_status = MagicMock()
+        mock_client = _mock_retry_client(mock_response)
 
-        with patch("podcast_etl.steps.audiobookshelf.httpx.post", return_value=mock_response) as mock_post:
+        with patch("podcast_etl.steps.audiobookshelf.retry_client", return_value=mock_client):
             AudiobookshelfStep().process(episode, context)
 
-        call_url = mock_post.call_args.args[0]
+        call_url = mock_client.post.call_args.args[0]
         assert call_url == "https://abs.example.com/api/libraries/lib_abc123/scan"
 
     def test_propagates_scan_http_error(self, tmp_path):
@@ -260,7 +273,8 @@ class TestAudiobookshelfStep:
 
         mock_response = MagicMock()
         mock_response.raise_for_status.side_effect = Exception("403 Forbidden")
+        mock_client = _mock_retry_client(mock_response)
 
-        with patch("podcast_etl.steps.audiobookshelf.httpx.post", return_value=mock_response):
+        with patch("podcast_etl.steps.audiobookshelf.retry_client", return_value=mock_client):
             with pytest.raises(Exception, match="403"):
                 AudiobookshelfStep().process(episode, context)

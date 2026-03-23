@@ -97,7 +97,7 @@ class Pipeline:
         self.steps = steps
         self.context = context
 
-    def run(self, episodes: list[Episode], step_filter: str | None = None, overwrite: bool = False) -> None:
+    def run(self, episodes: list[Episode], step_filter: str | None = None, overwrite: bool = False, fail_fast: bool = True) -> None:
         steps = self.steps
         if step_filter:
             steps = [s for s in steps if s.name == step_filter]
@@ -124,5 +124,7 @@ class Pipeline:
                     logger.debug("  done %s", step.name)
                 except Exception:
                     logger.exception("  %s failed for %s", step.name, episode.slug)
-                    logger.debug("  stopping remaining steps for %s", episode.slug)
+                    if fail_fast:
+                        raise
+                    logger.info("  step %s failed for %s; skipping remaining steps for this episode", step.name, episode.slug)
                     break
