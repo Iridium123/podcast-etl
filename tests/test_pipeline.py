@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from podcast_etl.models import Episode, Podcast, StepStatus
-from podcast_etl.pipeline import Pipeline, PipelineContext, StepResult, merge_config
+from podcast_etl.pipeline import Pipeline, PipelineContext, StepResult, deep_merge, merge_config
 
 
 # --- Helpers ---
@@ -238,3 +238,56 @@ class TestMergeConfig:
     def test_type_mismatch_scalar_vs_dict_raises(self):
         with pytest.raises(TypeError, match="Type mismatch for key 'model'"):
             merge_config({"model": "sonnet"}, {"model": {"name": "haiku"}})
+
+
+# --- deep_merge ---
+
+class TestDeepMerge:
+    def test_base_only(self):
+        assert deep_merge({"a": 1, "b": 2}, {}) == {"a": 1, "b": 2}
+
+    def test_override_scalar(self):
+        assert deep_merge({"a": 1}, {"a": 99}) == {"a": 99}
+
+    def test_adds_new_key(self):
+        assert deep_merge({"a": 1}, {"b": 2}) == {"a": 1, "b": 2}
+
+    def test_both_empty(self):
+        assert deep_merge({}, {}) == {}
+
+    def test_nested_dicts_merged_recursively(self):
+        result = deep_merge(
+            {"llm": {"provider": "anthropic", "model": "sonnet"}},
+            {"llm": {"model": "haiku"}},
+        )
+        assert result == {"llm": {"provider": "anthropic", "model": "haiku"}}
+
+    def test_three_levels_deep(self):
+        result = deep_merge(
+            {"ad_detection": {"llm": {"provider": "anthropic", "model": "sonnet"}, "min_confidence": 0.5}},
+            {"ad_detection": {"llm": {"model": "haiku"}}},
+        )
+        assert result == {"ad_detection": {"llm": {"provider": "anthropic", "model": "haiku"}, "min_confidence": 0.5}}
+
+    def test_list_replaced_not_merged(self):
+        result = deep_merge({"pipeline": ["a", "b"]}, {"pipeline": ["c"]})
+        assert result == {"pipeline": ["c"]}
+
+    def test_override_adds_new_nested_key(self):
+        result = deep_merge({"a": {"x": 1}}, {"a": {"y": 2}})
+        assert result == {"a": {"x": 1, "y": 2}}
+
+    def test_type_mismatch_dict_vs_scalar_raises(self):
+        with pytest.raises(TypeError, match="Type mismatch for key 'llm'"):
+            deep_merge({"llm": {"model": "sonnet"}}, {"llm": "haiku"})
+
+    def test_type_mismatch_scalar_vs_dict_raises(self):
+        with pytest.raises(TypeError, match="Type mismatch for key 'model'"):
+            deep_merge({"model": "sonnet"}, {"model": {"name": "haiku"}})
+
+    def test_does_not_mutate_inputs(self):
+        base = {"a": {"x": 1}}
+        overrides = {"a": {"y": 2}}
+        deep_merge(base, overrides)
+        assert base == {"a": {"x": 1}}
+        assert overrides == {"a": {"y": 2}}

@@ -71,6 +71,38 @@ def merge_config(global_config: dict[str, Any], feed_overrides: dict[str, Any]) 
     return merged
 
 
+def deep_merge(base: dict[str, Any], overrides: dict[str, Any]) -> dict[str, Any]:
+    """Recursively merge *overrides* into *base*.
+
+    Dict values are merged recursively so the override only needs to specify
+    the keys it wants to change at any depth.  Non-dict values (scalars, lists)
+    are replaced outright.  Raises TypeError if a key is a dict in one side
+    and a non-dict in the other.
+    """
+    merged: dict[str, Any] = {}
+    for key in base.keys() | overrides.keys():
+        in_base = key in base
+        in_over = key in overrides
+        if in_base and in_over:
+            base_val = base[key]
+            over_val = overrides[key]
+            if isinstance(base_val, dict) and isinstance(over_val, dict):
+                merged[key] = deep_merge(base_val, over_val)
+            elif isinstance(base_val, dict) != isinstance(over_val, dict):
+                raise TypeError(
+                    f"Type mismatch for key {key!r}: "
+                    f"base is {type(base_val).__name__}, "
+                    f"override is {type(over_val).__name__}"
+                )
+            else:
+                merged[key] = over_val
+        elif in_over:
+            merged[key] = overrides[key]
+        else:
+            merged[key] = base[key]
+    return merged
+
+
 def resolve_title_cleaning(config: dict, feed_config: dict | None = None) -> dict | None:
     """Merge global and per-feed title_cleaning config."""
     global_cfg = config.get("settings", {}).get("title_cleaning", {})
