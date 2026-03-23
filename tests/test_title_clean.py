@@ -181,13 +181,13 @@ class TestSanitize:
         assert sanitize("Title: Subtitle") == "Title - Subtitle"
 
     def test_backslash_replaced(self):
-        assert sanitize("Path\\Name") == "Path - Name"
+        assert sanitize("Path\\Name") == "Path_Name"
 
     def test_forward_slash_replaced(self):
-        assert sanitize("Either/Or") == "Either - Or"
+        assert sanitize("Either/Or") == "Either_Or"
 
     def test_asterisk_replaced(self):
-        assert sanitize("Best*Episode") == "Best - Episode"
+        assert sanitize("Best*Episode") == "Best_Episode"
 
     def test_question_mark_trailing(self):
         assert sanitize("What?") == "What"
@@ -196,15 +196,15 @@ class TestSanitize:
         assert sanitize("Option A | Option B") == "Option A - Option B"
 
     def test_angle_brackets_replaced(self):
-        assert sanitize("foo<bar>baz") == "foo - bar - baz"
+        assert sanitize("foo<bar>baz") == "foo_bar_baz"
 
-    def test_quotes_replaced(self):
-        assert sanitize('He said "hello"') == "He said - hello"
+    def test_double_quotes_become_single(self):
+        assert sanitize('He said "hello"') == "He said 'hello'"
 
     def test_control_char_replaced(self):
-        assert sanitize("Line\x00One") == "Line - One"
+        assert sanitize("Line\x00One") == "Line_One"
 
-    # --- Separator collapsing ---
+    # --- Separator collapsing (requires 2+ separator chars) ---
 
     def test_double_dash_collapsed(self):
         assert sanitize("Foo - - Bar") == "Foo - Bar"
@@ -212,8 +212,8 @@ class TestSanitize:
     def test_triple_dash_collapsed(self):
         assert sanitize("Foo - - - Bar") == "Foo - Bar"
 
-    def test_underscore_between_words(self):
-        assert sanitize("Foo_Bar") == "Foo - Bar"
+    def test_single_underscore_preserved(self):
+        assert sanitize("Foo_Bar") == "Foo_Bar"
 
     def test_mixed_separators_collapsed(self):
         assert sanitize("Foo _-_ Bar") == "Foo - Bar"
@@ -224,9 +224,14 @@ class TestSanitize:
     def test_single_space_preserved(self):
         assert sanitize("Hello World") == "Hello World"
 
-    def test_hyphenated_compound_word_expanded(self):
-        """Trade-off: bare hyphens in compound words also get spaced out."""
-        assert sanitize("Spider-Man") == "Spider - Man"
+    def test_hyphenated_compound_word_preserved(self):
+        assert sanitize("Spider-Man") == "Spider-Man"
+
+    def test_en_dash_pair_collapsed(self):
+        assert sanitize("Foo \u2013\u2013 Bar") == "Foo - Bar"
+
+    def test_em_dash_with_spaces_collapsed(self):
+        assert sanitize("Foo \u2014 Bar") == "Foo - Bar"
 
     # --- Edge cases ---
 
