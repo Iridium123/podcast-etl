@@ -36,6 +36,7 @@ class _Entry:
         enclosures=None,
         summary="Episode summary",
         itunes_duration="1:00:00",
+        image=None,
     ):
         self._data = {
             "title": title,
@@ -46,6 +47,8 @@ class _Entry:
             "summary": summary,
             "itunes_duration": itunes_duration,
         }
+        if image is not None:
+            self._data["image"] = image
 
     def get(self, key, default=None):
         return self._data.get(key, default)
@@ -311,3 +314,28 @@ def test_parse_feed_no_blacklist_by_default():
         podcast = parse_feed("https://example.com/feed.xml")
 
     assert podcast.episodes[0].description == "Contains Ben Smith name"
+
+
+# ---------------------------------------------------------------------------
+# Episode image_url
+# ---------------------------------------------------------------------------
+
+def test_parse_feed_episode_image_url_extracted():
+    entry = _Entry(
+        links=[_audio_link()],
+        image={"href": "https://example.com/ep1-cover.jpg"},
+    )
+    feed = _make_parsed_feed(entries=[entry])
+    with patch("podcast_etl.feed.feedparser.parse", return_value=feed):
+        podcast = parse_feed("https://example.com/feed.xml")
+
+    assert podcast.episodes[0].image_url == "https://example.com/ep1-cover.jpg"
+
+
+def test_parse_feed_episode_no_image_gives_none():
+    entry = _Entry(links=[_audio_link()])
+    feed = _make_parsed_feed(entries=[entry])
+    with patch("podcast_etl.feed.feedparser.parse", return_value=feed):
+        podcast = parse_feed("https://example.com/feed.xml")
+
+    assert podcast.episodes[0].image_url is None
