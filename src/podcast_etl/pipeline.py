@@ -103,6 +103,11 @@ def deep_merge(base: dict[str, Any], overrides: dict[str, Any]) -> dict[str, Any
     return merged
 
 
+def resolve_feed_config(defaults: dict[str, Any], feed: dict[str, Any]) -> dict[str, Any]:
+    """Merge global defaults with per-feed overrides using deep merge."""
+    return deep_merge(defaults, feed)
+
+
 def resolve_title_cleaning(config: dict, feed_config: dict | None = None) -> dict | None:
     """Merge global and per-feed title_cleaning config."""
     global_cfg = config.get("settings", {}).get("title_cleaning", {})

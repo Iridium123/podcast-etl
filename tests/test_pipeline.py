@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from podcast_etl.models import Episode, Podcast, StepStatus
-from podcast_etl.pipeline import Pipeline, PipelineContext, StepResult, deep_merge, merge_config
+from podcast_etl.pipeline import Pipeline, PipelineContext, StepResult, deep_merge, merge_config, resolve_feed_config
 
 
 # --- Helpers ---
@@ -291,3 +291,38 @@ class TestDeepMerge:
         deep_merge(base, overrides)
         assert base == {"a": {"x": 1}}
         assert overrides == {"a": {"y": 2}}
+
+
+# --- resolve_feed_config ---
+
+class TestResolveFeedConfig:
+    def test_defaults_only(self):
+        defaults = {"output_dir": "./output", "pipeline": ["download"]}
+        result = resolve_feed_config(defaults, {"url": "https://example.com/rss"})
+        assert result["output_dir"] == "./output"
+        assert result["pipeline"] == ["download"]
+        assert result["url"] == "https://example.com/rss"
+
+    def test_feed_overrides_scalar(self):
+        defaults = {"pipeline": ["download"]}
+        feed = {"url": "https://example.com/rss", "pipeline": ["download", "tag"]}
+        result = resolve_feed_config(defaults, feed)
+        assert result["pipeline"] == ["download", "tag"]
+
+    def test_deep_merges_nested_dicts(self):
+        defaults = {"ad_detection": {"llm": {"provider": "anthropic", "model": "sonnet"}, "min_confidence": 0.5}}
+        feed = {"url": "https://example.com/rss", "ad_detection": {"llm": {"model": "haiku"}}}
+        result = resolve_feed_config(defaults, feed)
+        assert result["ad_detection"] == {
+            "llm": {"provider": "anthropic", "model": "haiku"},
+            "min_confidence": 0.5,
+        }
+
+    def test_empty_defaults(self):
+        result = resolve_feed_config({}, {"url": "https://example.com/rss", "pipeline": ["download"]})
+        assert result["pipeline"] == ["download"]
+
+    def test_empty_feed(self):
+        defaults = {"pipeline": ["download"]}
+        result = resolve_feed_config(defaults, {})
+        assert result["pipeline"] == ["download"]
