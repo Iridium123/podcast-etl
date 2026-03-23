@@ -17,7 +17,7 @@ uv run pytest tests/ -v          # run tests
 Tests live in `tests/` and use pytest:
 
 - `test_models.py` — `slugify`, `StepStatus`, `Episode`, `Podcast` (dict roundtrips, save/load)
-- `test_pipeline.py` — `Pipeline` step execution, skipping already-completed steps, step filters, `merge_config`
+- `test_pipeline.py` — `Pipeline` step execution, skipping already-completed steps, step filters, `deep_merge`
 - `test_feed.py` — `parse_feed` (audio extraction, slug dedup, status preservation)
 - `test_cli.py` — `load_config`, `save_config`, `get_output_dir`, `find_feed_config`, `get_pipeline_steps`, `filter_episodes`, `validate_config`
 - `test_download_step.py` — `DownloadStep` filename construction, skip-existing, download
@@ -45,7 +45,7 @@ The pipeline is step-based and resumable. Each episode tracks its own completion
 **Data flow:**
 1. `feed.py` — fetches RSS via `feedparser`, parses into `Podcast`/`Episode` models, merges existing on-disk step status to preserve progress
 2. `models.py` — `Podcast`, `Episode`, `StepStatus` dataclasses with `save()`/`load()` methods; persisted to `output/<podcast-slug>/podcast.json` and `output/<podcast-slug>/episodes/<ep-slug>.json`
-3. `pipeline.py` — `Pipeline` runs registered `Step` instances over episodes, skipping any where `episode.status[step.name]` is already set; writes status back to disk after each step; `PipelineContext` carries `output_dir`, `podcast`, `config` (full YAML), and `feed_config` (per-feed overrides)
+3. `pipeline.py` — `Pipeline` runs registered `Step` instances over episodes, skipping any where `episode.status[step.name]` is already set; writes status back to disk after each step; `PipelineContext` carries `output_dir`, `podcast`, and a single resolved config dict produced by `resolve_feed_config` (deep-merging `defaults` with per-feed overrides via `deep_merge`)
 4. `cli.py` — Click commands (`add`, `fetch`, `run`, `reset`, `status`, `poll`); registers built-in steps at import time via `register_step()`; `find_feed_config(config, identifier)` resolves a feed by name or URL
 5. `poller.py` — long-running loop that reloads config each cycle and handles SIGTERM/SIGINT gracefully; uses per-feed `pipeline` list when set
 6. `clients/qbittorrent.py` — `QBittorrentClient` implementing `TorrentClient` protocol; session-based auth, `has_torrent`, `add_torrent`
@@ -55,77 +55,68 @@ The pipeline is step-based and resumable. Each episode tracks its own completion
 10. `detectors/__init__.py` — `AdSegment` dataclass, `Detector` and `LLMProvider` protocols, `merge_segments` utility
 11. `detectors/transcription.py` — `TranscriptionDetector` (whisper transcription + LLM classification); supports local transcription via `faster-whisper` (default) or remote via OpenAI-compatible API; `AnthropicProvider` for Claude API
 
-**Feed config (`feeds.yaml`):** Each feed entry supports optional `name` (short identifier), `enabled` (boolean, defaults to `false` — must be set to `true` for poll to process it), and `pipeline` (list of step names). If `pipeline` is omitted, the feed uses `settings.pipeline` as the default. The `--feed` flag on `run`/`fetch`/`status` accepts either a name or a full URL; `enabled: false` only affects `poll` mode, not explicit `--feed` runs.
+**Feed config (`feeds.yaml`):** The top-level `defaults` block contains shared config (output dirs, pipeline, client, tracker, ad detection, etc.). Any key in `defaults` can appear in a feed entry to override it — overrides are applied via deep merge, so nested keys like `tracker.mod_queue_opt_in` can be set without repeating the whole `tracker` block. Each feed entry supports optional `name` (short identifier) and `enabled` (boolean, defaults to `false` — must be set to `true` for poll to process it). The `--feed` flag on `run`/`fetch`/`status` accepts either a name or a full URL; `enabled: false` only affects `poll` mode, not explicit `--feed` runs.
 
 ```yaml
+poll_interval: 3600
+
+defaults:
+  output_dir: ./output
+  torrent_data_dir: /torrent-data
+  blacklist:
+    - "John Doe"
+  pipeline: [download, tag, detect_ads, strip_ads, stage, torrent, seed, upload]
+  title_cleaning:
+    strip_date: false
+    reorder_parts: false
+  ad_detection:
+    whisper:
+      model: base
+      language: en
+    llm:
+      provider: anthropic
+      model: claude-sonnet-4-20250514
+    min_confidence: 0.5
+  audiobookshelf:
+    url: https://abs.example.com
+    api_key: your-api-key
+    library_id: lib_abc123
+    dir: /podcasts
+  client:
+    url: http://localhost:8080
+    username: admin
+    password: secret
+    save_path: /data
+  tracker:
+    url: https://tracker.example.com
+    remember_cookie: "eyJpdi..."
+    announce_url: https://tracker.example.com/announce/your-passkey/announce
+    anonymous: 0
+    personal_release: 0
+    mod_queue_opt_in: 0
+    description_suffix: "Uploaded by MyBot"
+
 feeds:
   - url: https://example.com/rss
     name: my-podcast
     enabled: true                 # optional; must be true to run during poll (default: false)
     last: 5                       # optional; only process N most recent episodes during poll
     pipeline: [download, tag, detect_ads, strip_ads, stage, torrent, seed, upload]
-    client: qbittorrent       # optional; falls back to first configured client
-    tracker: unit3d           # optional; falls back to first configured tracker
-    category_id: 14           # required for upload step (see README.md for full ID tables)
-    type_id: 9                # required for upload step (see README.md for full ID tables)
+    category_id: 14               # required for upload step (see README.md for full ID tables)
+    type_id: 9                    # required for upload step (see README.md for full ID tables)
     cover_image: /config/cover.jpg   # optional; uploaded as torrent cover (1:1, JPEG)
     banner_image: /config/banner.jpg # optional; uploaded as torrent banner (16:9, JPEG)
-    tracker_config:                     # optional per-feed tracker overrides
+    tracker:                         # optional per-feed tracker overrides (deep-merged)
       mod_queue_opt_in: 1
-      description_suffix: "Per-feed suffix"  # optional; overrides global tracker setting
-    ad_detection:                       # optional per-feed overrides
+      description_suffix: "Per-feed suffix"
+    ad_detection:                    # optional per-feed overrides (deep-merged)
       llm:
         model: claude-sonnet-4-20250514
-    audiobookshelf:                     # optional per-feed overrides
+    audiobookshelf:                  # optional per-feed overrides (deep-merged)
       library_id: lib_override
-    title_cleaning:                     # optional per-feed title cleaning
-      strip_date: true                  # remove bracketed dates from titles
-      reorder_parts: true               # move (Part N) to front of title
-
-settings:
-  output_dir: ./output
-  torrent_data_dir: /torrent-data   # staging dir readable by both app and torrent client
-  blacklist:                        # strings to reject from descriptions (case-insensitive)
-    - "John Doe"                    # any description containing this is blanked to null
-
-  title_cleaning:                     # global title cleaning (default off)
-    strip_date: false                 # remove bracketed dates from episode titles
-    reorder_parts: false              # move (Part N) to front of episode title
-
-  ad_detection:
-    whisper:
-      model: base                   # faster-whisper model (tiny, base, small, medium, large-v3)
-      language: en
-      # url: http://localhost:8080  # optional: use remote whisper server instead of local
-    llm:
-      provider: anthropic           # uses ANTHROPIC_API_KEY env var
-      model: claude-sonnet-4-20250514
-    min_confidence: 0.5
-
-  audiobookshelf:
-    url: https://abs.example.com
-    api_key: your-api-key
-    library_id: lib_abc123              # for triggering library scan
-    dir: /podcasts                      # root dir on shared volume; podcast title used as subdir
-
-  clients:
-    qbittorrent:
-      url: http://localhost:8080
-      username: admin
-      password: secret
-      save_path: /data        # path to torrent_data_dir as seen by qBittorrent
-
-  trackers:
-    unit3d:
-      url: https://tracker.example.com
-      remember_cookie: "eyJpdi..." # from browser; OR use username+password below
-      # username: your-username   # alternative to remember_cookie (no 2FA support)
-      # password: your-password
-      announce_url: https://tracker.example.com/announce/your-passkey/announce
-      anonymous: 0
-      personal_release: 0
-      mod_queue_opt_in: 0
-      description_suffix: "Uploaded by MyBot"  # optional; appended to tracker description
+    title_cleaning:                  # optional per-feed title cleaning
+      strip_date: true               # remove bracketed dates from titles
+      reorder_parts: true            # move (Part N) to front of title
 ```
 
 **Pipeline steps:**
@@ -137,7 +128,7 @@ settings:
 - `torrent` — create `.torrent` file via `mktorrent` CLI; extracts `info_hash` via `torf`; output in `output/<podcast>/torrents/`
 - `seed` — add torrent to qBittorrent via Web API; sets `save_path` to client-side episode directory
 - `upload` — upload `.torrent` + metadata to UNIT3D tracker via web form (login → CSRF token → POST); supports `torrent-cover` and `torrent-banner` image uploads; requires `category_id` and `type_id` in feed config
-- `audiobookshelf` — copy audio into `audiobookshelf.dir/<podcast title>/` (using `title_override` if set) and trigger a library scan; prefers cleaned audio from `strip_ads`, falls back to `download`; requires `audiobookshelf` config in settings (url, api_key, library_id, dir); supports per-feed overrides
+- `audiobookshelf` — copy audio into `audiobookshelf.dir/<podcast title>/` (using `title_override` if set) and trigger a library scan; prefers cleaned audio from `strip_ads`, falls back to `download`; requires `audiobookshelf` config in `defaults` (url, api_key, library_id, dir); supports per-feed overrides
 
 **Adding a new pipeline step:**
 1. Create `src/podcast_etl/steps/your_step.py` implementing the `Step` protocol (`name: str`, `process(episode, context) -> StepResult`)
