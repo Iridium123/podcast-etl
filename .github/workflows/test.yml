@@ -9,6 +9,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
-      - run: uv sync --dev
-      - run: uv run pytest tests/ -v
+      - name: Build test image
+        run: docker build --target test -t podcast-etl-test .
+      - name: Run tests
+        run: docker run --rm -e GITHUB_ACTIONS=true podcast-etl-test
