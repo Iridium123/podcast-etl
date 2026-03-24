@@ -232,6 +232,32 @@ def test_filter_episodes_date_range_skips_no_published():
     assert [e.title for e in result] == ["Has date"]
 
 
+def test_filter_episodes_regex():
+    result = filter_episodes(_EPISODES, episode_filter=r"Ep 3")
+    assert [e.title for e in result] == ["Ep 3a", "Ep 3b"]
+
+
+def test_filter_episodes_regex_no_match():
+    result = filter_episodes(_EPISODES, episode_filter=r"^Nonexistent$")
+    assert result == []
+
+
+def test_filter_episodes_regex_combined_with_last():
+    result = filter_episodes(_EPISODES, last=3, episode_filter=r"Ep [12]")
+    assert [e.title for e in result] == ["Ep 1", "Ep 2"]
+
+
+def test_filter_episodes_regex_combined_with_date_range():
+    result = filter_episodes(_EPISODES, date_range=(date(2026, 3, 3), None), episode_filter=r"3a")
+    assert [e.title for e in result] == ["Ep 3a"]
+
+
+def test_filter_episodes_regex_skips_none_title():
+    episodes = [_ep("Match me"), Episode(title=None, guid="g", published=None, audio_url=None, duration=None, description=None, slug="s")]
+    result = filter_episodes(episodes, episode_filter=r"Match")
+    assert [e.title for e in result] == ["Match me"]
+
+
 # ---------------------------------------------------------------------------
 # parse_date_range
 # ---------------------------------------------------------------------------

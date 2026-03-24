@@ -48,6 +48,8 @@ uv run podcast-etl run --feed my-podcast
 uv run podcast-etl run --feed my-podcast --step download
 # only process the last N episodes
 uv run podcast-etl run --feed my-podcast --last 5
+# only process episodes whose title matches a regex
+uv run podcast-etl run --feed my-podcast --filter "Part [0-9]+"
 # only process episodes from a specific date
 uv run podcast-etl run --feed my-podcast --date 2026-03-01
 # episodes in a date range (inclusive)
@@ -203,6 +205,7 @@ feeds:
     name: my-podcast
     enabled: true                 # optional; must be true to run during poll (default: false)
     last: 5                       # optional; only process N most recent episodes during poll
+    episode_filter: "Part [0-9]+" # optional; regex — only process episodes whose title matches
     pipeline: [download, tag, detect_ads, strip_ads, stage, torrent, seed, upload]
     category_id: 14               # required for upload step (see ID tables below)
     type_id: 9                    # required for upload step (see ID tables below)

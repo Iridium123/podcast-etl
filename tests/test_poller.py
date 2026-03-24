@@ -117,3 +117,18 @@ class TestPollerLast:
         config["defaults"]["last"] = 2
         _, run_calls = _run_one_cycle(config, tmp_path, episodes=episodes)
         assert len(run_calls[0]) == 5
+
+
+class TestPollerEpisodeFilter:
+    def test_episode_filter_from_feed_config(self, tmp_path: Path) -> None:
+        episodes = _make_episodes(5)  # Episode 1..5
+        config = _make_config({"url": "http://a.com/rss", "enabled": True, "episode_filter": r"Episode [12]"})
+        _, run_calls = _run_one_cycle(config, tmp_path, episodes=episodes)
+        assert len(run_calls[0]) == 2
+
+    def test_episode_filter_from_defaults(self, tmp_path: Path) -> None:
+        episodes = _make_episodes(5)
+        config = _make_config({"url": "http://a.com/rss", "enabled": True})
+        config["defaults"]["episode_filter"] = r"Episode 3"
+        _, run_calls = _run_one_cycle(config, tmp_path, episodes=episodes)
+        assert len(run_calls[0]) == 1

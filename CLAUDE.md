@@ -19,7 +19,7 @@ Tests live in `tests/` and use pytest:
 - `test_models.py` — `slugify`, `StepStatus`, `Episode`, `Podcast` (dict roundtrips, save/load)
 - `test_pipeline.py` — `Pipeline` step execution, skipping already-completed steps, step filters, `deep_merge`
 - `test_feed.py` — `parse_feed` (audio extraction, slug dedup, status preservation, episode image extraction)
-- `test_cli.py` — `load_config`, `save_config`, `get_output_dir`, `find_feed_config`, `get_pipeline_steps`, `filter_episodes`, `validate_config`
+- `test_cli.py` — `load_config`, `save_config`, `get_output_dir`, `find_feed_config`, `get_pipeline_steps`, `filter_episodes` (last, date_range, episode_filter regex, composability), `validate_config`
 - `test_download_step.py` — `DownloadStep` filename construction, skip-existing, download
 - `test_tag_step.py` — `TagStep` MP3 tagging, APIC album art embedding, audio file discovery, error cases
 - `test_qbittorrent_client.py` — `QBittorrentClient` login, has_torrent, add_torrent
@@ -34,7 +34,7 @@ Tests live in `tests/` and use pytest:
 - `test_images.py` — `download_image` (caching, extension extraction, fallback), `resolve_episode_image` (episode/feed fallback, dedup, error handling), `convert_image` (resize, format conversion, no upscale)
 - `test_title_clean.py` — `strip_date`, `reorder_parts`, `sanitize`, `clean_title` (date formats, bracket types, part variants, filesystem chars, separator collapsing, config flags)
 - `test_text.py` — `clean_description` (HTML, entity-encoded, CDATA, plain text), `contains_blacklisted`, `apply_blacklist`
-- `test_poller.py` — `run_poll_loop` enabled/disabled feed filtering
+- `test_poller.py` — `run_poll_loop` enabled/disabled feed filtering, `episode_filter` from feed/defaults config
 - `test_audiobookshelf_step.py` — `AudiobookshelfStep` copy and scan trigger, audio resolution, config merging, error cases
 - `test_integration.py` — end-to-end: parse real RSS feed, download episode, tag MP3, stage file (GitHub Actions CI only; skipped locally via `GITHUB_ACTIONS` env var)
 
@@ -105,6 +105,7 @@ feeds:
     name: my-podcast
     enabled: true                 # optional; must be true to run during poll (default: false)
     last: 5                       # optional; only process N most recent episodes during poll
+    episode_filter: "Part [0-9]+" # optional; regex — only process episodes whose title matches
     pipeline: [download, tag, detect_ads, strip_ads, stage, torrent, seed, upload]
     category_id: 14               # required for upload step (see README.md for full ID tables)
     type_id: 9                    # required for upload step (see README.md for full ID tables)
