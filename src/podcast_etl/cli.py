@@ -192,7 +192,7 @@ def run_pipeline(podcast: Podcast, output_dir: Path, resolved_config: dict, step
     steps = [get_step(name) for name in step_names]
     context = PipelineContext(output_dir=output_dir, podcast=podcast, config=resolved_config, overwrite=overwrite)
     pipeline = Pipeline(steps=steps, context=context)
-    ep_filter = episode_filter or resolved_config.get("episode_filter")
+    ep_filter = episode_filter if episode_filter is not None else resolved_config.get("episode_filter")
     episodes = filter_episodes(podcast.episodes, last=last, date_range=date_range, episode_filter=ep_filter)
     pipeline.run(episodes, step_filter=step_filter, overwrite=overwrite)
 
@@ -291,6 +291,12 @@ def run(ctx: click.Context, feed_url: str | None, run_all: bool, step_filter: st
             date_range = parse_date_range(date_str)
         except (ValueError, click.BadParameter) as exc:
             raise click.BadParameter(str(exc), param_hint="'--date'")
+
+    if episode_filter is not None:
+        try:
+            re.compile(episode_filter)
+        except re.error as exc:
+            raise click.BadParameter(str(exc), param_hint="'--filter'")
 
     config = ctx.obj["config"]
     output_dir = get_output_dir(config)
