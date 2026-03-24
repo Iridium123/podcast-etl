@@ -21,6 +21,10 @@ podcast-etl = "podcast_etl.cli:main"
 [dependency-groups]
 dev = ["pytest>=8.0"]
 
+[tool.pytest.ini_options]
+markers = ["integration: tests requiring Docker (mktorrent, ffmpeg, network)"]
+addopts = "-m 'not integration'"
+
 [build-system]
 requires = ["uv_build>=0.10.6,<0.11.0"]
 build-backend = "uv_build"
