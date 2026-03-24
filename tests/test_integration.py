@@ -1,13 +1,11 @@
 """Integration tests that run against real podcast feeds.
 
-Only executed in GitHub Actions CI — skipped locally.
 These tests make real HTTP requests: parse an RSS feed, download an episode,
-tag the MP3, and stage it for seeding.
+tag the MP3, and stage it for seeding.  Run with ``pytest --integration``.
 """
 
 from __future__ import annotations
 
-import os
 from datetime import datetime
 from pathlib import Path
 
@@ -21,10 +19,7 @@ from podcast_etl.steps.download import DownloadStep
 from podcast_etl.steps.stage import StageStep
 from podcast_etl.steps.tag import TagStep
 
-pytestmark = pytest.mark.skipif(
-    not os.environ.get("GITHUB_ACTIONS"),
-    reason="Integration tests only run in GitHub Actions CI",
-)
+pytestmark = pytest.mark.integration
 
 # Stable, well-known public feed (NPR Planet Money — ~20 min episodes).
 # If this feed changes and breaks CI, swap in another public MP3 podcast feed.

@@ -1,10 +1,9 @@
 """Integration tests for stage and torrent steps using real filesystem and real mktorrent.
 
 These tests exercise actual disk I/O and the mktorrent binary. They do NOT
-require a running qBittorrent instance or tracker.
+require a running qBittorrent instance or tracker.  Run with ``pytest --integration``.
 """
 
-import shutil
 from pathlib import Path
 
 import pytest
@@ -13,6 +12,8 @@ from podcast_etl.models import Episode, Podcast, StepStatus
 from podcast_etl.pipeline import PipelineContext
 from podcast_etl.steps.stage import StageStep
 from podcast_etl.steps.torrent import TorrentStep
+
+pytestmark = pytest.mark.integration
 
 
 # Minimal valid MP3: ID3v2 header + one silent MPEG frame (enough for mktorrent)
@@ -67,7 +68,6 @@ def _make_context(tmp_path: Path, torrent_data_dir: Path) -> PipelineContext:
     )
 
 
-@pytest.mark.skipif(shutil.which("mktorrent") is None, reason="mktorrent not installed")
 class TestStageIntegration:
     def test_stage_copies_file_to_torrent_data_dir(self, tmp_path):
         torrent_data_dir = tmp_path / "torrent-data"
@@ -108,7 +108,6 @@ class TestStageIntegration:
         assert dest.read_bytes() == _MINIMAL_MP3  # not corrupted by second run
 
 
-@pytest.mark.skipif(shutil.which("mktorrent") is None, reason="mktorrent not installed")
 class TestTorrentIntegration:
     def _run_stage(self, tmp_path: Path, torrent_data_dir: Path, context: PipelineContext) -> Episode:
         audio_dir = context.podcast_dir / "audio"
