@@ -5,6 +5,7 @@ import signal
 import time
 from pathlib import Path
 
+from podcast_etl.cli import filter_episodes
 from podcast_etl.feed import parse_feed
 from podcast_etl.pipeline import Pipeline, PipelineContext, get_step, resolve_feed_config
 
@@ -66,8 +67,6 @@ def run_poll_loop(config: dict, config_path: Path) -> None:
                     title_cleaning = resolved.get("title_cleaning") or None
                     podcast = parse_feed(url, output_dir=output_dir, blacklist=blacklist, title_cleaning=title_cleaning)
                     podcast.save(output_dir)
-
-                    from podcast_etl.cli import filter_episodes
 
                     last = resolved.get("last")
                     episode_filter = resolved.get("episode_filter")
