@@ -1,7 +1,7 @@
 """Integration tests that run against real podcast feeds.
 
 These tests make real HTTP requests: parse an RSS feed, download an episode,
-tag the MP3, and stage it for seeding.  Run with ``pytest --integration``.
+tag the MP3, and stage it for seeding.  Run with ``pytest -m ''`` to include.
 """
 
 from __future__ import annotations

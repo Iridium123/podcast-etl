@@ -1,7 +1,7 @@
 """Integration tests for stage and torrent steps using real filesystem and real mktorrent.
 
 These tests exercise actual disk I/O and the mktorrent binary. They do NOT
-require a running qBittorrent instance or tracker.  Run with ``pytest --integration``.
+require a running qBittorrent instance or tracker.  Run with ``pytest -m ''`` to include.
 """
 
 from pathlib import Path
