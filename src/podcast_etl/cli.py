@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 logging.disable(logging.ERROR)
 
+import re
 import shutil
 import sys
 from datetime import date
@@ -150,19 +151,21 @@ def parse_date_range(value: str) -> tuple[date | None, date | None]:
     return d, d
 
 
-def filter_episodes(episodes: list[Episode], last: int | None = None, date_range: tuple[date | None, date | None] | None = None) -> list[Episode]:
-    """Filter episodes by count or publication date range.
+def filter_episodes(episodes: list[Episode], last: int | None = None, date_range: tuple[date | None, date | None] | None = None, episode_filter: str | None = None) -> list[Episode]:
+    """Filter episodes by count, publication date range, and/or title regex.
 
     ``last`` keeps the first *N* episodes (RSS feeds typically list newest
     first).  ``date_range`` is a (start, end) tuple where either bound can
-    be ``None`` for an open-ended range.  The two filters are mutually
-    exclusive – the caller is responsible for ensuring at most one is set.
+    be ``None`` for an open-ended range.  ``last`` and ``date_range`` are
+    mutually exclusive – the caller is responsible for ensuring at most one
+    is set.  ``episode_filter`` is a regex applied via ``re.search`` against
+    the episode title and can be combined with either of the other filters.
     """
     if last is not None:
-        return episodes[:last]
-    if date_range is not None:
+        result = episodes[:last]
+    elif date_range is not None:
         start, end = date_range
-        filtered = []
+        result = []
         for ep in episodes:
             if ep.published is None:
                 continue
@@ -175,17 +178,22 @@ def filter_episodes(episodes: list[Episode], last: int | None = None, date_range
                 continue
             if end is not None and pub_date > end:
                 continue
-            filtered.append(ep)
-        return filtered
-    return episodes
+            result.append(ep)
+    else:
+        result = episodes
+    if episode_filter is not None:
+        pattern = re.compile(episode_filter)
+        result = [ep for ep in result if ep.title and pattern.search(ep.title)]
+    return result
 
 
-def run_pipeline(podcast: Podcast, output_dir: Path, resolved_config: dict, step_filter: str | None = None, last: int | None = None, date_range: tuple[date | None, date | None] | None = None, overwrite: bool = False) -> None:
+def run_pipeline(podcast: Podcast, output_dir: Path, resolved_config: dict, step_filter: str | None = None, last: int | None = None, date_range: tuple[date | None, date | None] | None = None, episode_filter: str | None = None, overwrite: bool = False) -> None:
     step_names = get_pipeline_steps(resolved_config)
     steps = [get_step(name) for name in step_names]
     context = PipelineContext(output_dir=output_dir, podcast=podcast, config=resolved_config, overwrite=overwrite)
     pipeline = Pipeline(steps=steps, context=context)
-    episodes = filter_episodes(podcast.episodes, last=last, date_range=date_range)
+    ep_filter = episode_filter or resolved_config.get("episode_filter")
+    episodes = filter_episodes(podcast.episodes, last=last, date_range=date_range, episode_filter=ep_filter)
     pipeline.run(episodes, step_filter=step_filter, overwrite=overwrite)
 
 
@@ -269,9 +277,10 @@ def fetch(ctx: click.Context, feed_url: str | None, fetch_all: bool) -> None:
 @click.option("--step", "step_filter", help="Only run a specific step")
 @click.option("--last", "last", type=int, default=None, help="Only process the last N episodes")
 @click.option("--date", "date_str", default=None, help="Filter by date: YYYY-MM-DD, START..END, START.., or ..END")
+@click.option("--filter", "episode_filter", default=None, help="Only process episodes whose title matches this regex")
 @click.option("--overwrite", is_flag=True, help="Re-process episodes even if already completed")
 @click.pass_context
-def run(ctx: click.Context, feed_url: str | None, run_all: bool, step_filter: str | None, last: int | None, date_str: str | None, overwrite: bool) -> None:
+def run(ctx: click.Context, feed_url: str | None, run_all: bool, step_filter: str | None, last: int | None, date_str: str | None, episode_filter: str | None, overwrite: bool) -> None:
     """Fetch feeds and run the processing pipeline."""
     if last is not None and date_str is not None:
         raise click.UsageError("Cannot use --last and --date together.")
@@ -305,7 +314,7 @@ def run(ctx: click.Context, feed_url: str | None, run_all: bool, step_filter: st
         click.echo(f"Processing {url}...")
         podcast = fetch_feed(url, output_dir, resolved)
         click.echo(f"  {podcast.title}: {len(podcast.episodes)} episodes")
-        run_pipeline(podcast, output_dir, resolved, step_filter=step_filter, last=last, date_range=date_range, overwrite=overwrite)
+        run_pipeline(podcast, output_dir, resolved, step_filter=step_filter, last=last, date_range=date_range, episode_filter=episode_filter, overwrite=overwrite)
 
 
 @main.command()

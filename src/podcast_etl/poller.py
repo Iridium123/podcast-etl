@@ -67,8 +67,11 @@ def run_poll_loop(config: dict, config_path: Path) -> None:
                     podcast = parse_feed(url, output_dir=output_dir, blacklist=blacklist, title_cleaning=title_cleaning)
                     podcast.save(output_dir)
 
+                    from podcast_etl.cli import filter_episodes
+
                     last = resolved.get("last")
-                    episodes = podcast.episodes[:last] if last else podcast.episodes
+                    episode_filter = resolved.get("episode_filter")
+                    episodes = filter_episodes(podcast.episodes, last=last, episode_filter=episode_filter)
 
                     feed_step_names = resolved.get("pipeline") or ["download"]
                     steps = [get_step(name) for name in feed_step_names]
