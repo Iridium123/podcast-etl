@@ -16,7 +16,7 @@ All requests must use a cookie jar / session to maintain state.
 
 ### Option A: Remember Cookie
 
-Set the cookie named `remember_web_59ba36addc2b2f9401580f014c7f58ea4e30989d` on the tracker's domain, then make any authenticated request (e.g. `GET /torrents/create`) to activate the session.
+Set the cookie whose name starts with `remember_web_` (the full name is instance-specific, derived from the tracker's Laravel `APP_KEY`). Find the exact name by logging in via browser and inspecting the cookies set on the tracker domain. Then make any authenticated request (e.g. `GET /torrents/create`) to activate the session.
 
 If the response redirects to `/login`, the cookie is expired or invalid.
 
@@ -101,7 +101,13 @@ Every form submission requires a `_token` value. Extract it from the HTML of the
 <input type="hidden" name="_token" value="abcdef123456...">
 ```
 
-Regex pattern (covers both attribute orderings):
+Using an HTML parser (recommended):
+
+```
+token = html.querySelector('input[name="_token"]').getAttribute("value")
+```
+
+Regex fallback (fragile — only works when `name` and `value` are adjacent attributes):
 
 ```
 name="_token"\s+value="([^"]+)"
