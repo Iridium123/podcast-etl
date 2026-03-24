@@ -26,7 +26,8 @@ pytestmark = pytest.mark.skipif(
     reason="Integration tests only run in GitHub Actions CI",
 )
 
-# Stable, well-known public feed (NPR Planet Money — ~20 min episodes)
+# Stable, well-known public feed (NPR Planet Money — ~20 min episodes).
+# If this feed changes and breaks CI, swap in another public MP3 podcast feed.
 FEED_URL = "https://feeds.npr.org/510289/podcast.xml"
 
 
