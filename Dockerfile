@@ -26,7 +26,8 @@ WORKDIR /app
 
 FROM base AS test
 
-RUN pip install pytest
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+RUN uv pip install "pytest>=8.0"
 COPY tests/ tests/
 CMD ["pytest", "tests/", "-v"]
 
