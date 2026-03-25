@@ -62,7 +62,7 @@ def parse_feed(
         episode_number: int | None = None
         if raw_ep_num is not None:
             try:
-                episode_number = int(raw_ep_num)
+                episode_number = int(float(raw_ep_num))
             except (ValueError, TypeError):
                 pass
         title = clean_title(

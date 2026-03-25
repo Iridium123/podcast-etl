@@ -287,6 +287,8 @@ feeds:
 
 Optional rules to clean episode titles at feed parse time. All rules are off by default and can be enabled globally in `defaults.title_cleaning` or per-feed in `title_cleaning`. Per-feed values override global values.
 
+**Note:** Enabling or disabling title cleaning rules changes episode slugs and filenames. Step status is preserved via GUID, but enabling a rule mid-stream will cause episodes to be re-processed under the new filename. Use `reset` to start fresh if needed.
+
 **`strip_date`** — Removes dates wrapped in brackets `()`, `[]`, or `{}` from episode titles. Useful when the pipeline already prepends dates to filenames and upload titles. Supported formats: `(3_19_26)`, `(03/22/2026)`, `(2026-03-22)`, `(March 22, 2026)`, etc. Bare dates without brackets are not affected.
 
 **`reorder_parts`** — Reorders part indicators like `(Part 1)`, `(Pt. 2)`, `[Pt 3]` so multi-part episodes released on the same day sort correctly. Uses same-day sibling episodes from the RSS feed to find a common series prefix and inserts the part number after it. For example, `"World War II - D-Day (Part 3)"` becomes `"World War II - Part 3 - D-Day"`. If the common prefix is too short (< 5 chars), the part is prepended instead. Only triggers when multiple same-day episodes have part indicators; solo episodes are left unchanged. Only matches parts inside brackets; bare `Part 1` is not affected.
