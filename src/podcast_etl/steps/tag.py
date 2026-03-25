@@ -83,7 +83,14 @@ class TagStep:
         tags.save(audio_path)
 
     def _tag_mp3(
-        self, path: Path, title: str, artist: str, description: str, date_str: str, year_str: str, episode_number: int | None = None,
+        self,
+        path: Path,
+        title: str,
+        artist: str,
+        description: str,
+        date_str: str,
+        year_str: str,
+        episode_number: int | None = None,
     ) -> None:
         try:
             tags = ID3(path)
@@ -96,6 +103,7 @@ class TagStep:
             tags.add(COMM(encoding=3, lang="eng", desc="", text=[description]))
         tags.add(TDRL(encoding=3, text=[date_str]))
         tags.add(TDRC(encoding=3, text=[year_str]))
+        tags.delall("TRCK")
         if episode_number is not None:
             tags.add(TRCK(encoding=3, text=[str(episode_number)]))
         tags.delall("TALB")

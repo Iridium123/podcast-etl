@@ -453,6 +453,16 @@ def test_parse_feed_episode_number_non_numeric_gives_none():
     assert podcast.episodes[0].episode_number is None
 
 
+def test_parse_feed_episode_number_float_string_parsed():
+    """Some RSS generators emit episode numbers as floats like '42.0'."""
+    entry = _Entry(links=[_audio_link()], itunes_episode="42.0")
+    feed = _make_parsed_feed(entries=[entry])
+    with patch("podcast_etl.feed.feedparser.parse", return_value=feed):
+        podcast = parse_feed("https://example.com/feed.xml")
+
+    assert podcast.episodes[0].episode_number == 42
+
+
 def test_parse_feed_episode_number_prepended_to_title():
     entry = _Entry(title="Rise of the Mongols", links=[_audio_link()], itunes_episode="123")
     feed = _make_parsed_feed(entries=[entry])
