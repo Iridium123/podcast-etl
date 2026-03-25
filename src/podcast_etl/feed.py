@@ -58,7 +58,20 @@ def parse_feed(
                 break
 
         title = entry.get("title", "Untitled")
-        title = clean_title(title, title_cleaning, published=entry.get("published"), all_entries=feed.entries)
+        raw_ep_num = entry.get("itunes_episode")
+        episode_number: int | None = None
+        if raw_ep_num is not None:
+            try:
+                episode_number = int(raw_ep_num)
+            except (ValueError, TypeError):
+                pass
+        title = clean_title(
+            title,
+            title_cleaning,
+            published=entry.get("published"),
+            all_entries=feed.entries,
+            episode_number=episode_number,
+        )
         guid = entry.get("id", entry.get("link", title))
         ep_slug = slugify(title)
 
@@ -89,6 +102,7 @@ def parse_feed(
             description=description,
             slug=ep_slug,
             image_url=ep_image_url,
+            episode_number=episode_number,
         )
 
         # Preserve step status from existing data

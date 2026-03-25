@@ -211,3 +211,27 @@ def test_tag_step_no_image_skips_apic(tmp_path):
     audio_path = ctx.podcast_dir / result.data["path"]
     tags = ID3(audio_path)
     assert tags.getall("APIC") == []
+
+
+# --- Track number (episode number) ---
+
+def test_tag_step_writes_track_number(tmp_path: Path):
+    ctx = _make_context(tmp_path)
+    audio_path = _make_audio_file(ctx, "ep-1", ".mp3")
+    ep = _make_episode(status=_download_status("audio/ep-1.mp3"), episode_number=42)
+
+    TagStep().process(ep, ctx)
+
+    tags = ID3(audio_path)
+    assert str(tags["TRCK"]) == "42"
+
+
+def test_tag_step_no_episode_number_skips_trck(tmp_path: Path):
+    ctx = _make_context(tmp_path)
+    audio_path = _make_audio_file(ctx, "ep-1", ".mp3")
+    ep = _make_episode(status=_download_status("audio/ep-1.mp3"))
+
+    TagStep().process(ep, ctx)
+
+    tags = ID3(audio_path)
+    assert tags.getall("TRCK") == []

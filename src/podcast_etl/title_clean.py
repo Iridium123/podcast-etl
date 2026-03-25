@@ -182,6 +182,13 @@ def reorder_parts(title: str, published: str | None = None, all_entries: list[An
         return f"{part_text} - {remainder}" if remainder else part_text
 
 
+def prepend_episode_number(title: str, episode_number: int) -> str:
+    """Prepend an episode number to a title: '42 - Title'."""
+    if title:
+        return f"{episode_number} - {title}"
+    return str(episode_number)
+
+
 def sanitize(title: str) -> str:
     """Replace filesystem-invalid characters and normalize separators.
 
@@ -206,12 +213,14 @@ def clean_title(
     config: dict | None,
     published: str | None = None,
     all_entries: list[Any] | None = None,
+    episode_number: int | None = None,
 ) -> str:
     """Apply enabled title cleaning rules based on config flags.
 
-    Rules are applied in order: strip_date, reorder_parts, then sanitize.
-    When reorder_parts is enabled, *published* and *all_entries* provide
-    same-day sibling context for intelligent part reordering.
+    Rules are applied in order: strip_date, reorder_parts,
+    prepend_episode_number, then sanitize.  When reorder_parts is enabled,
+    *published* and *all_entries* provide same-day sibling context for
+    intelligent part reordering.
     """
     if not config:
         return title
@@ -222,6 +231,8 @@ def clean_title(
         # This is fine because reorder_parts strips part indicators first, and
         # dates typically appear after the episode-specific suffix.
         title = reorder_parts(title, published=published, all_entries=all_entries)
+    if config.get("prepend_episode_number") and episode_number is not None:
+        title = prepend_episode_number(title, episode_number)
     if config.get("sanitize"):
         title = sanitize(title)
     return title

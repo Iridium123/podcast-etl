@@ -1,5 +1,5 @@
-"""Tests for title_clean.py: strip_date, reorder_parts, sanitize, clean_title."""
-from podcast_etl.title_clean import clean_title, reorder_parts, sanitize, strip_date
+"""Tests for title_clean.py: strip_date, reorder_parts, prepend_episode_number, sanitize, clean_title."""
+from podcast_etl.title_clean import clean_title, prepend_episode_number, reorder_parts, sanitize, strip_date
 
 
 class TestStripDate:
@@ -174,6 +174,17 @@ class TestReorderParts:
         assert reorder_parts("Series - Alpha (Part 1)", _PUB, entries) == "Series - Alpha (Part 1)"
 
 
+class TestPrependEpisodeNumber:
+    def test_basic(self):
+        assert prepend_episode_number("Rise of the Mongols", 123) == "123 - Rise of the Mongols"
+
+    def test_empty_title(self):
+        assert prepend_episode_number("", 42) == "42"
+
+    def test_single_digit(self):
+        assert prepend_episode_number("Pilot", 1) == "1 - Pilot"
+
+
 class TestSanitize:
     # --- Invalid character replacement ---
 
@@ -308,6 +319,49 @@ class TestCleanTitle:
             published=_PUB,
             all_entries=entries,
         )
+        assert " - - " not in result
+
+    def test_prepend_episode_number_only(self):
+        result = clean_title("My Episode", {"prepend_episode_number": True}, episode_number=7)
+        assert result == "7 - My Episode"
+
+    def test_prepend_episode_number_no_number_unchanged(self):
+        result = clean_title("My Episode", {"prepend_episode_number": True}, episode_number=None)
+        assert result == "My Episode"
+
+    def test_prepend_episode_number_false_unchanged(self):
+        result = clean_title("My Episode", {"prepend_episode_number": False}, episode_number=7)
+        assert result == "My Episode"
+
+    def test_prepend_episode_number_after_reorder(self):
+        """Episode number comes before the reordered part indicator."""
+        entries = _same_day_entries(
+            ("Series - Alpha (Part 1)", _PUB),
+            ("Series - Beta (Part 2)", _PUB),
+        )
+        result = clean_title(
+            "Series - Alpha (Part 1)",
+            {"reorder_parts": True, "prepend_episode_number": True},
+            published=_PUB,
+            all_entries=entries,
+            episode_number=123,
+        )
+        assert result == "123 - Series - Part 1 - Alpha"
+
+    def test_full_chain_with_episode_number(self):
+        """strip_date -> reorder_parts -> prepend_episode_number -> sanitize."""
+        entries = _same_day_entries(
+            ("Series - Alpha (Part 1) (3_19_26)", _PUB),
+            ("Series - Beta (Part 2) (3_20_26)", _PUB),
+        )
+        result = clean_title(
+            "Series - Alpha (Part 1) (3_19_26)",
+            {"strip_date": True, "reorder_parts": True, "prepend_episode_number": True, "sanitize": True},
+            published=_PUB,
+            all_entries=entries,
+            episode_number=42,
+        )
+        assert result == "42 - Series - Part 1 - Alpha"
         assert " - - " not in result
 
 
