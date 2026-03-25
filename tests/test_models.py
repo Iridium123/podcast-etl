@@ -170,3 +170,16 @@ def test_episode_dict_roundtrip_without_image_url():
     assert ep.image_url is None
     roundtripped = Episode.from_dict(ep.to_dict())
     assert roundtripped.image_url is None
+
+
+def test_episode_dict_roundtrip_with_episode_number():
+    ep = _make_episode(episode_number=42)
+    assert ep.to_dict()["episode_number"] == 42
+    assert Episode.from_dict(ep.to_dict()) == ep
+
+
+def test_episode_dict_roundtrip_without_episode_number():
+    ep = _make_episode()
+    assert ep.episode_number is None
+    roundtripped = Episode.from_dict(ep.to_dict())
+    assert roundtripped.episode_number is None

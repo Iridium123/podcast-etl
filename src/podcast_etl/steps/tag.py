@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from email.utils import parsedate_to_datetime
 from pathlib import Path
 
-from mutagen.id3 import APIC, COMM, ID3, ID3NoHeaderError, TDRC, TDRL, TIT2, TPE1
+from mutagen.id3 import APIC, COMM, ID3, ID3NoHeaderError, TDRC, TDRL, TIT2, TPE1, TRCK
 
 from podcast_etl.images import convert_image, resolve_episode_image
 from podcast_etl.models import Episode, episode_basename
@@ -34,7 +34,7 @@ class TagStep:
 
         podcast_title = context.effective_title
         description = episode.description or ""
-        self._tag_mp3(audio_path, episode.title, podcast_title, description, date_str, year_str)
+        self._tag_mp3(audio_path, episode.title, podcast_title, description, date_str, year_str, episode.episode_number)
 
         # Embed episode image as album art
         raw_image = resolve_episode_image(episode, context, allow_feed_fallback=True)
@@ -82,7 +82,9 @@ class TagStep:
         ))
         tags.save(audio_path)
 
-    def _tag_mp3(self, path: Path, title: str, artist: str, description: str, date_str: str, year_str: str) -> None:
+    def _tag_mp3(
+        self, path: Path, title: str, artist: str, description: str, date_str: str, year_str: str, episode_number: int | None = None,
+    ) -> None:
         try:
             tags = ID3(path)
         except ID3NoHeaderError:
@@ -94,6 +96,8 @@ class TagStep:
             tags.add(COMM(encoding=3, lang="eng", desc="", text=[description]))
         tags.add(TDRL(encoding=3, text=[date_str]))
         tags.add(TDRC(encoding=3, text=[year_str]))
+        if episode_number is not None:
+            tags.add(TRCK(encoding=3, text=[str(episode_number)]))
         tags.delall("TALB")
         tags.save(path)
 

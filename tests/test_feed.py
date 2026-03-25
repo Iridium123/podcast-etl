@@ -37,6 +37,7 @@ class _Entry:
         summary="Episode summary",
         itunes_duration="1:00:00",
         image=None,
+        itunes_episode=None,
     ):
         self._data = {
             "title": title,
@@ -49,6 +50,8 @@ class _Entry:
         }
         if image is not None:
             self._data["image"] = image
+        if itunes_episode is not None:
+            self._data["itunes_episode"] = itunes_episode
 
     def get(self, key, default=None):
         return self._data.get(key, default)
@@ -417,3 +420,55 @@ def test_parse_feed_title_cleaning_preserves_status_despite_slug_change(tmp_path
     assert ep.slug == "guest-name"
     assert "download" in ep.status
     assert ep.status["download"].result["size_bytes"] == 200
+
+
+# ---------------------------------------------------------------------------
+# Episode number
+# ---------------------------------------------------------------------------
+
+def test_parse_feed_episode_number_parsed():
+    entry = _Entry(links=[_audio_link()], itunes_episode="42")
+    feed = _make_parsed_feed(entries=[entry])
+    with patch("podcast_etl.feed.feedparser.parse", return_value=feed):
+        podcast = parse_feed("https://example.com/feed.xml")
+
+    assert podcast.episodes[0].episode_number == 42
+
+
+def test_parse_feed_episode_number_missing_gives_none():
+    entry = _Entry(links=[_audio_link()])
+    feed = _make_parsed_feed(entries=[entry])
+    with patch("podcast_etl.feed.feedparser.parse", return_value=feed):
+        podcast = parse_feed("https://example.com/feed.xml")
+
+    assert podcast.episodes[0].episode_number is None
+
+
+def test_parse_feed_episode_number_non_numeric_gives_none():
+    entry = _Entry(links=[_audio_link()], itunes_episode="bonus")
+    feed = _make_parsed_feed(entries=[entry])
+    with patch("podcast_etl.feed.feedparser.parse", return_value=feed):
+        podcast = parse_feed("https://example.com/feed.xml")
+
+    assert podcast.episodes[0].episode_number is None
+
+
+def test_parse_feed_episode_number_prepended_to_title():
+    entry = _Entry(title="Rise of the Mongols", links=[_audio_link()], itunes_episode="123")
+    feed = _make_parsed_feed(entries=[entry])
+    with patch("podcast_etl.feed.feedparser.parse", return_value=feed):
+        podcast = parse_feed(
+            "https://example.com/feed.xml",
+            title_cleaning={"prepend_episode_number": True},
+        )
+
+    assert podcast.episodes[0].title == "123 - Rise of the Mongols"
+
+
+def test_parse_feed_episode_number_not_prepended_without_config():
+    entry = _Entry(title="Rise of the Mongols", links=[_audio_link()], itunes_episode="123")
+    feed = _make_parsed_feed(entries=[entry])
+    with patch("podcast_etl.feed.feedparser.parse", return_value=feed):
+        podcast = parse_feed("https://example.com/feed.xml")
+
+    assert podcast.episodes[0].title == "Rise of the Mongols"

@@ -163,6 +163,7 @@ defaults:
   title_cleaning:                   # global title cleaning (default off)
     strip_date: false               # remove bracketed dates from episode titles
     reorder_parts: false            # move (Part N) to front of episode title
+    prepend_episode_number: false   # prepend itunes:episode number to title
     sanitize: false                 # replace invalid filesystem chars, normalize separators
 
   ad_detection:
@@ -220,6 +221,7 @@ feeds:
     title_cleaning:                   # optional per-feed title cleaning
       strip_date: true                # remove bracketed dates from titles
       reorder_parts: true             # move (Part N) to front of title
+      prepend_episode_number: true    # prepend itunes:episode number to title
       sanitize: true                  # replace invalid filesystem chars, normalize separators
 ```
 
@@ -289,6 +291,8 @@ Optional rules to clean episode titles at feed parse time. All rules are off by 
 
 **`reorder_parts`** — Reorders part indicators like `(Part 1)`, `(Pt. 2)`, `[Pt 3]` so multi-part episodes released on the same day sort correctly. Uses same-day sibling episodes from the RSS feed to find a common series prefix and inserts the part number after it. For example, `"World War II - D-Day (Part 3)"` becomes `"World War II - Part 3 - D-Day"`. If the common prefix is too short (< 5 chars), the part is prepended instead. Only triggers when multiple same-day episodes have part indicators; solo episodes are left unchanged. Only matches parts inside brackets; bare `Part 1` is not affected.
 
+**`prepend_episode_number`** — Prepends the `itunes:episode` number to the episode title in the format `{number} - {title}`. For example, episode 123 with title `"Rise of the Mongols"` becomes `"123 - Rise of the Mongols"`. Runs after `reorder_parts`, so with parts reordered: `"123 - Part 3 - Rise of the Mongols"`. Only applies when the RSS entry has a numeric `itunes:episode` value; non-numeric values (e.g. `"bonus"`) are ignored.
+
 **`sanitize`** — Replaces characters that are invalid on any of macOS, Windows, or Linux filesystems (`\ / : * ? " < > |` and control characters) with `_`, then collapses any sequence of underscores, whitespace, and dashes into a single ` - `. Cleans up double-dash artifacts from other rules (e.g. `"Show - - Part 3"` → `"Show - Part 3"`) and makes titles like `"Title: Subtitle"` filesystem-safe (`"Title - Subtitle"`). Runs after all other title cleaning rules.
 
 To get the `remember_cookie` value: log in to the tracker in your browser, then open DevTools → Application → Cookies → copy the value of `remember_web_59ba36addc2b2f9401580f014c7f58ea4e30989d`. This works with 2FA-enabled accounts. The cookie is long-lived but will eventually expire, requiring a fresh copy.
@@ -300,7 +304,7 @@ Steps run in the order listed in `pipeline`. Each step requires the previous ste
 | Step | Requires | Description |
 |------|----------|-------------|
 | `download` | — | Fetch audio from RSS `audio_url` → `output/<podcast>/audio/` |
-| `tag` | `download` | Write ID3 metadata (title, artist, date) to the downloaded MP3 file; embeds episode artwork as album art when available (falls back to feed image) |
+| `tag` | `download` | Write ID3 metadata (title, artist, date, track number) to the downloaded MP3 file; writes track number from `itunes:episode` when available; embeds episode artwork as album art when available (falls back to feed image) |
 | `detect_ads` | `download` | Transcribe audio via local faster-whisper (or remote server), classify ad segments via LLM; saves transcript and reuses on retry |
 | `strip_ads` | `detect_ads`, `download` | Remove detected ad segments from audio via ffmpeg; output in `output/<podcast>/cleaned/` |
 | `stage` | `download` (or `strip_ads`) | Copy audio to `torrent_data_dir/` for seeding; prefers cleaned audio if available |
