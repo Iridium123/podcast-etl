@@ -1,0 +1,7 @@
+{% if poll_control %}
+<span class="text-sm text-gray-400">
+  {% if poll_control.paused %}Paused{% else %}Running{% endif %}
+</span>
+{% else %}
+<span class="text-sm text-gray-400">Poller not active</span>
+{% endif %}

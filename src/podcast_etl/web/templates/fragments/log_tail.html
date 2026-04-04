@@ -1,0 +1,6 @@
+{% if lines %}
+{% for line in lines %}<div class="font-mono text-xs text-gray-300">{{ line }}</div>
+{% endfor %}
+{% else %}
+<div class="text-gray-500 text-sm">No log entries yet.</div>
+{% endif %}
