@@ -91,6 +91,7 @@ FastAPI app with Jinja2 templates and HTMX for dynamic behavior.
 - Summary counts: active feeds, episodes processed, episodes pending
 - Poll status: running/paused, last cycle time, next cycle time
 - Controls: pause/resume poll, trigger immediate run
+- Log tail: live-updating display of recent log output from the poll loop, auto-scrolling. Implemented via HTMX polling (`hx-trigger="every 2s"`) against an endpoint that returns the last N lines from an in-memory log buffer (ring buffer appended to by a `logging.Handler`). Not reading a log file — the handler captures log records from the running process directly.
 
 ### Feeds list (`GET /feeds`)
 
