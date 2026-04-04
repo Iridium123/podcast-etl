@@ -137,7 +137,10 @@ class Episode:
         episodes_dir.mkdir(parents=True, exist_ok=True)
         filename = episode_json_filename(self.guid, self.raw_title or self.title, self.published) + ".json"
         path = episodes_dir / filename
-        path.write_text(json.dumps(self.to_dict(), indent=2) + "\n")
+        content = json.dumps(self.to_dict(), indent=2) + "\n"
+        if path.exists() and path.read_text() == content:
+            return
+        path.write_text(content)
 
     @classmethod
     def load(cls, path: Path) -> Episode:
