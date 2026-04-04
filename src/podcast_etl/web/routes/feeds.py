@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+
 import yaml
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -36,6 +38,74 @@ async def feeds_list(request: Request):
         "feeds/list.html",
         {"feeds": feeds},
     )
+
+
+@router.get("/add", response_class=HTMLResponse)
+async def feed_add_form(request: Request):
+    from podcast_etl.pipeline import STEP_REGISTRY
+
+    all_steps = list(STEP_REGISTRY.keys())
+
+    return templates.TemplateResponse(
+        request,
+        "feeds/form.html",
+        {
+            "feed": {},
+            "extra_yaml": "",
+            "all_steps": all_steps,
+            "error": None,
+        },
+    )
+
+
+@router.post("/add", response_class=HTMLResponse)
+async def feed_add(
+    request: Request,
+    url: str = Form(""),
+    feed_name: str = Form("", alias="name"),
+):
+    from podcast_etl.pipeline import STEP_REGISTRY
+    from podcast_etl.service import load_config, save_config
+
+    if not url.strip():
+        all_steps = list(STEP_REGISTRY.keys())
+        return templates.TemplateResponse(
+            request,
+            "feeds/form.html",
+            {
+                "feed": {"name": feed_name},
+                "extra_yaml": "",
+                "all_steps": all_steps,
+                "error": "URL is required.",
+            },
+            status_code=200,
+        )
+
+    config = load_config(request.app.state.config_path)
+    existing_urls = [f.get("url", "") for f in config.get("feeds", [])]
+    if url.strip() in existing_urls:
+        all_steps = list(STEP_REGISTRY.keys())
+        return templates.TemplateResponse(
+            request,
+            "feeds/form.html",
+            {
+                "feed": {"url": url, "name": feed_name},
+                "extra_yaml": "",
+                "all_steps": all_steps,
+                "error": f"Feed with URL {url!r} already exists.",
+            },
+            status_code=200,
+        )
+
+    entry: dict = {"url": url.strip()}
+    if feed_name.strip():
+        entry["name"] = feed_name.strip()
+
+    config.setdefault("feeds", []).append(entry)
+    save_config(config, request.app.state.config_path)
+
+    redirect_name = entry.get("name") or entry["url"]
+    return RedirectResponse(url=f"/feeds/{redirect_name}", status_code=303)
 
 
 @router.get("/{name}", response_class=HTMLResponse)
@@ -281,3 +351,26 @@ async def feed_save(
 
     redirect_name = updated_feed.get("name") or updated_feed.get("url", name)
     return RedirectResponse(url=f"/feeds/{redirect_name}", status_code=303)
+
+
+@router.post("/{name}/run", response_class=HTMLResponse)
+async def feed_run(request: Request, name: str):
+    from podcast_etl.service import fetch_feed, load_config, run_pipeline, get_output_dir, find_feed_config
+
+    config = load_config(request.app.state.config_path)
+    feed = find_feed_config(config, name)
+
+    if feed is None:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail=f"Feed {name!r} not found.")
+
+    async def _run() -> None:
+        from podcast_etl.pipeline import resolve_feed_config
+
+        resolved = resolve_feed_config(config.get("defaults", {}), feed)
+        output_dir = get_output_dir(config)
+        podcast = await asyncio.to_thread(fetch_feed, feed["url"], output_dir, resolved)
+        await asyncio.to_thread(run_pipeline, podcast, output_dir, resolved)
+
+    asyncio.create_task(_run())
+    return HTMLResponse('<span class="text-blue-400">Running...</span>')

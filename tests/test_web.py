@@ -152,3 +152,34 @@ def test_feed_edit_invalid_yaml_shows_error(tmp_path: Path) -> None:
     })
     assert response.status_code == 200
     assert "error" in response.text.lower() or "invalid" in response.text.lower()
+
+
+def test_add_feed(tmp_path: Path) -> None:
+    cfg_path = _write_config(tmp_path, {
+        "feeds": [],
+        "defaults": {"output_dir": str(tmp_path / "output"), "pipeline": ["download"]},
+    })
+    app = create_app(cfg_path, start_poller=False)
+    client = TestClient(app)
+    response = client.post("/feeds/add", data={
+        "url": "http://new.com/rss",
+        "name": "new-show",
+    }, follow_redirects=False)
+    assert response.status_code == 303
+    updated = yaml.safe_load(cfg_path.read_text())
+    assert any(f["url"] == "http://new.com/rss" for f in updated["feeds"])
+
+
+def test_add_feed_duplicate_rejected(tmp_path: Path) -> None:
+    cfg_path = _write_config(tmp_path, {
+        "feeds": [{"url": "http://a.com/rss", "name": "show-a"}],
+        "defaults": {"output_dir": str(tmp_path / "output"), "pipeline": ["download"]},
+    })
+    app = create_app(cfg_path, start_poller=False)
+    client = TestClient(app)
+    response = client.post("/feeds/add", data={
+        "url": "http://a.com/rss",
+        "name": "show-a",
+    })
+    assert response.status_code == 200
+    assert "already exists" in response.text.lower()
