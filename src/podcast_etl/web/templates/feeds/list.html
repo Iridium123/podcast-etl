@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Feeds — podcast-etl{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+  <h1 class="text-2xl font-bold">Feeds</h1>
+  <a href="/feeds/add" class="px-4 py-2 bg-blue-700 hover:bg-blue-600 text-white text-sm rounded">+ Add Feed</a>
+</div>
+
+{% if feeds %}
+<div class="space-y-3">
+  {% for feed in feeds %}
+  <div class="bg-gray-800 border border-gray-700 rounded-lg p-4 flex items-center justify-between">
+    <div class="flex items-center gap-4 min-w-0">
+      <div class="min-w-0">
+        <div class="font-semibold text-gray-100 truncate">{{ feed.name }}</div>
+        <div class="text-sm text-gray-400 truncate">{{ feed.url }}</div>
+      </div>
+      {% if feed.enabled %}
+        <span class="shrink-0 px-2 py-0.5 bg-green-900 text-green-300 text-xs rounded-full border border-green-700">enabled</span>
+      {% else %}
+        <span class="shrink-0 px-2 py-0.5 bg-gray-700 text-gray-400 text-xs rounded-full border border-gray-600">disabled</span>
+      {% endif %}
+      <span class="shrink-0 text-sm text-gray-400">{{ feed.episode_count }} episodes</span>
+    </div>
+    <div class="flex gap-2 shrink-0 ml-4">
+      <a href="/feeds/{{ feed.name }}" class="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 text-gray-100 text-sm rounded">View</a>
+      <a href="/feeds/{{ feed.name }}/edit" class="px-3 py-1.5 bg-blue-700 hover:bg-blue-600 text-white text-sm rounded">Edit</a>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="bg-gray-800 border border-gray-700 rounded-lg p-8 text-center text-gray-400">
+  No feeds configured. <a href="/feeds/add" class="text-blue-400 hover:text-blue-300">Add one</a>.
+</div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,122 @@
+{% extends "base.html" %}
+{% block title %}{{ feed.name or feed.url }} — podcast-etl{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+  <h1 class="text-2xl font-bold">{{ feed.name or feed.url }}</h1>
+  <a href="/feeds/{{ feed.name or feed.url }}/edit" class="px-4 py-2 bg-blue-700 hover:bg-blue-600 text-white text-sm rounded">Edit</a>
+</div>
+
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+  <!-- Left column: config info -->
+  <div class="space-y-4">
+    <!-- Key fields -->
+    <div class="bg-gray-800 border border-gray-700 rounded-lg p-4">
+      <div class="font-semibold text-gray-200 mb-3">Config</div>
+      <dl class="space-y-2 text-sm">
+        <div class="flex gap-2">
+          <dt class="text-gray-400 w-36 shrink-0">URL</dt>
+          <dd class="text-gray-100 break-all">{{ feed.url }}</dd>
+        </div>
+        <div class="flex gap-2">
+          <dt class="text-gray-400 w-36 shrink-0">Enabled</dt>
+          <dd>
+            {% if feed.get("enabled", False) %}
+              <span class="px-2 py-0.5 bg-green-900 text-green-300 text-xs rounded-full border border-green-700">yes</span>
+            {% else %}
+              <span class="px-2 py-0.5 bg-gray-700 text-gray-400 text-xs rounded-full border border-gray-600">no</span>
+            {% endif %}
+          </dd>
+        </div>
+        {% if feed.get("last") %}
+        <div class="flex gap-2">
+          <dt class="text-gray-400 w-36 shrink-0">Last N episodes</dt>
+          <dd class="text-gray-100">{{ feed.last }}</dd>
+        </div>
+        {% endif %}
+        {% if feed.get("episode_filter") %}
+        <div class="flex gap-2">
+          <dt class="text-gray-400 w-36 shrink-0">Episode filter</dt>
+          <dd class="text-gray-100 font-mono">{{ feed.episode_filter }}</dd>
+        </div>
+        {% endif %}
+        {% if feed.get("category_id") %}
+        <div class="flex gap-2">
+          <dt class="text-gray-400 w-36 shrink-0">Category ID</dt>
+          <dd class="text-gray-100">{{ feed.category_id }}</dd>
+        </div>
+        {% endif %}
+        {% if feed.get("type_id") %}
+        <div class="flex gap-2">
+          <dt class="text-gray-400 w-36 shrink-0">Type ID</dt>
+          <dd class="text-gray-100">{{ feed.type_id }}</dd>
+        </div>
+        {% endif %}
+        {% if feed.get("pipeline") %}
+        <div class="flex gap-2">
+          <dt class="text-gray-400 w-36 shrink-0">Pipeline</dt>
+          <dd class="text-gray-100">{{ feed.pipeline | join(" → ") }}</dd>
+        </div>
+        {% endif %}
+      </dl>
+    </div>
+
+    <!-- Extra YAML overrides -->
+    {% if extra_yaml %}
+    <div class="bg-gray-800 border border-gray-700 rounded-lg p-4">
+      <div class="font-semibold text-gray-200 mb-3">Extra overrides</div>
+      <pre class="text-xs text-gray-300 overflow-x-auto whitespace-pre-wrap">{{ extra_yaml }}</pre>
+    </div>
+    {% endif %}
+
+    <!-- Resolved config collapsible -->
+    <details class="bg-gray-800 border border-gray-700 rounded-lg">
+      <summary class="px-4 py-3 font-semibold text-gray-200 cursor-pointer select-none">
+        Resolved config (expanded)
+      </summary>
+      <div class="px-4 pb-4">
+        <pre class="text-xs overflow-x-auto whitespace-pre-wrap mt-2">{% for line in resolved_yaml.splitlines() %}{% set top_key = line.split(":")[0].strip() %}{% if not line.startswith(" ") and source_map.get(top_key) == "feed" %}<span class="text-orange-400">{{ line }}</span>{% elif not line.startswith(" ") and line.endswith(":") %}<span class="text-gray-400">{{ line }}</span>{% elif not line.startswith(" ") %}<span class="text-gray-400">{{ line }}</span>{% else %}{{ line }}{% endif %}
+{% endfor %}</pre>
+      </div>
+    </details>
+  </div>
+
+  <!-- Right column: episodes grid -->
+  <div>
+    <div class="bg-gray-800 border border-gray-700 rounded-lg p-4">
+      <div class="font-semibold text-gray-200 mb-3">Episodes</div>
+      {% if episodes %}
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="text-left border-b border-gray-700">
+              <th class="pb-2 pr-3 text-gray-400 font-medium">Title</th>
+              {% for step in step_names %}
+              <th class="pb-2 px-1 text-gray-400 font-medium text-center">{{ step }}</th>
+              {% endfor %}
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-gray-700">
+            {% for ep in episodes %}
+            <tr>
+              <td class="py-2 pr-3 text-gray-100 max-w-xs truncate">{{ ep.title }}</td>
+              {% for step in step_names %}
+              <td class="py-2 px-1 text-center">
+                {% if ep.statuses[step] == "done" %}
+                  <span class="text-green-400" title="done">&#10003;</span>
+                {% else %}
+                  <span class="text-gray-600" title="pending">&#8226;</span>
+                {% endif %}
+              </td>
+              {% endfor %}
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <p class="text-gray-400 text-sm">No episodes found on disk for this feed.</p>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}

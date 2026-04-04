@@ -74,3 +74,27 @@ def test_log_tail_returns_text(config_path: Path, tmp_path: Path) -> None:
     client = TestClient(app)
     response = client.get("/log-tail")
     assert response.status_code == 200
+
+
+def test_feeds_list_page(config_with_feeds: Path) -> None:
+    app = create_app(config_with_feeds, start_poller=False)
+    client = TestClient(app)
+    response = client.get("/feeds")
+    assert response.status_code == 200
+    assert "show-a" in response.text
+    assert "show-b" in response.text
+
+
+def test_feeds_detail_page(config_with_feeds: Path) -> None:
+    app = create_app(config_with_feeds, start_poller=False)
+    client = TestClient(app)
+    response = client.get("/feeds/show-a")
+    assert response.status_code == 200
+    assert "show-a" in response.text
+
+
+def test_feeds_detail_not_found(config_path: Path) -> None:
+    app = create_app(config_path, start_poller=False)
+    client = TestClient(app)
+    response = client.get("/feeds/nonexistent")
+    assert response.status_code == 404

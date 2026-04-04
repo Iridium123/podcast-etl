@@ -14,10 +14,12 @@ def create_app(config_path: Path, *, start_poller: bool = True) -> FastAPI:
     Set start_poller=False in tests to avoid running the poll loop.
     """
     from podcast_etl.web.routes.dashboard import router as dashboard_router
+    from podcast_etl.web.routes.feeds import router as feeds_router
 
     app = FastAPI(title="podcast-etl")
     app.state.config_path = config_path
 
     app.include_router(dashboard_router)
+    app.include_router(feeds_router)
 
     return app
