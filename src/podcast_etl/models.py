@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 def slugify(text: str) -> str:
@@ -200,6 +203,22 @@ class Podcast:
         podcast = cls.from_dict(data)
         episodes_dir = podcast_dir / "episodes"
         if episodes_dir.exists():
+            # Load all episodes, tracking source file paths
+            episodes_by_guid: dict[str, list[tuple[Path, Episode]]] = {}
             for ep_path in sorted(episodes_dir.glob("*.json")):
-                podcast.episodes.append(Episode.load(ep_path))
+                ep = Episode.load(ep_path)
+                episodes_by_guid.setdefault(ep.guid, []).append((ep_path, ep))
+            # Deduplicate: keep the episode with the most completed steps
+            for guid, entries in episodes_by_guid.items():
+                if len(entries) > 1:
+                    entries.sort(key=lambda e: (-len(e[1].status), -e[0].stat().st_mtime))
+                    keeper_path, keeper = entries[0]
+                    for stale_path, _ in entries[1:]:
+                        logger.warning(
+                            "Removing duplicate episode file %s (GUID %s)", stale_path.name, guid
+                        )
+                        stale_path.unlink()
+                    podcast.episodes.append(keeper)
+                else:
+                    podcast.episodes.append(entries[0][1])
         return podcast
