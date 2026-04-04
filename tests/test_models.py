@@ -273,6 +273,36 @@ def test_episode_save_no_raw_title_falls_back_to_title(tmp_path: Path):
     assert files[0].name.startswith("2024-01-01-test-episode-")
 
 
+def test_episode_save_skips_write_when_unchanged(tmp_path: Path):
+    """Saving an unchanged episode should not rewrite the file."""
+    ep = _make_episode()
+    ep.save(tmp_path, "My Podcast")
+    files = list((tmp_path / "episodes").glob("*.json"))
+    assert len(files) == 1
+    mtime_before = files[0].stat().st_mtime_ns
+    # Save again with no changes — file should not be rewritten
+    ep.save(tmp_path, "My Podcast")
+    mtime_after = files[0].stat().st_mtime_ns
+    assert mtime_after == mtime_before
+
+
+def test_episode_save_writes_when_changed(tmp_path: Path):
+    """Saving an episode with modified data should rewrite the file."""
+    ep = _make_episode()
+    ep.save(tmp_path, "My Podcast")
+    files = list((tmp_path / "episodes").glob("*.json"))
+    assert len(files) == 1
+    content_before = files[0].read_text()
+    # Mutate the episode and save again — file should be rewritten
+    ep.status["download"] = StepStatus(completed_at="2024-06-01T00:00:00", result={})
+    ep.save(tmp_path, "My Podcast")
+    content_after = files[0].read_text()
+    assert content_after != content_before
+    # Verify the new status is persisted
+    loaded = Episode.load(files[0])
+    assert "download" in loaded.status
+
+
 def test_podcast_load_no_duplicates_unchanged(tmp_path: Path):
     """Normal load with unique GUIDs is unaffected."""
     ep = _make_episode(raw_title="Test Episode")
