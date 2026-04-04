@@ -15,7 +15,7 @@ Change episode JSON filenames from title-based to GUID-based. Audio and other ou
 ```
 
 - **date**: `yyyy-mm-dd` from `published`, or `unknown-date`
-- **raw-title-slug**: `slugify()` applied to the original RSS title (before any `clean_title()` processing), truncated to ~60 chars at a word boundary
+- **raw-title-slug**: `slugify()` applied to the original RSS title (before any `clean_title()` processing), truncated to 60 chars. If the slug exceeds 60 chars, truncate at the last `-` boundary before or at position 60; if no `-` exists, hard-truncate at 60.
 - **guid-hash**: first 8 characters of SHA256 hex digest of the GUID
 
 Example: `2025-03-01-my-great-episode-title-a1b2c3d4.json`
@@ -29,13 +29,14 @@ The hash suffix ensures uniqueness even if two episodes share the same date and 
 - New function `episode_json_filename(guid, raw_title, published)` — produces the stable GUID-based filename (no extension).
 - `Episode` gets a new optional field `raw_title: str | None = None` to store the original RSS title before cleaning.
 - `Episode.to_dict()` / `Episode.from_dict()` serialize/deserialize `raw_title`.
-- `Episode.save()` calls `episode_json_filename()` instead of `episode_basename()` for the JSON filename.
+- `Episode.save()` calls `episode_json_filename()` instead of `episode_basename()` for the JSON filename. When `raw_title` is `None` (pre-migration data), falls back to `title` for the slug portion.
+- `Episode.save()` cleans up stale files: it computes the old title-based filename via `episode_basename()` and, if a file with that name exists and differs from the new GUID-based filename, deletes it. This is a cheap O(1) check that prevents orphan accumulation between save/load cycles.
 - `Podcast.load()` deduplicates episodes by GUID after loading all JSON files. When duplicates exist, keeps the episode with more completed steps and deletes the stale JSON file from disk.
 
 ### `feed.py`
 
 - `parse_feed()` captures the original RSS title into `raw_title` before applying `clean_title()`.
-- When merging with existing on-disk episodes, `raw_title` is preserved from the existing episode if the freshly parsed one has none (shouldn't happen, but defensive).
+- When merging with existing on-disk episodes, the freshly parsed `raw_title` (from RSS) takes precedence. The existing on-disk `raw_title` is only used if the fresh parse somehow lacks one (defensive fallback).
 
 ### `cli.py`
 
@@ -70,6 +71,7 @@ podcast-etl migrate --feed my-podcast
 - Loads each episode JSON from the feed's output directory.
 - Computes the new GUID-based filename using `episode_json_filename()`.
 - Renames files that don't match the new pattern.
+- Backfills `raw_title` from the existing `title` field if absent, so that subsequent `Episode.save()` calls produce a consistent filename.
 - Handles duplicates (same GUID, different filenames) by keeping the most-complete one.
 - Reports results to stdout.
 
@@ -79,6 +81,11 @@ podcast-etl migrate --feed my-podcast
 - **GUID missing from a JSON file**: Skip with a warning (shouldn't happen — GUID is a required field).
 - **Duplicate GUIDs on disk**: Keep the episode with more completed steps. On tie, keep the newer file (by mtime).
 - **Truncation collisions**: Two episodes with the same date and similar long titles could have the same truncated slug, but the GUID hash suffix differentiates them.
+- **GUID hash collisions**: 8 hex chars (32 bits) gives ~1 in 4 billion collision probability — negligible for podcast-scale episode counts.
+
+## Known Out-of-Scope Issue
+
+Audio filenames are still derived from `episode_basename()` using the cleaned title. If a title changes in the RSS feed, existing audio files keep their old names while new downloads would use the new name. Step result paths (e.g., `download.result.path`) reference the original filename and remain valid. This is a separate concern from the JSON identity problem addressed here.
 
 ## What Does NOT Change
 
