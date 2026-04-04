@@ -135,9 +135,15 @@ class Episode:
     def save(self, podcast_dir: Path, podcast_title: str) -> None:
         episodes_dir = podcast_dir / "episodes"
         episodes_dir.mkdir(parents=True, exist_ok=True)
-        filename = episode_basename(podcast_title, self.title, self.published) + ".json"
+        filename = episode_json_filename(self.guid, self.raw_title or self.title, self.published) + ".json"
         path = episodes_dir / filename
         path.write_text(json.dumps(self.to_dict(), indent=2) + "\n")
+        # Clean up stale title-based file from pre-migration
+        old_filename = episode_basename(podcast_title, self.title, self.published) + ".json"
+        if old_filename != filename:
+            old_path = episodes_dir / old_filename
+            if old_path.exists():
+                old_path.unlink()
 
     @classmethod
     def load(cls, path: Path) -> Episode:
