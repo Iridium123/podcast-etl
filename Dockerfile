@@ -27,7 +27,7 @@ WORKDIR /app
 FROM base AS test
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/
-RUN uv pip install "pytest>=8.0"
+RUN uv pip install "pytest>=8.0" "pytest-asyncio>=0.25"
 COPY tests/ tests/
 CMD ["pytest", "tests/", "-v", "-m", ""]
 
@@ -39,4 +39,5 @@ ENV CONFIG_PATH="/config/feeds.yaml"
 ENV HF_HOME="/config/hf-cache"
 COPY --chmod=0755 entrypoint.sh /entrypoint.sh
 ENTRYPOINT ["/entrypoint.sh"]
-CMD ["sh", "-c", "podcast-etl -c \"$CONFIG_PATH\" poll"]
+EXPOSE 8000
+CMD ["sh", "-c", "podcast-etl -c \"$CONFIG_PATH\" serve"]
