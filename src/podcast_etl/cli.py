@@ -66,15 +66,64 @@ def validate_config(config: dict) -> None:
     feeds = config.get("feeds", [])
     errors: list[str] = []
 
+    # Validate top-level poll_interval (not inside defaults)
+    poll_interval = config.get("poll_interval")
+    if poll_interval is not None:
+        if not isinstance(poll_interval, int) or isinstance(poll_interval, bool):
+            errors.append(f"poll_interval: must be a positive integer, got {type(poll_interval).__name__}")
+        elif poll_interval <= 0:
+            errors.append(f"poll_interval: must be a positive integer, got {poll_interval}")
+
+    # Validate defaults types
+    _validate_defaults_types(defaults, errors)
+
+    # Collect all pipeline steps referenced across all feeds + global pipeline
+    # to decide which tracker/client config to validate
+    all_steps: set[str] = set()
+    global_pipeline = defaults.get("pipeline", [])
+    if isinstance(global_pipeline, list):
+        all_steps.update(global_pipeline)
+    for f in feeds:
+        p = f.get("pipeline", [])
+        if isinstance(p, list):
+            all_steps.update(p)
+
+    # Validate tracker config only if upload/torrent steps are referenced
+    if all_steps & {"upload", "torrent"}:
+        tracker_config = defaults.get("tracker", {})
+        if tracker_config and isinstance(tracker_config, dict):
+            for key in ("url", "announce_url"):
+                if not tracker_config.get(key):
+                    errors.append(f"defaults.tracker: missing required key {key!r}")
+            if "upload" in all_steps:
+                has_cookie = tracker_config.get("remember_cookie")
+                has_login = tracker_config.get("username") and tracker_config.get("password")
+                if not has_cookie and not has_login:
+                    errors.append("defaults.tracker: must specify 'remember_cookie' or both 'username' and 'password'")
+
+    # Validate client config only if seed step is referenced
+    if "seed" in all_steps:
+        client_config = defaults.get("client", {})
+        if client_config and isinstance(client_config, dict):
+            for key in ("url", "username", "password"):
+                if not client_config.get(key):
+                    errors.append(f"defaults.client: missing required key {key!r}")
+
+    # Validate each feed entry
     for i, feed in enumerate(feeds):
         feed_label = feed.get("name") or feed.get("url") or f"feeds[{i}]"
 
         if not feed.get("url"):
             errors.append(f"Feed {feed_label!r}: missing 'url'")
 
-        for step_name in feed.get("pipeline", []):
-            if step_name not in STEP_REGISTRY:
-                errors.append(f"Feed {feed_label!r}: unknown pipeline step {step_name!r}")
+        # pipeline must be a list, not a bare string
+        feed_pipeline = feed.get("pipeline")
+        if feed_pipeline is not None and not isinstance(feed_pipeline, list):
+            errors.append(f"Feed {feed_label!r}: 'pipeline' must be a list, not {type(feed_pipeline).__name__}")
+        else:
+            for step_name in feed.get("pipeline", []):
+                if step_name not in STEP_REGISTRY:
+                    errors.append(f"Feed {feed_label!r}: unknown pipeline step {step_name!r}")
 
         # deep_merge is called on the full feed dict (including metadata keys
         # like url/name/enabled).  This is safe because defaults doesn't define
@@ -84,12 +133,59 @@ def validate_config(config: dict) -> None:
         except TypeError as exc:
             errors.append(f"Feed {feed_label!r}: {exc}")
 
-    for step_name in defaults.get("pipeline", []):
-        if step_name not in STEP_REGISTRY:
-            errors.append(f"defaults.pipeline: unknown step {step_name!r}")
+        # Check required config for steps in this feed's pipeline
+        feed_steps = feed.get("pipeline") if isinstance(feed.get("pipeline"), list) else None
+        if feed_steps:
+            _validate_step_requirements(feed_steps, feed, feed_label, defaults, errors)
+
+    # Check global pipeline step names
+    if global_pipeline and not isinstance(global_pipeline, list):
+        errors.append(f"defaults.pipeline: must be a list, not {type(global_pipeline).__name__}")
+    else:
+        for step_name in global_pipeline:
+            if step_name not in STEP_REGISTRY:
+                errors.append(f"defaults.pipeline: unknown step {step_name!r}")
+        # Validate global pipeline requirements against each feed that uses it
+        if isinstance(global_pipeline, list):
+            for feed in feeds:
+                if isinstance(feed.get("pipeline"), list):
+                    continue  # feed has its own pipeline, already validated above
+                feed_label = feed.get("name") or feed.get("url") or "feed"
+                _validate_step_requirements(global_pipeline, feed, feed_label, defaults, errors)
 
     if errors:
         raise SystemExit("Config validation failed:\n  " + "\n  ".join(errors))
+
+
+def _validate_defaults_types(defaults: dict, errors: list[str]) -> None:
+    """Validate types of common defaults values."""
+    output_dir = defaults.get("output_dir")
+    if output_dir is not None and not isinstance(output_dir, str):
+        errors.append(f"defaults.output_dir: must be a string, got {type(output_dir).__name__}")
+
+    # ad_detection sub-keys must be dicts, not scalars
+    ad_detection = defaults.get("ad_detection")
+    if isinstance(ad_detection, dict):
+        for key in ("whisper", "llm"):
+            val = ad_detection.get(key)
+            if val is not None and not isinstance(val, dict):
+                errors.append(f"defaults.ad_detection.{key}: must be a mapping, not {type(val).__name__}")
+
+
+def _validate_step_requirements(
+    step_names: list[str], feed: dict, feed_label: str, defaults: dict, errors: list[str],
+) -> None:
+    """Check that required config exists for steps in the pipeline."""
+    step_set = set(step_names)
+
+    if step_set & {"stage", "torrent", "seed"} and not defaults.get("torrent_data_dir"):
+        errors.append(f"Feed {feed_label!r}: pipeline includes stage/torrent/seed but defaults.torrent_data_dir is not set")
+
+    if "upload" in step_set:
+        if not feed.get("category_id"):
+            errors.append(f"Feed {feed_label!r}: pipeline includes 'upload' but 'category_id' is not set")
+        if not feed.get("type_id"):
+            errors.append(f"Feed {feed_label!r}: pipeline includes 'upload' but 'type_id' is not set")
 
 
 def get_output_dir(config: dict) -> Path:
