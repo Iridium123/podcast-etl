@@ -1,0 +1,160 @@
+{% extends "base.html" %}
+{% block title %}Edit {{ feed.name or feed.url }} — podcast-etl{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+  <h1 class="text-2xl font-bold">Edit {{ feed.name or feed.url }}</h1>
+  <a href="/feeds/{{ feed.name or feed.url }}" class="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white text-sm rounded">Cancel</a>
+</div>
+
+{% if error %}
+<div class="mb-6 bg-red-900 border border-red-700 text-red-200 rounded-lg px-4 py-3 text-sm">
+  <span class="font-semibold">Error:</span> {{ error }}
+</div>
+{% endif %}
+
+<form method="post" action="/feeds/{{ feed.name or feed.url }}" class="space-y-6">
+
+  <!-- General section -->
+  <div class="bg-gray-800 border border-gray-700 rounded-lg p-6">
+    <h2 class="text-lg font-semibold text-gray-100 mb-4">General</h2>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+
+      <div>
+        <label class="block text-sm text-gray-400 mb-1" for="name">Name</label>
+        <input id="name" name="name" type="text"
+               value="{{ feed.name or '' }}"
+               class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-gray-100 text-sm focus:outline-none focus:border-blue-500">
+      </div>
+
+      <div>
+        <label class="block text-sm text-gray-400 mb-1" for="url">URL</label>
+        <input id="url" name="url" type="url" required
+               value="{{ feed.url or '' }}"
+               class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-gray-100 text-sm focus:outline-none focus:border-blue-500">
+      </div>
+
+      <div>
+        <label class="block text-sm text-gray-400 mb-1" for="last">Last N episodes</label>
+        <input id="last" name="last" type="number" min="1"
+               value="{{ feed.last or '' }}"
+               placeholder="(all)"
+               class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-gray-100 text-sm focus:outline-none focus:border-blue-500">
+      </div>
+
+      <div>
+        <label class="block text-sm text-gray-400 mb-1" for="episode_filter">Episode filter (regex)</label>
+        <input id="episode_filter" name="episode_filter" type="text"
+               value="{{ feed.episode_filter or '' }}"
+               placeholder="e.g. Part [0-9]+"
+               class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-gray-100 text-sm font-mono focus:outline-none focus:border-blue-500">
+      </div>
+
+      <div>
+        <label class="block text-sm text-gray-400 mb-1" for="category_id">Category ID</label>
+        <input id="category_id" name="category_id" type="number" min="1"
+               value="{{ feed.category_id or '' }}"
+               placeholder="(required for upload)"
+               class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-gray-100 text-sm focus:outline-none focus:border-blue-500">
+      </div>
+
+      <div>
+        <label class="block text-sm text-gray-400 mb-1" for="type_id">Type ID</label>
+        <input id="type_id" name="type_id" type="number" min="1"
+               value="{{ feed.type_id or '' }}"
+               placeholder="(required for upload)"
+               class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-gray-100 text-sm focus:outline-none focus:border-blue-500">
+      </div>
+
+      <div class="flex items-center gap-3 col-span-full">
+        <input id="enabled" name="enabled" type="checkbox"
+               {% if feed.get("enabled", False) %}checked{% endif %}
+               class="w-4 h-4 rounded accent-blue-500">
+        <label for="enabled" class="text-sm text-gray-300">Enabled (runs during poll)</label>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Pipeline section -->
+  <div class="bg-gray-800 border border-gray-700 rounded-lg p-6">
+    <h2 class="text-lg font-semibold text-gray-100 mb-1">Pipeline</h2>
+    <p class="text-xs text-gray-500 mb-4">Leave all unchecked to use the defaults pipeline.</p>
+    <div class="flex flex-wrap gap-2">
+      {% set feed_pipeline = feed.get("pipeline", []) %}
+      {% for step in all_steps %}
+      <label class="flex items-center gap-2 cursor-pointer">
+        <input type="checkbox" name="pipeline_{{ step }}"
+               {% if step in feed_pipeline %}checked{% endif %}
+               class="sr-only peer">
+        <span class="px-3 py-1.5 text-sm rounded-full border border-gray-600 text-gray-400
+                     peer-checked:bg-blue-800 peer-checked:border-blue-600 peer-checked:text-blue-200
+                     hover:border-gray-400 transition-colors select-none">{{ step }}</span>
+      </label>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- Title cleaning section -->
+  <div class="bg-gray-800 border border-gray-700 rounded-lg p-6">
+    <h2 class="text-lg font-semibold text-gray-100 mb-4">Title cleaning</h2>
+    {% set tc = feed.get("title_cleaning", {}) or {} %}
+    <div class="space-y-3">
+
+      <label class="flex items-center gap-3 cursor-pointer">
+        <input type="checkbox" name="title_strip_date"
+               {% if tc.get("strip_date") %}checked{% endif %}
+               class="w-4 h-4 rounded accent-blue-500">
+        <span class="text-sm text-gray-300">Strip date — remove bracketed dates from titles</span>
+      </label>
+
+      <label class="flex items-center gap-3 cursor-pointer">
+        <input type="checkbox" name="title_reorder_parts"
+               {% if tc.get("reorder_parts") %}checked{% endif %}
+               class="w-4 h-4 rounded accent-blue-500">
+        <span class="text-sm text-gray-300">Reorder parts — move (Part N) to front of title</span>
+      </label>
+
+      <label class="flex items-center gap-3 cursor-pointer">
+        <input type="checkbox" name="title_prepend_episode_number"
+               {% if tc.get("prepend_episode_number") %}checked{% endif %}
+               class="w-4 h-4 rounded accent-blue-500">
+        <span class="text-sm text-gray-300">Prepend episode number — prepend itunes:episode number to title</span>
+      </label>
+
+      <label class="flex items-center gap-3 cursor-pointer">
+        <input type="checkbox" name="title_sanitize"
+               {% if tc.get("sanitize") %}checked{% endif %}
+               class="w-4 h-4 rounded accent-blue-500">
+        <span class="text-sm text-gray-300">Sanitize — replace invalid filesystem chars, normalize separators</span>
+      </label>
+
+    </div>
+  </div>
+
+  <!-- Advanced overrides section -->
+  <div class="bg-gray-800 border border-gray-700 rounded-lg p-6">
+    <h2 class="text-lg font-semibold text-gray-100 mb-1">Advanced overrides</h2>
+    <p class="text-xs text-gray-500 mb-4">
+      Raw YAML for tracker, ad_detection, audiobookshelf, client, and other nested overrides.
+      Must be a valid YAML mapping.
+    </p>
+    <textarea id="extra_yaml" name="extra_yaml" rows="10"
+              spellcheck="false"
+              placeholder="# e.g.&#10;# tracker:&#10;#   mod_queue_opt_in: 1"
+              class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-gray-100 text-sm font-mono focus:outline-none focus:border-blue-500 resize-y">{{ extra_yaml }}</textarea>
+  </div>
+
+  <!-- Buttons -->
+  <div class="flex items-center gap-3">
+    <button type="submit"
+            class="px-6 py-2 bg-blue-700 hover:bg-blue-600 text-white text-sm font-medium rounded">
+      Save
+    </button>
+    <a href="/feeds/{{ feed.name or feed.url }}"
+       class="px-6 py-2 bg-gray-700 hover:bg-gray-600 text-gray-200 text-sm font-medium rounded">
+      Cancel
+    </a>
+  </div>
+
+</form>
+{% endblock %}

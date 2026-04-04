@@ -98,3 +98,57 @@ def test_feeds_detail_not_found(config_path: Path) -> None:
     client = TestClient(app)
     response = client.get("/feeds/nonexistent")
     assert response.status_code == 404
+
+
+def _write_config(tmp_path: Path, config: dict) -> Path:
+    path = tmp_path / "feeds.yaml"
+    path.write_text(yaml.dump(config))
+    return path
+
+
+def test_feed_edit_form_loads(tmp_path: Path) -> None:
+    cfg_path = _write_config(tmp_path, {
+        "feeds": [{"url": "http://a.com/rss", "name": "show-a", "enabled": True}],
+        "defaults": {"output_dir": str(tmp_path / "output"), "pipeline": ["download"]},
+    })
+    app = create_app(cfg_path, start_poller=False)
+    client = TestClient(app)
+    response = client.get("/feeds/show-a/edit")
+    assert response.status_code == 200
+    assert "show-a" in response.text
+
+
+def test_feed_edit_save_updates_yaml(tmp_path: Path) -> None:
+    cfg_path = _write_config(tmp_path, {
+        "feeds": [{"url": "http://a.com/rss", "name": "show-a", "enabled": True}],
+        "defaults": {"output_dir": str(tmp_path / "output"), "pipeline": ["download"]},
+    })
+    app = create_app(cfg_path, start_poller=False)
+    client = TestClient(app)
+    response = client.post("/feeds/show-a", data={
+        "name": "show-a",
+        "url": "http://a.com/rss",
+        "enabled": "on",
+        "last": "10",
+        "extra_yaml": "",
+    }, follow_redirects=False)
+    assert response.status_code == 303
+    updated = yaml.safe_load(cfg_path.read_text())
+    feed = next(f for f in updated["feeds"] if f["name"] == "show-a")
+    assert feed["last"] == 10
+
+
+def test_feed_edit_invalid_yaml_shows_error(tmp_path: Path) -> None:
+    cfg_path = _write_config(tmp_path, {
+        "feeds": [{"url": "http://a.com/rss", "name": "show-a"}],
+        "defaults": {"output_dir": str(tmp_path / "output"), "pipeline": ["download"]},
+    })
+    app = create_app(cfg_path, start_poller=False)
+    client = TestClient(app)
+    response = client.post("/feeds/show-a", data={
+        "name": "show-a",
+        "url": "http://a.com/rss",
+        "extra_yaml": "invalid: [yaml: {",
+    })
+    assert response.status_code == 200
+    assert "error" in response.text.lower() or "invalid" in response.text.lower()
