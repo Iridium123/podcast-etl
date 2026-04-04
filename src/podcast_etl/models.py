@@ -141,7 +141,9 @@ class Episode:
         filename = episode_json_filename(self.guid, self.raw_title or self.title, self.published) + ".json"
         path = episodes_dir / filename
         path.write_text(json.dumps(self.to_dict(), indent=2) + "\n")
-        # Clean up stale title-based file from pre-migration
+        # Best-effort cleanup: only removes the stale file if it matches the
+        # current episode title. Files created under a different title or
+        # title-cleaning config must be removed via `migrate --feed`.
         old_filename = episode_basename(podcast_title, self.title, self.published) + ".json"
         if old_filename != filename:
             old_path = episodes_dir / old_filename
@@ -203,22 +205,25 @@ class Podcast:
         podcast = cls.from_dict(data)
         episodes_dir = podcast_dir / "episodes"
         if episodes_dir.exists():
-            # Load all episodes, tracking source file paths
-            episodes_by_guid: dict[str, list[tuple[Path, Episode]]] = {}
             for ep_path in sorted(episodes_dir.glob("*.json")):
-                ep = Episode.load(ep_path)
-                episodes_by_guid.setdefault(ep.guid, []).append((ep_path, ep))
-            # Deduplicate: keep the episode with the most completed steps
-            for guid, entries in episodes_by_guid.items():
-                if len(entries) > 1:
-                    entries.sort(key=lambda e: (-len(e[1].status), -e[0].stat().st_mtime))
-                    keeper_path, keeper = entries[0]
-                    for stale_path, _ in entries[1:]:
-                        logger.warning(
-                            "Removing duplicate episode file %s (GUID %s)", stale_path.name, guid
-                        )
-                        stale_path.unlink()
-                    podcast.episodes.append(keeper)
-                else:
-                    podcast.episodes.append(entries[0][1])
+                podcast.episodes.append(Episode.load(ep_path))
         return podcast
+
+    def deduplicate_episodes(self, podcast_dir: Path) -> None:
+        """Remove duplicate episode files for the same GUID, keeping the most complete."""
+        episodes_dir = podcast_dir / "episodes"
+        if not episodes_dir.exists():
+            return
+        by_guid: dict[str, list[tuple[Path, Episode]]] = {}
+        for ep_path in sorted(episodes_dir.glob("*.json")):
+            ep = Episode.load(ep_path)
+            by_guid.setdefault(ep.guid, []).append((ep_path, ep))
+        deduped: list[Episode] = []
+        for guid, entries in by_guid.items():
+            if len(entries) > 1:
+                entries.sort(key=lambda e: (-len(e[1].status), -e[0].stat().st_mtime))
+                for stale_path, _ in entries[1:]:
+                    logger.warning("Removing duplicate episode file %s (GUID %s)", stale_path.name, guid)
+                    stale_path.unlink()
+            deduped.append(entries[0][1])
+        self.episodes = deduped

@@ -287,10 +287,28 @@ def test_episode_save_no_raw_title_falls_back_to_title(tmp_path: Path):
     assert files[0].name.startswith("2024-01-01-test-episode-")
 
 
-# --- Podcast.load() GUID deduplication ---
+# --- Podcast.load() and deduplicate_episodes() ---
 
-def test_podcast_load_deduplicates_by_guid(tmp_path: Path):
-    """When two JSON files have the same GUID, keep the one with more completed steps."""
+def test_podcast_load_returns_all_episodes_without_dedup(tmp_path: Path):
+    """load() is read-only — it does not deduplicate or delete files."""
+    podcast_dir = tmp_path / "my-podcast"
+    episodes_dir = podcast_dir / "episodes"
+    episodes_dir.mkdir(parents=True)
+    (podcast_dir / "podcast.json").write_text(json.dumps({
+        "title": "My Podcast", "url": "https://example.com/feed.xml",
+        "description": None, "image_url": None, "slug": "my-podcast",
+    }))
+    ep = _make_episode(raw_title="Test Episode")
+    (episodes_dir / "file-a.json").write_text(json.dumps(ep.to_dict(), indent=2))
+    (episodes_dir / "file-b.json").write_text(json.dumps(ep.to_dict(), indent=2))
+
+    loaded = Podcast.load(podcast_dir)
+    assert len(loaded.episodes) == 2  # no dedup — both loaded
+    assert len(list(episodes_dir.glob("*.json"))) == 2  # no files deleted
+
+
+def test_deduplicate_episodes_keeps_most_complete(tmp_path: Path):
+    """deduplicate_episodes() keeps the episode with more completed steps."""
     podcast_dir = tmp_path / "my-podcast"
     episodes_dir = podcast_dir / "episodes"
     episodes_dir.mkdir(parents=True)
@@ -299,7 +317,6 @@ def test_podcast_load_deduplicates_by_guid(tmp_path: Path):
         "description": None, "image_url": None, "slug": "my-podcast",
     }))
 
-    # Episode A: 2 completed steps (old-format filename)
     ep_a = _make_episode(
         raw_title="Test Episode",
         status={
@@ -309,7 +326,6 @@ def test_podcast_load_deduplicates_by_guid(tmp_path: Path):
     )
     (episodes_dir / "old-format-name.json").write_text(json.dumps(ep_a.to_dict(), indent=2))
 
-    # Episode B: same GUID, 1 completed step (new-format filename)
     ep_b = _make_episode(
         raw_title="Test Episode",
         status={"download": StepStatus(completed_at="2024-01-02T00:00:00", result={"path": "audio/ep.mp3"})},
@@ -317,10 +333,9 @@ def test_podcast_load_deduplicates_by_guid(tmp_path: Path):
     (episodes_dir / "new-format-name.json").write_text(json.dumps(ep_b.to_dict(), indent=2))
 
     loaded = Podcast.load(podcast_dir)
+    loaded.deduplicate_episodes(podcast_dir)
     assert len(loaded.episodes) == 1
-    # Should keep the one with more steps
     assert len(loaded.episodes[0].status) == 2
-    # Stale file should be deleted
     assert not (episodes_dir / "new-format-name.json").exists()
     assert (episodes_dir / "old-format-name.json").exists()
 
