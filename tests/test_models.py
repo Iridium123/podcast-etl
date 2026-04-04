@@ -186,6 +186,18 @@ def test_episode_dict_roundtrip_without_episode_number():
     assert roundtripped.episode_number is None
 
 
+def test_episode_dict_roundtrip_with_raw_title():
+    ep = _make_episode(raw_title="Original RSS Title")
+    roundtripped = Episode.from_dict(ep.to_dict())
+    assert roundtripped.raw_title == "Original RSS Title"
+
+
+def test_episode_dict_roundtrip_without_raw_title():
+    ep = _make_episode()
+    roundtripped = Episode.from_dict(ep.to_dict())
+    assert roundtripped.raw_title is None
+
+
 # --- episode_json_filename ---
 
 def test_episode_json_filename_basic():

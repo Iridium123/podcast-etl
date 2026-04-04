@@ -92,6 +92,7 @@ class Episode:
     slug: str
     image_url: str | None = None
     episode_number: int | None = None
+    raw_title: str | None = None
     status: dict[str, StepStatus | None] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -108,6 +109,7 @@ class Episode:
             "slug": self.slug,
             "image_url": self.image_url,
             "episode_number": self.episode_number,
+            "raw_title": self.raw_title,
             "status": status_dict,
         }
 
@@ -126,6 +128,7 @@ class Episode:
             slug=data["slug"],
             image_url=data.get("image_url"),
             episode_number=data.get("episode_number"),
+            raw_title=data.get("raw_title"),
             status=status,
         )
 
