@@ -1,21 +1,27 @@
 """Tests for service.py: load_config, save_config, get_output_dir,
-find_feed_config, get_pipeline_steps, filter_episodes, and validate_config."""
+find_feed_config, get_pipeline_steps, filter_episodes, validate_config,
+get_feed_status, split_config_fields, merge_config_fields,
+and get_resolved_config_with_sources."""
 from datetime import date
 from pathlib import Path
 
 import pytest
 import yaml
 
+from podcast_etl.models import Episode, Podcast, StepStatus
 from podcast_etl.service import (
     filter_episodes,
     find_feed_config,
+    get_feed_status,
     get_output_dir,
     get_pipeline_steps,
+    get_resolved_config_with_sources,
     load_config,
+    merge_config_fields,
     save_config,
+    split_config_fields,
     validate_config,
 )
-from podcast_etl.models import Episode
 
 
 # ---------------------------------------------------------------------------
@@ -318,3 +324,272 @@ def test_validate_config_passes_valid_title_cleaning():
         "defaults": {"title_cleaning": {"reorder_parts": True}},
     }
     validate_config(config)  # should not raise
+
+
+# ---------------------------------------------------------------------------
+# Helpers for get_feed_status tests
+# ---------------------------------------------------------------------------
+
+def _make_podcast(tmp_path: Path, url: str = "https://example.com/rss") -> Podcast:
+    """Create a minimal Podcast with two episodes and save it to tmp_path."""
+    ep1 = Episode(
+        title="Episode One",
+        guid="guid-1",
+        published="Mon, 01 Jan 2024 00:00:00 +0000",
+        audio_url="https://example.com/ep1.mp3",
+        duration="30:00",
+        description="First episode",
+        slug="episode-one",
+        status={"download": StepStatus(completed_at="2024-01-01T00:00:00")},
+    )
+    ep2 = Episode(
+        title="Episode Two",
+        guid="guid-2",
+        published="Tue, 02 Jan 2024 00:00:00 +0000",
+        audio_url="https://example.com/ep2.mp3",
+        duration="45:00",
+        description="Second episode",
+        slug="episode-two",
+        status={},  # no steps done
+    )
+    podcast = Podcast(
+        title="My Podcast",
+        url=url,
+        description="A test podcast",
+        image_url=None,
+        slug="my-podcast",
+        episodes=[ep1, ep2],
+    )
+    podcast.save(tmp_path)
+    return podcast
+
+
+# ---------------------------------------------------------------------------
+# get_feed_status
+# ---------------------------------------------------------------------------
+
+def test_get_feed_status_empty_output_dir(tmp_path: Path) -> None:
+    """Returns empty list when output_dir does not exist."""
+    result = get_feed_status(tmp_path / "nonexistent", config={})
+    assert result == []
+
+
+def test_get_feed_status_no_podcasts(tmp_path: Path) -> None:
+    """Returns empty list when output_dir exists but contains no podcast dirs."""
+    result = get_feed_status(tmp_path, config={})
+    assert result == []
+
+
+def test_get_feed_status_basic_counts(tmp_path: Path) -> None:
+    """Returns one entry per podcast with correct counts."""
+    _make_podcast(tmp_path)
+    config = {
+        "defaults": {"pipeline": ["download"]},
+        "feeds": [],
+    }
+    result = get_feed_status(tmp_path, config)
+    assert len(result) == 1
+    entry = result[0]
+    assert entry["title"] == "My Podcast"
+    assert entry["slug"] == "my-podcast"
+    assert entry["episode_count"] == 2
+    assert entry["step_names"] == ["download"]
+    # ep1 has download done → completed; ep2 has no steps → pending
+    assert entry["completed_count"] == 1
+    assert entry["pending_count"] == 1
+
+
+def test_get_feed_status_episode_statuses(tmp_path: Path) -> None:
+    """Per-episode status dicts report done/pending correctly."""
+    _make_podcast(tmp_path)
+    config = {
+        "defaults": {"pipeline": ["download"]},
+        "feeds": [],
+    }
+    result = get_feed_status(tmp_path, config)
+    episodes = result[0]["episodes"]
+    assert len(episodes) == 2
+    statuses_by_title = {ep["title"]: ep["statuses"] for ep in episodes}
+    assert statuses_by_title["Episode One"] == {"download": "done"}
+    assert statuses_by_title["Episode Two"] == {"download": "pending"}
+
+
+def test_get_feed_status_enabled_from_feed_config(tmp_path: Path) -> None:
+    """enabled and name are read from the matching feed config entry."""
+    url = "https://example.com/rss"
+    _make_podcast(tmp_path, url=url)
+    config = {
+        "defaults": {"pipeline": ["download"]},
+        "feeds": [{"url": url, "name": "my-pod", "enabled": True}],
+    }
+    result = get_feed_status(tmp_path, config)
+    assert result[0]["enabled"] is True
+    assert result[0]["name"] == "my-pod"
+
+
+def test_get_feed_status_unknown_feed_defaults_disabled(tmp_path: Path) -> None:
+    """Podcasts not in feeds config have enabled=False and name=None."""
+    _make_podcast(tmp_path)
+    config = {"defaults": {"pipeline": ["download"]}, "feeds": []}
+    result = get_feed_status(tmp_path, config)
+    assert result[0]["enabled"] is False
+    assert result[0]["name"] is None
+
+
+def test_get_feed_status_all_steps_completed(tmp_path: Path) -> None:
+    """completed_count equals episode_count when all steps are done."""
+    ep = Episode(
+        title="Full Episode",
+        guid="guid-full",
+        published="Mon, 01 Jan 2024 00:00:00 +0000",
+        audio_url="https://example.com/full.mp3",
+        duration="60:00",
+        description="Complete",
+        slug="full-episode",
+        status={
+            "download": StepStatus(completed_at="2024-01-01T00:00:00"),
+            "tag": StepStatus(completed_at="2024-01-01T00:01:00"),
+        },
+    )
+    podcast = Podcast(
+        title="Full Podcast",
+        url="https://full.example.com/rss",
+        description=None,
+        image_url=None,
+        slug="full-podcast",
+        episodes=[ep],
+    )
+    podcast.save(tmp_path)
+    config = {"defaults": {"pipeline": ["download", "tag"]}, "feeds": []}
+    result = get_feed_status(tmp_path, config)
+    assert result[0]["completed_count"] == 1
+    assert result[0]["pending_count"] == 0
+
+
+# ---------------------------------------------------------------------------
+# split_config_fields
+# ---------------------------------------------------------------------------
+
+def test_split_config_fields_separates_known_and_extra() -> None:
+    config = {"url": "https://example.com", "name": "pod", "tracker": {"url": "https://t.example.com"}}
+    known_fields = {"url", "name"}
+    known, extra = split_config_fields(config, known_fields)
+    assert known == {"url": "https://example.com", "name": "pod"}
+    assert extra == {"tracker": {"url": "https://t.example.com"}}
+
+
+def test_split_config_fields_all_known() -> None:
+    config = {"url": "https://example.com", "name": "pod"}
+    known, extra = split_config_fields(config, {"url", "name"})
+    assert known == config
+    assert extra == {}
+
+
+def test_split_config_fields_all_extra() -> None:
+    config = {"tracker": {}, "client": {}}
+    known, extra = split_config_fields(config, {"url", "name"})
+    assert known == {}
+    assert extra == config
+
+
+def test_split_config_fields_empty_config() -> None:
+    known, extra = split_config_fields({}, {"url"})
+    assert known == {}
+    assert extra == {}
+
+
+# ---------------------------------------------------------------------------
+# merge_config_fields
+# ---------------------------------------------------------------------------
+
+def test_merge_config_fields_combines_dicts() -> None:
+    known = {"url": "https://example.com", "name": "pod"}
+    extra = {"tracker": {"url": "https://t.example.com"}}
+    result = merge_config_fields(known, extra)
+    assert result == {"url": "https://example.com", "name": "pod", "tracker": {"url": "https://t.example.com"}}
+
+
+def test_merge_config_fields_extra_overwrites_known_on_conflict() -> None:
+    """extra keys win on overlap (dict.update order: known first, then extra)."""
+    known = {"url": "https://from-known.com"}
+    extra = {"url": "https://from-extra.com"}
+    result = merge_config_fields(known, extra)
+    assert result["url"] == "https://from-extra.com"
+
+
+def test_merge_config_fields_empty_inputs() -> None:
+    assert merge_config_fields({}, {}) == {}
+
+
+def test_merge_config_fields_roundtrip_with_split() -> None:
+    """split then merge restores the original dict."""
+    original = {"url": "https://example.com", "name": "pod", "tracker": {"url": "t"}}
+    known_fields = {"url", "name"}
+    known, extra = split_config_fields(original, known_fields)
+    result = merge_config_fields(known, extra)
+    assert result == original
+
+
+# ---------------------------------------------------------------------------
+# get_resolved_config_with_sources
+# ---------------------------------------------------------------------------
+
+def test_resolved_config_with_sources_feed_key_attribution() -> None:
+    """Keys present only in feed are attributed to 'feed'."""
+    defaults = {"pipeline": ["download"], "output_dir": "./output"}
+    feed = {"url": "https://example.com/rss", "pipeline": ["download", "tag"]}
+    resolved, source_map = get_resolved_config_with_sources(defaults, feed)
+    assert resolved["pipeline"] == ["download", "tag"]
+    assert source_map["pipeline"] == "feed"
+
+
+def test_resolved_config_with_sources_default_key_attribution() -> None:
+    """Keys present only in defaults are attributed to 'default'."""
+    defaults = {"pipeline": ["download"], "output_dir": "./output"}
+    feed = {"url": "https://example.com/rss"}
+    _resolved, source_map = get_resolved_config_with_sources(defaults, feed)
+    assert source_map["output_dir"] == "default"
+    assert source_map["pipeline"] == "default"
+
+
+def test_resolved_config_with_sources_nested_keys() -> None:
+    """Nested dicts produce dot-separated keys with correct attribution."""
+    defaults = {
+        "tracker": {
+            "url": "https://tracker.example.com",
+            "mod_queue_opt_in": 0,
+        }
+    }
+    feed = {
+        "url": "https://example.com/rss",
+        "tracker": {"mod_queue_opt_in": 1},
+    }
+    _resolved, source_map = get_resolved_config_with_sources(defaults, feed)
+    assert source_map["tracker.mod_queue_opt_in"] == "feed"
+    assert source_map["tracker.url"] == "default"
+
+
+def test_resolved_config_with_sources_resolved_values() -> None:
+    """The resolved config contains the merged (feed-overriding) values."""
+    defaults = {"output_dir": "./output", "pipeline": ["download"]}
+    feed = {"url": "https://example.com/rss", "pipeline": ["download", "tag"]}
+    resolved, _ = get_resolved_config_with_sources(defaults, feed)
+    assert resolved["output_dir"] == "./output"
+    assert resolved["pipeline"] == ["download", "tag"]
+    assert resolved["url"] == "https://example.com/rss"
+
+
+def test_resolved_config_with_sources_empty_feed() -> None:
+    """All keys come from defaults when feed is empty."""
+    defaults = {"pipeline": ["download"], "output_dir": "./output"}
+    feed = {}
+    _resolved, source_map = get_resolved_config_with_sources(defaults, feed)
+    assert all(v == "default" for v in source_map.values())
+
+
+def test_resolved_config_with_sources_empty_defaults() -> None:
+    """All keys come from feed when defaults is empty."""
+    defaults = {}
+    feed = {"url": "https://example.com/rss", "pipeline": ["download"]}
+    _resolved, source_map = get_resolved_config_with_sources(defaults, feed)
+    assert all(v == "feed" for v in source_map.values())
