@@ -23,8 +23,12 @@
       <span class="shrink-0 text-sm text-gray-400">{{ feed.episode_count }} episodes</span>
     </div>
     <div class="flex gap-2 shrink-0 ml-4">
+      {% if feed.has_name %}
       <a href="/feeds/{{ feed.name }}" class="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 text-gray-100 text-sm rounded">View</a>
       <a href="/feeds/{{ feed.name }}/edit" class="px-3 py-1.5 bg-blue-700 hover:bg-blue-600 text-white text-sm rounded">Edit</a>
+      {% else %}
+      <span class="px-3 py-1.5 text-gray-500 text-sm italic">no name set</span>
+      {% endif %}
     </div>
   </div>
   {% endfor %}

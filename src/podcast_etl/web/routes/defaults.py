@@ -99,8 +99,6 @@ async def defaults_save(request: Request):
                     raise ValueError("Extra YAML must be a mapping")
                 extra = parsed
         except (yaml.YAMLError, ValueError) as exc:
-            _, extra_orig = split_config_fields(existing_defaults, KNOWN_DEFAULTS_FIELDS)
-            extra_yaml_orig = yaml.dump(extra_orig, default_flow_style=False, sort_keys=False) if extra_orig else ""
             return templates.TemplateResponse(
                 request,
                 "defaults/edit.html",
@@ -127,8 +125,6 @@ async def defaults_save(request: Request):
     try:
         validate_config(config)
     except SystemExit as exc:
-        _, extra_orig = split_config_fields(existing_defaults, KNOWN_DEFAULTS_FIELDS)
-        extra_yaml_orig = yaml.dump(extra_orig, default_flow_style=False, sort_keys=False) if extra_orig else ""
         return templates.TemplateResponse(
             request,
             "defaults/edit.html",

@@ -196,6 +196,21 @@ def test_defaults_save(tmp_path: Path) -> None:
     assert updated["poll_interval"] == 1800
 
 
+def test_add_feed_without_name_rejected(tmp_path: Path) -> None:
+    cfg_path = _write_config(tmp_path, {
+        "feeds": [],
+        "defaults": {"output_dir": str(tmp_path / "output"), "pipeline": ["download"]},
+    })
+    app = create_app(cfg_path, start_poller=False)
+    client = TestClient(app)
+    response = client.post("/feeds/add", data={"url": "http://new.com/rss", "name": ""})
+    assert response.status_code == 200
+    assert "name is required" in response.text.lower()
+    # Feed must not have been added
+    updated = yaml.safe_load(cfg_path.read_text())
+    assert updated["feeds"] == []
+
+
 def test_add_feed_duplicate_rejected(tmp_path: Path) -> None:
     cfg_path = _write_config(tmp_path, {
         "feeds": [{"url": "http://a.com/rss", "name": "show-a"}],

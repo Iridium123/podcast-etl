@@ -25,9 +25,11 @@ async def feeds_list(request: Request):
     feeds = []
     for feed in config.get("feeds", []):
         url = feed.get("url", "")
+        name = feed.get("name")
         status = status_by_url.get(url, {})
         feeds.append({
-            "name": feed.get("name") or url,
+            "name": name or url,
+            "has_name": bool(name),
             "url": url,
             "enabled": feed.get("enabled", False),
             "episode_count": status.get("episode_count", 0),
@@ -81,6 +83,20 @@ async def feed_add(
             status_code=200,
         )
 
+    if not feed_name.strip():
+        all_steps = list(STEP_REGISTRY.keys())
+        return templates.TemplateResponse(
+            request,
+            "feeds/form.html",
+            {
+                "feed": {"url": url},
+                "extra_yaml": "",
+                "all_steps": all_steps,
+                "error": "Name is required.",
+            },
+            status_code=200,
+        )
+
     config = load_config(request.app.state.config_path)
     existing_urls = [f.get("url", "") for f in config.get("feeds", [])]
     if url.strip() in existing_urls:
@@ -97,15 +113,12 @@ async def feed_add(
             status_code=200,
         )
 
-    entry: dict = {"url": url.strip()}
-    if feed_name.strip():
-        entry["name"] = feed_name.strip()
+    entry: dict = {"url": url.strip(), "name": feed_name.strip()}
 
     config.setdefault("feeds", []).append(entry)
     save_config(config, request.app.state.config_path)
 
-    redirect_name = entry.get("name") or entry["url"]
-    return RedirectResponse(url=f"/feeds/{redirect_name}", status_code=303)
+    return RedirectResponse(url=f"/feeds/{entry['name']}", status_code=303)
 
 
 @router.get("/{name}", response_class=HTMLResponse)
@@ -289,16 +302,6 @@ async def feed_save(
                     raise ValueError("Extra YAML must be a mapping")
                 extra = parsed
         except (yaml.YAMLError, ValueError) as exc:
-            _, extra_orig = (lambda f: (
-                {k: v for k, v in f.items() if k in {"url", "name", "enabled", "last",
-                                                       "episode_filter", "category_id",
-                                                       "type_id", "pipeline", "title_cleaning",
-                                                       "cover_image", "banner_image"}},
-                {k: v for k, v in f.items() if k not in {"url", "name", "enabled", "last",
-                                                           "episode_filter", "category_id",
-                                                           "type_id", "pipeline", "title_cleaning",
-                                                           "cover_image", "banner_image"}},
-            ))(existing_feed)
             return templates.TemplateResponse(
                 request,
                 "feeds/form.html",
