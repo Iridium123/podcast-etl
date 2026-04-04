@@ -170,6 +170,32 @@ def test_add_feed(tmp_path: Path) -> None:
     assert any(f["url"] == "http://new.com/rss" for f in updated["feeds"])
 
 
+def test_defaults_page_loads(config_path: Path) -> None:
+    app = create_app(config_path, start_poller=False)
+    client = TestClient(app)
+    response = client.get("/defaults")
+    assert response.status_code == 200
+
+
+def test_defaults_save(tmp_path: Path) -> None:
+    cfg_path = _write_config(tmp_path, {
+        "feeds": [],
+        "defaults": {"output_dir": "./output", "pipeline": ["download"]},
+        "poll_interval": 3600,
+    })
+    app = create_app(cfg_path, start_poller=False)
+    client = TestClient(app)
+    response = client.post("/defaults", data={
+        "output_dir": "/new/output",
+        "poll_interval": "1800",
+        "extra_yaml": "",
+    }, follow_redirects=False)
+    assert response.status_code == 303
+    updated = yaml.safe_load(cfg_path.read_text())
+    assert updated["defaults"]["output_dir"] == "/new/output"
+    assert updated["poll_interval"] == 1800
+
+
 def test_add_feed_duplicate_rejected(tmp_path: Path) -> None:
     cfg_path = _write_config(tmp_path, {
         "feeds": [{"url": "http://a.com/rss", "name": "show-a"}],

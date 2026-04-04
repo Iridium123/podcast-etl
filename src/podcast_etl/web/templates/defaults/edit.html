@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+{% block title %}Defaults — podcast-etl{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+  <h1 class="text-2xl font-bold">Defaults</h1>
+  <a href="/" class="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white text-sm rounded">Cancel</a>
+</div>
+
+{% if error %}
+<div class="mb-6 bg-red-900 border border-red-700 text-red-200 rounded-lg px-4 py-3 text-sm">
+  <span class="font-semibold">Error:</span> {{ error }}
+</div>
+{% endif %}
+
+<form method="post" action="/defaults" class="space-y-6">
+
+  <!-- General section -->
+  <div class="bg-gray-800 border border-gray-700 rounded-lg p-6">
+    <h2 class="text-lg font-semibold text-gray-100 mb-4">General</h2>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+
+      <div>
+        <label class="block text-sm text-gray-400 mb-1" for="output_dir">Output directory</label>
+        <input id="output_dir" name="output_dir" type="text"
+               value="{{ defaults.get('output_dir', '') }}"
+               placeholder="./output"
+               class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-gray-100 text-sm focus:outline-none focus:border-blue-500">
+      </div>
+
+      <div>
+        <label class="block text-sm text-gray-400 mb-1" for="torrent_data_dir">Torrent data directory</label>
+        <input id="torrent_data_dir" name="torrent_data_dir" type="text"
+               value="{{ defaults.get('torrent_data_dir', '') }}"
+               placeholder="/torrent-data"
+               class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-gray-100 text-sm focus:outline-none focus:border-blue-500">
+      </div>
+
+      <div>
+        <label class="block text-sm text-gray-400 mb-1" for="poll_interval">Poll interval (seconds)</label>
+        <input id="poll_interval" name="poll_interval" type="number" min="60"
+               value="{{ poll_interval }}"
+               placeholder="3600"
+               class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-gray-100 text-sm focus:outline-none focus:border-blue-500">
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Default Pipeline section -->
+  <div class="bg-gray-800 border border-gray-700 rounded-lg p-6">
+    <h2 class="text-lg font-semibold text-gray-100 mb-1">Default Pipeline</h2>
+    <p class="text-xs text-gray-500 mb-4">Steps to run for feeds that don't specify their own pipeline.</p>
+    <div class="flex flex-wrap gap-2">
+      {% set defaults_pipeline = defaults.get("pipeline", []) %}
+      {% for step in all_steps %}
+      <label class="flex items-center gap-2 cursor-pointer">
+        <input type="checkbox" name="pipeline_{{ step }}"
+               {% if step in defaults_pipeline %}checked{% endif %}
+               class="sr-only peer">
+        <span class="px-3 py-1.5 text-sm rounded-full border border-gray-600 text-gray-400
+                     peer-checked:bg-blue-800 peer-checked:border-blue-600 peer-checked:text-blue-200
+                     hover:border-gray-400 transition-colors select-none">{{ step }}</span>
+      </label>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- Title Cleaning section -->
+  <div class="bg-gray-800 border border-gray-700 rounded-lg p-6">
+    <h2 class="text-lg font-semibold text-gray-100 mb-4">Title Cleaning</h2>
+    {% set tc = defaults.get("title_cleaning", {}) or {} %}
+    <div class="space-y-3">
+
+      <label class="flex items-center gap-3 cursor-pointer">
+        <input type="checkbox" name="title_strip_date"
+               {% if tc.get("strip_date") %}checked{% endif %}
+               class="w-4 h-4 rounded accent-blue-500">
+        <span class="text-sm text-gray-300">Strip date — remove bracketed dates from titles</span>
+      </label>
+
+      <label class="flex items-center gap-3 cursor-pointer">
+        <input type="checkbox" name="title_reorder_parts"
+               {% if tc.get("reorder_parts") %}checked{% endif %}
+               class="w-4 h-4 rounded accent-blue-500">
+        <span class="text-sm text-gray-300">Reorder parts — move (Part N) to front of title</span>
+      </label>
+
+      <label class="flex items-center gap-3 cursor-pointer">
+        <input type="checkbox" name="title_prepend_episode_number"
+               {% if tc.get("prepend_episode_number") %}checked{% endif %}
+               class="w-4 h-4 rounded accent-blue-500">
+        <span class="text-sm text-gray-300">Prepend episode number — prepend itunes:episode number to title</span>
+      </label>
+
+      <label class="flex items-center gap-3 cursor-pointer">
+        <input type="checkbox" name="title_sanitize"
+               {% if tc.get("sanitize") %}checked{% endif %}
+               class="w-4 h-4 rounded accent-blue-500">
+        <span class="text-sm text-gray-300">Sanitize — replace invalid filesystem chars, normalize separators</span>
+      </label>
+
+    </div>
+  </div>
+
+  <!-- Advanced (YAML) section -->
+  <div class="bg-gray-800 border border-gray-700 rounded-lg p-6">
+    <h2 class="text-lg font-semibold text-gray-100 mb-1">Advanced</h2>
+    <p class="text-xs text-gray-500 mb-4">
+      Raw YAML for tracker, client, ad_detection, audiobookshelf, blacklist, and other nested defaults.
+      Must be a valid YAML mapping.
+    </p>
+    <textarea id="extra_yaml" name="extra_yaml" rows="12"
+              spellcheck="false"
+              placeholder="# e.g.&#10;# tracker:&#10;#   url: https://tracker.example.com&#10;# client:&#10;#   url: http://localhost:8080"
+              class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-gray-100 text-sm font-mono focus:outline-none focus:border-blue-500 resize-y">{{ extra_yaml }}</textarea>
+  </div>
+
+  <!-- Buttons -->
+  <div class="flex items-center gap-3">
+    <button type="submit"
+            class="px-6 py-2 bg-blue-700 hover:bg-blue-600 text-white text-sm font-medium rounded">
+      Save
+    </button>
+    <a href="/"
+       class="px-6 py-2 bg-gray-700 hover:bg-gray-600 text-gray-200 text-sm font-medium rounded">
+      Cancel
+    </a>
+  </div>
+
+</form>
+{% endblock %}

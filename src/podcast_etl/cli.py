@@ -192,6 +192,31 @@ def run(ctx: click.Context, feed_url: str | None, run_all: bool, step_filter: st
 
 
 @main.command()
+@click.option("--port", type=int, default=8000, show_default=True, help="Port to listen on")
+@click.option("--host", default="0.0.0.0", show_default=True, help="Host to bind to")
+@click.pass_context
+def serve(ctx: click.Context, port: int, host: str) -> None:
+    """Start the web UI server with integrated poll loop."""
+    import uvicorn
+
+    config_path = ctx.obj["config_path"]
+    config = ctx.obj["config"]
+
+    # Set up dual logging: stdout + file
+    output_dir = get_output_dir(config)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    log_file = output_dir / "podcast-etl.log"
+    file_handler = logging.FileHandler(log_file)
+    file_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s", datefmt="%H:%M:%S"))
+    logging.getLogger().addHandler(file_handler)
+
+    from podcast_etl.web import create_app
+    app = create_app(config_path)
+    click.echo(f"Starting podcast-etl web UI on http://{host}:{port}")
+    uvicorn.run(app, host=host, port=port, log_level="info")
+
+
+@main.command()
 @click.option("--interval", type=int, help="Poll interval in seconds (overrides config)")
 @click.pass_context
 def poll(ctx: click.Context, interval: int | None) -> None:
