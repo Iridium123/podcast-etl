@@ -91,7 +91,7 @@ FastAPI app with Jinja2 templates and HTMX for dynamic behavior.
 - Summary counts: active feeds, episodes processed, episodes pending
 - Poll status: running/paused, last cycle time, next cycle time
 - Controls: pause/resume poll, trigger immediate run
-- Log tail: live-updating display of recent log output, auto-scrolling. The `serve` command configures a `logging.FileHandler` writing to a log file in the output directory. The tail endpoint reads the last N lines of that file. HTMX polls it (`hx-trigger="every 2s"`) and swaps the content. Logs persist across restarts.
+- Log tail: live-updating display of recent log output, auto-scrolling. The `serve` command configures logging with both a `StreamHandler` (stdout, so `docker logs` works) and a `FileHandler` (writing to a log file in the output directory). The tail endpoint reads the last N lines of the log file. HTMX polls it (`hx-trigger="every 2s"`) and swaps the content. Logs persist across restarts.
 
 ### Feeds list (`GET /feeds`)
 
@@ -199,10 +199,13 @@ HTMX and Tailwind are CDN script tags in `base.html`. No JS build tooling.
 
 ## Docker Changes
 
-- `CMD` switches to `podcast-etl serve`
+- `CMD` switches from `podcast-etl -c "$CONFIG_PATH" poll` to `podcast-etl -c "$CONFIG_PATH" serve`
+- `EXPOSE 8000` added to Dockerfile
 - Same three volumes (`/config`, `/output`, `/torrent-data`)
-- Expose port 8000
 - `podcast-etl serve` replaces `podcast-etl poll` as the long-running process
+- Logging: dual output — stdout (`StreamHandler`) for `docker logs` compatibility, plus `FileHandler` to a log file in the output directory for the web UI tail endpoint
+- The existing `entrypoint.sh` (umask + exec) works unchanged
+- The test stage is unchanged — web route tests use FastAPI's `TestClient` (in-process, no server needed)
 
 ## What Doesn't Change
 
