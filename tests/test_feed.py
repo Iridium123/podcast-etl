@@ -482,3 +482,51 @@ def test_parse_feed_episode_number_not_prepended_without_config():
         podcast = parse_feed("https://example.com/feed.xml")
 
     assert podcast.episodes[0].title == "Rise of the Mongols"
+
+
+# ---------------------------------------------------------------------------
+# raw_title
+# ---------------------------------------------------------------------------
+
+def test_parse_feed_sets_raw_title_before_cleaning():
+    entry = _Entry(title="Guest Name (3_19_26)", links=[_audio_link()])
+    feed = _make_parsed_feed(entries=[entry])
+    with patch("podcast_etl.feed.feedparser.parse", return_value=feed):
+        podcast = parse_feed("https://example.com/feed.xml", title_cleaning={"strip_date": True})
+    # title is cleaned, raw_title is the original
+    assert podcast.episodes[0].title == "Guest Name"
+    assert podcast.episodes[0].raw_title == "Guest Name (3_19_26)"
+
+
+def test_parse_feed_raw_title_set_without_cleaning():
+    entry = _Entry(title="Normal Title", links=[_audio_link()])
+    feed = _make_parsed_feed(entries=[entry])
+    with patch("podcast_etl.feed.feedparser.parse", return_value=feed):
+        podcast = parse_feed("https://example.com/feed.xml")
+    assert podcast.episodes[0].raw_title == "Normal Title"
+
+
+def test_parse_feed_preserves_raw_title_from_rss_over_disk(tmp_path: Path):
+    """Fresh RSS raw_title takes precedence over whatever is on disk."""
+    existing_ep = Episode(
+        title="Old Cleaned",
+        guid="guid-1",
+        published="Mon, 01 Jan 2024 00:00:00 +0000",
+        audio_url="https://example.com/ep.mp3",
+        duration=None,
+        description=None,
+        slug="old-cleaned",
+        raw_title="Old Raw Title",
+        status={"download": StepStatus(completed_at="2024-01-01T00:00:00", result={})},
+    )
+    podcast_dir = tmp_path / "test-podcast"
+    existing_ep.save(podcast_dir, "Test Podcast")
+
+    entry = _Entry(title="New Raw Title", guid="guid-1", links=[_audio_link()])
+    feed = _make_parsed_feed(entries=[entry], feed=_FeedMeta(title="Test Podcast"))
+    with patch("podcast_etl.feed.feedparser.parse", return_value=feed):
+        podcast = parse_feed("https://example.com/feed.xml", output_dir=tmp_path)
+
+    ep = podcast.episodes[0]
+    assert ep.raw_title == "New Raw Title"
+    assert "download" in ep.status  # status still preserved
