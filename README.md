@@ -101,9 +101,42 @@ uv run podcast-etl poll --interval 3600
 
 Fetches and processes all feeds on a loop. Shuts down cleanly on SIGTERM/SIGINT.
 
+## Web UI
+
+A browser-based interface for managing feeds and monitoring pipeline status. It runs alongside the integrated poll loop so no separate `poll` process is needed.
+
+### Start the web UI
+
+```sh
+uv run podcast-etl serve
+# custom port
+uv run podcast-etl serve --port 9000
+```
+
+Open `http://localhost:8000` in your browser.
+
+### Docker with web UI
+
+Map port 8000 when running the container:
+
+```sh
+docker run -p 8000:8000 -v ./config:/config -v ./output:/output ghcr.io/iridium123/podcast-etl:latest
+```
+
+The Docker image defaults to `serve` so the web UI and poll loop start automatically.
+
+### What the UI provides
+
+- **Config management** — edit feeds and global defaults via structured forms or raw YAML
+- **Status dashboard** — per-feed, per-episode step completion at a glance
+- **Poll controls** — pause, resume, or trigger an immediate poll run from the browser
+- **Log tail** — live log output streamed to the dashboard
+
+All CLI commands (`run`, `fetch`, `reset`, `status`, etc.) still work alongside the web UI and share the same `feeds.yaml` config file.
+
 ## Docker
 
-A pre-built image is published to `ghcr.io/iridium123/podcast-etl:latest` on every push to `main`. The image includes `mktorrent` and `ffmpeg`.
+A pre-built image is published to `ghcr.io/iridium123/podcast-etl:latest` on every push to `main`. The image includes `mktorrent` and `ffmpeg`, and exposes port `8000` for the web UI.
 
 ### Docker Compose (recommended)
 
@@ -111,7 +144,7 @@ A pre-built image is published to `ghcr.io/iridium123/podcast-etl:latest` on eve
 docker compose up -d
 ```
 
-Place your `feeds.yaml` in a `config/` directory alongside `docker-compose.yaml`. Output lands in `./output`.
+Place your `feeds.yaml` in a `config/` directory alongside `docker-compose.yaml`. Output lands in `./output`. The container starts the web UI and poll loop automatically; open `http://localhost:8000` to access the dashboard.
 
 To use the `stage`/`torrent`/`seed` steps, mount a shared volume between podcast-etl and your qBittorrent container:
 
@@ -119,6 +152,8 @@ To use the `stage`/`torrent`/`seed` steps, mount a shared volume between podcast
 services:
   podcast-etl:
     image: ghcr.io/iridium123/podcast-etl:latest
+    ports:
+      - "8000:8000"
     volumes:
       - ./config:/config
       - ./output:/output
@@ -128,10 +163,10 @@ services:
 ### Manual docker run
 
 ```sh
-docker run -v ./config:/config -v ./output:/output ghcr.io/iridium123/podcast-etl:latest
+docker run -p 8000:8000 -v ./config:/config -v ./output:/output ghcr.io/iridium123/podcast-etl:latest
 ```
 
-Override the default poll mode to run a one-off command:
+Override the default serve mode to run a one-off command:
 
 ```sh
 docker run -v ./config:/config -v ./output:/output ghcr.io/iridium123/podcast-etl:latest \
