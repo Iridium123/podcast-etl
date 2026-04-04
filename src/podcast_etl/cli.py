@@ -9,106 +9,28 @@ import re
 import shutil
 import sys
 from datetime import date
-from email.utils import parsedate_to_datetime
 from pathlib import Path
 
 import click
-import yaml
 
-from podcast_etl.feed import parse_feed
-from podcast_etl.models import Episode, Podcast
+from podcast_etl.models import Podcast
+from podcast_etl.pipeline import resolve_feed_config
+from podcast_etl.service import (
+    fetch_feed,
+    filter_episodes,
+    find_feed_config,
+    get_output_dir,
+    get_pipeline_steps,
+    load_config,
+    run_pipeline,
+    save_config,
+    validate_config,
+)
 
 logger = logging.getLogger(__name__)
-from podcast_etl.pipeline import Pipeline, PipelineContext, STEP_REGISTRY, get_step, deep_merge, register_step, resolve_feed_config
-from podcast_etl.steps.download import DownloadStep
-from podcast_etl.steps.tag import TagStep
-from podcast_etl.steps.stage import StageStep
-from podcast_etl.steps.torrent import TorrentStep
-from podcast_etl.steps.seed import SeedStep
-from podcast_etl.steps.upload import UploadStep
-from podcast_etl.steps.detect_ads import DetectAdsStep
-from podcast_etl.steps.strip_ads import StripAdsStep
-from podcast_etl.steps.audiobookshelf import AudiobookshelfStep
-
-# Register built-in steps
-register_step(DownloadStep())
-register_step(TagStep())
-register_step(DetectAdsStep())
-register_step(StripAdsStep())
-register_step(StageStep())
-register_step(TorrentStep())
-register_step(SeedStep())
-register_step(UploadStep())
-register_step(AudiobookshelfStep())
 
 DEFAULT_CONFIG_PATH = Path("feeds.yaml")
 DEFAULT_OUTPUT_DIR = Path("output")
-
-
-def load_config(config_path: Path) -> dict:
-    if not config_path.exists():
-        logger.warning("Config file not found: %s — using defaults", config_path)
-        return {"feeds": [], "defaults": {"output_dir": "./output", "pipeline": ["download"]}, "poll_interval": 3600}
-    try:
-        return yaml.safe_load(config_path.read_text()) or {}
-    except yaml.YAMLError as exc:
-        logger.error("Failed to parse config file %s: %s", config_path, exc)
-        raise SystemExit(1)
-
-
-def save_config(config: dict, config_path: Path) -> None:
-    config_path.write_text(yaml.dump(config, default_flow_style=False, sort_keys=False))
-
-
-def validate_config(config: dict) -> None:
-    """Validate config structure and catch common errors early."""
-    defaults = config.get("defaults", {})
-    feeds = config.get("feeds", [])
-    errors: list[str] = []
-
-    for i, feed in enumerate(feeds):
-        feed_label = feed.get("name") or feed.get("url") or f"feeds[{i}]"
-
-        if not feed.get("url"):
-            errors.append(f"Feed {feed_label!r}: missing 'url'")
-
-        for step_name in feed.get("pipeline", []):
-            if step_name not in STEP_REGISTRY:
-                errors.append(f"Feed {feed_label!r}: unknown pipeline step {step_name!r}")
-
-        # deep_merge is called on the full feed dict (including metadata keys
-        # like url/name/enabled).  This is safe because defaults doesn't define
-        # those keys as dicts, so no spurious type-mismatch errors fire.
-        try:
-            deep_merge(defaults, feed)
-        except TypeError as exc:
-            errors.append(f"Feed {feed_label!r}: {exc}")
-
-    for step_name in defaults.get("pipeline", []):
-        if step_name not in STEP_REGISTRY:
-            errors.append(f"defaults.pipeline: unknown step {step_name!r}")
-
-    if errors:
-        raise SystemExit("Config validation failed:\n  " + "\n  ".join(errors))
-
-
-def get_output_dir(config: dict) -> Path:
-    return Path(config.get("defaults", {}).get("output_dir", "./output"))
-
-
-def find_feed_config(config: dict, identifier: str) -> dict | None:
-    """Find a feed config by name or URL."""
-    for feed in config.get("feeds", []):
-        if feed.get("name") == identifier:
-            return feed
-    for feed in config.get("feeds", []):
-        if feed.get("url") == identifier:
-            return feed
-    return None
-
-
-def get_pipeline_steps(resolved_config: dict) -> list[str]:
-    return resolved_config.get("pipeline") or ["download"]
 
 
 def setup_logging(level: str) -> None:
@@ -119,14 +41,6 @@ def setup_logging(level: str) -> None:
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
         datefmt="%H:%M:%S",
     )
-
-
-def fetch_feed(url: str, output_dir: Path, resolved_config: dict) -> Podcast:
-    blacklist = resolved_config.get("blacklist", [])
-    title_cleaning = resolved_config.get("title_cleaning") or None
-    podcast = parse_feed(url, output_dir=output_dir, blacklist=blacklist, title_cleaning=title_cleaning)
-    podcast.save(output_dir)
-    return podcast
 
 
 def parse_date_range(value: str) -> tuple[date | None, date | None]:
@@ -149,52 +63,6 @@ def parse_date_range(value: str) -> tuple[date | None, date | None]:
         return start, end
     d = date.fromisoformat(value)
     return d, d
-
-
-def filter_episodes(episodes: list[Episode], last: int | None = None, date_range: tuple[date | None, date | None] | None = None, episode_filter: str | None = None) -> list[Episode]:
-    """Filter episodes by count, publication date range, and/or title regex.
-
-    ``last`` keeps the first *N* episodes (RSS feeds typically list newest
-    first).  ``date_range`` is a (start, end) tuple where either bound can
-    be ``None`` for an open-ended range.  ``last`` and ``date_range`` are
-    mutually exclusive – the caller is responsible for ensuring at most one
-    is set.  ``episode_filter`` is a regex applied via ``re.search`` against
-    the episode title and can be combined with either of the other filters.
-    """
-    if last is not None:
-        result = episodes[:last]
-    elif date_range is not None:
-        start, end = date_range
-        result = []
-        for ep in episodes:
-            if ep.published is None:
-                continue
-            try:
-                pub_date = parsedate_to_datetime(ep.published).date()
-            except Exception:
-                logger.warning("Skipping episode %r: unable to parse published date %r", ep.title, ep.published)
-                continue
-            if start is not None and pub_date < start:
-                continue
-            if end is not None and pub_date > end:
-                continue
-            result.append(ep)
-    else:
-        result = episodes
-    if episode_filter is not None:
-        pattern = re.compile(episode_filter)
-        result = [ep for ep in result if ep.title and pattern.search(ep.title)]
-    return result
-
-
-def run_pipeline(podcast: Podcast, output_dir: Path, resolved_config: dict, step_filter: str | None = None, last: int | None = None, date_range: tuple[date | None, date | None] | None = None, episode_filter: str | None = None, overwrite: bool = False) -> None:
-    step_names = get_pipeline_steps(resolved_config)
-    steps = [get_step(name) for name in step_names]
-    context = PipelineContext(output_dir=output_dir, podcast=podcast, config=resolved_config, overwrite=overwrite)
-    pipeline = Pipeline(steps=steps, context=context)
-    ep_filter = episode_filter if episode_filter is not None else resolved_config.get("episode_filter")
-    episodes = filter_episodes(podcast.episodes, last=last, date_range=date_range, episode_filter=ep_filter)
-    pipeline.run(episodes, step_filter=step_filter, overwrite=overwrite)
 
 
 @click.group()

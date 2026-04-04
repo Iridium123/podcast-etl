@@ -5,7 +5,7 @@ import signal
 import time
 from pathlib import Path
 
-from podcast_etl.cli import filter_episodes
+from podcast_etl.service import filter_episodes
 from podcast_etl.feed import parse_feed
 from podcast_etl.pipeline import Pipeline, PipelineContext, get_step, resolve_feed_config
 
@@ -37,7 +37,7 @@ def run_poll_loop(config: dict, config_path: Path) -> None:
         if config_path.exists():
             try:
                 new_config = yaml.safe_load(config_path.read_text()) or config
-                from podcast_etl.cli import validate_config
+                from podcast_etl.service import validate_config
                 validate_config(new_config)
                 config = new_config
             except yaml.YAMLError as exc:
