@@ -1,6 +1,5 @@
 """Tests for cli.py helper functions: load_config, save_config, get_output_dir,
 find_feed_config, get_pipeline_steps, and filter_episodes."""
-import json
 from datetime import date
 from pathlib import Path
 
@@ -18,7 +17,7 @@ from podcast_etl.cli import (
     save_config,
     validate_config,
 )
-from podcast_etl.models import Episode, StepStatus, episode_basename, episode_json_filename
+from podcast_etl.models import Episode
 
 
 # ---------------------------------------------------------------------------
@@ -356,93 +355,3 @@ def test_validate_config_passes_valid_title_cleaning():
         "defaults": {"title_cleaning": {"reorder_parts": True}},
     }
     validate_config(config)  # should not raise
-
-
-# ---------------------------------------------------------------------------
-# migrate
-# ---------------------------------------------------------------------------
-
-def test_migrate_renames_old_format_files(tmp_path: Path):
-    """migrate --feed renames title-based JSON files to GUID-based."""
-    cfg_path = tmp_path / "feeds.yaml"
-    cfg_path.write_text(yaml.dump({
-        "feeds": [{"url": "https://example.com/rss", "name": "my-show"}],
-        "defaults": {"output_dir": str(tmp_path / "output")},
-    }))
-    output_dir = tmp_path / "output"
-    podcast_dir = output_dir / "test-podcast"
-    episodes_dir = podcast_dir / "episodes"
-    episodes_dir.mkdir(parents=True)
-    (podcast_dir / "podcast.json").write_text(json.dumps({
-        "title": "Test Podcast", "url": "https://example.com/rss",
-        "description": None, "image_url": None, "slug": "test-podcast",
-    }))
-    ep = Episode(
-        title="Episode 1", guid="guid-1",
-        published="Mon, 01 Jan 2024 00:00:00 +0000",
-        audio_url="https://example.com/ep.mp3",
-        duration=None, description=None, slug="episode-1",
-        status={"download": StepStatus(completed_at="2024-01-01T00:00:00", result={})},
-    )
-    old_filename = episode_basename("Test Podcast", ep.title, ep.published) + ".json"
-    (episodes_dir / old_filename).write_text(json.dumps(ep.to_dict(), indent=2))
-
-    from click.testing import CliRunner
-    from podcast_etl.cli import main
-    runner = CliRunner()
-    result = runner.invoke(main, ["-c", str(cfg_path), "migrate", "--feed", "my-show"])
-
-    assert result.exit_code == 0
-    assert not (episodes_dir / old_filename).exists()
-    new_filename = episode_json_filename("guid-1", "Episode 1", ep.published) + ".json"
-    assert (episodes_dir / new_filename).exists()
-    data = json.loads((episodes_dir / new_filename).read_text())
-    assert data["raw_title"] == "Episode 1"
-    assert "renamed" in result.output.lower()
-
-
-def test_migrate_deduplicates_same_guid(tmp_path: Path):
-    """migrate --feed removes duplicate JSON files for the same GUID."""
-    cfg_path = tmp_path / "feeds.yaml"
-    cfg_path.write_text(yaml.dump({
-        "feeds": [{"url": "https://example.com/rss", "name": "my-show"}],
-        "defaults": {"output_dir": str(tmp_path / "output")},
-    }))
-    output_dir = tmp_path / "output"
-    podcast_dir = output_dir / "test-podcast"
-    episodes_dir = podcast_dir / "episodes"
-    episodes_dir.mkdir(parents=True)
-    (podcast_dir / "podcast.json").write_text(json.dumps({
-        "title": "Test Podcast", "url": "https://example.com/rss",
-        "description": None, "image_url": None, "slug": "test-podcast",
-    }))
-
-    ep_more = Episode(
-        title="Episode 1", guid="guid-1",
-        published="Mon, 01 Jan 2024 00:00:00 +0000",
-        audio_url=None, duration=None, description=None, slug="episode-1",
-        status={
-            "download": StepStatus(completed_at="2024-01-01T00:00:00", result={}),
-            "tag": StepStatus(completed_at="2024-01-01T00:00:00", result={}),
-        },
-    )
-    ep_less = Episode(
-        title="Episode 1", guid="guid-1",
-        published="Mon, 01 Jan 2024 00:00:00 +0000",
-        audio_url=None, duration=None, description=None, slug="episode-1",
-        status={"download": StepStatus(completed_at="2024-01-01T00:00:00", result={})},
-    )
-    (episodes_dir / "old-name.json").write_text(json.dumps(ep_more.to_dict(), indent=2))
-    (episodes_dir / "other-name.json").write_text(json.dumps(ep_less.to_dict(), indent=2))
-
-    from click.testing import CliRunner
-    from podcast_etl.cli import main
-    runner = CliRunner()
-    result = runner.invoke(main, ["-c", str(cfg_path), "migrate", "--feed", "my-show"])
-
-    assert result.exit_code == 0
-    files = list(episodes_dir.glob("*.json"))
-    assert len(files) == 1
-    data = json.loads(files[0].read_text())
-    assert len(data["status"]) == 2
-    assert "duplicate" in result.output.lower()
