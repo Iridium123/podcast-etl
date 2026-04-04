@@ -88,14 +88,17 @@ def test_episode_dict_roundtrip_with_status():
 def test_episode_save_and_load(tmp_path: Path):
     ep = _make_episode()
     ep.save(tmp_path, "My Podcast")
-    loaded = Episode.load(tmp_path / "episodes" / "My Podcast - 2024-01-01 - Test Episode.json")
+    files = list((tmp_path / "episodes").glob("*.json"))
+    assert len(files) == 1
+    loaded = Episode.load(files[0])
     assert loaded == ep
 
 
 def test_episode_save_creates_directory(tmp_path: Path):
     ep = _make_episode()
     ep.save(tmp_path, "My Podcast")
-    assert (tmp_path / "episodes" / "My Podcast - 2024-01-01 - Test Episode.json").exists()
+    assert (tmp_path / "episodes").exists()
+    assert len(list((tmp_path / "episodes").glob("*.json"))) == 1
 
 
 # --- Podcast roundtrip ---
@@ -244,3 +247,41 @@ def test_episode_json_filename_different_guid_different_hash():
     a = episode_json_filename("guid-1", "Same Title", None)
     b = episode_json_filename("guid-2", "Same Title", None)
     assert a.split("-")[-1] != b.split("-")[-1]
+
+
+# --- Episode.save() GUID-based filenames ---
+
+def test_episode_save_uses_guid_based_filename(tmp_path: Path):
+    ep = _make_episode(raw_title="My Raw Title")
+    ep.save(tmp_path, "My Podcast")
+    # Should NOT use the old title-based pattern
+    old_pattern = tmp_path / "episodes" / "My Podcast - 2024-01-01 - Test Episode.json"
+    assert not old_pattern.exists()
+    # Should use GUID-based pattern
+    files = list((tmp_path / "episodes").glob("*.json"))
+    assert len(files) == 1
+    assert "guid-123" not in files[0].name  # raw guid not in name
+    assert files[0].name.startswith("2024-01-01-my-raw-title-")
+
+
+def test_episode_save_deletes_stale_title_based_file(tmp_path: Path):
+    ep = _make_episode(raw_title="My Raw Title")
+    # Create a stale title-based file (simulating pre-migration state)
+    episodes_dir = tmp_path / "episodes"
+    episodes_dir.mkdir(parents=True)
+    stale_file = episodes_dir / "My Podcast - 2024-01-01 - Test Episode.json"
+    stale_file.write_text("{}")
+    # Save with new naming — should delete the stale file
+    ep.save(tmp_path, "My Podcast")
+    assert not stale_file.exists()
+    files = list(episodes_dir.glob("*.json"))
+    assert len(files) == 1
+
+
+def test_episode_save_no_raw_title_falls_back_to_title(tmp_path: Path):
+    ep = _make_episode()  # raw_title is None
+    ep.save(tmp_path, "My Podcast")
+    files = list((tmp_path / "episodes").glob("*.json"))
+    assert len(files) == 1
+    # Falls back to cleaned title for slug
+    assert files[0].name.startswith("2024-01-01-test-episode-")
