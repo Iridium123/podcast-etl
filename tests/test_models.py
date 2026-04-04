@@ -264,20 +264,6 @@ def test_episode_save_uses_guid_based_filename(tmp_path: Path):
     assert files[0].name.startswith("2024-01-01-my-raw-title-")
 
 
-def test_episode_save_deletes_stale_title_based_file(tmp_path: Path):
-    ep = _make_episode(raw_title="My Raw Title")
-    # Create a stale title-based file (simulating pre-migration state)
-    episodes_dir = tmp_path / "episodes"
-    episodes_dir.mkdir(parents=True)
-    stale_file = episodes_dir / "My Podcast - 2024-01-01 - Test Episode.json"
-    stale_file.write_text("{}")
-    # Save with new naming — should delete the stale file
-    ep.save(tmp_path, "My Podcast")
-    assert not stale_file.exists()
-    files = list(episodes_dir.glob("*.json"))
-    assert len(files) == 1
-
-
 def test_episode_save_no_raw_title_falls_back_to_title(tmp_path: Path):
     ep = _make_episode()  # raw_title is None
     ep.save(tmp_path, "My Podcast")
@@ -285,59 +271,6 @@ def test_episode_save_no_raw_title_falls_back_to_title(tmp_path: Path):
     assert len(files) == 1
     # Falls back to cleaned title for slug
     assert files[0].name.startswith("2024-01-01-test-episode-")
-
-
-# --- Podcast.load() and deduplicate_episodes() ---
-
-def test_podcast_load_returns_all_episodes_without_dedup(tmp_path: Path):
-    """load() is read-only — it does not deduplicate or delete files."""
-    podcast_dir = tmp_path / "my-podcast"
-    episodes_dir = podcast_dir / "episodes"
-    episodes_dir.mkdir(parents=True)
-    (podcast_dir / "podcast.json").write_text(json.dumps({
-        "title": "My Podcast", "url": "https://example.com/feed.xml",
-        "description": None, "image_url": None, "slug": "my-podcast",
-    }))
-    ep = _make_episode(raw_title="Test Episode")
-    (episodes_dir / "file-a.json").write_text(json.dumps(ep.to_dict(), indent=2))
-    (episodes_dir / "file-b.json").write_text(json.dumps(ep.to_dict(), indent=2))
-
-    loaded = Podcast.load(podcast_dir)
-    assert len(loaded.episodes) == 2  # no dedup — both loaded
-    assert len(list(episodes_dir.glob("*.json"))) == 2  # no files deleted
-
-
-def test_deduplicate_episodes_keeps_most_complete(tmp_path: Path):
-    """deduplicate_episodes() keeps the episode with more completed steps."""
-    podcast_dir = tmp_path / "my-podcast"
-    episodes_dir = podcast_dir / "episodes"
-    episodes_dir.mkdir(parents=True)
-    (podcast_dir / "podcast.json").write_text(json.dumps({
-        "title": "My Podcast", "url": "https://example.com/feed.xml",
-        "description": None, "image_url": None, "slug": "my-podcast",
-    }))
-
-    ep_a = _make_episode(
-        raw_title="Test Episode",
-        status={
-            "download": StepStatus(completed_at="2024-01-01T00:00:00", result={"path": "audio/ep.mp3"}),
-            "tag": StepStatus(completed_at="2024-01-01T00:00:00", result={}),
-        },
-    )
-    (episodes_dir / "old-format-name.json").write_text(json.dumps(ep_a.to_dict(), indent=2))
-
-    ep_b = _make_episode(
-        raw_title="Test Episode",
-        status={"download": StepStatus(completed_at="2024-01-02T00:00:00", result={"path": "audio/ep.mp3"})},
-    )
-    (episodes_dir / "new-format-name.json").write_text(json.dumps(ep_b.to_dict(), indent=2))
-
-    loaded = Podcast.load(podcast_dir)
-    loaded.deduplicate_episodes(podcast_dir)
-    assert len(loaded.episodes) == 1
-    assert len(loaded.episodes[0].status) == 2
-    assert not (episodes_dir / "new-format-name.json").exists()
-    assert (episodes_dir / "old-format-name.json").exists()
 
 
 def test_podcast_load_no_duplicates_unchanged(tmp_path: Path):

@@ -2,15 +2,12 @@ from __future__ import annotations
 
 import hashlib
 import json
-import logging
 import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import Any
-
-logger = logging.getLogger(__name__)
 
 
 def slugify(text: str) -> str:
@@ -141,14 +138,6 @@ class Episode:
         filename = episode_json_filename(self.guid, self.raw_title or self.title, self.published) + ".json"
         path = episodes_dir / filename
         path.write_text(json.dumps(self.to_dict(), indent=2) + "\n")
-        # Best-effort cleanup: only removes the stale file if it matches the
-        # current episode title. Files created under a different title or
-        # title-cleaning config must be removed via `migrate --feed`.
-        old_filename = episode_basename(podcast_title, self.title, self.published) + ".json"
-        if old_filename != filename:
-            old_path = episodes_dir / old_filename
-            if old_path.exists():
-                old_path.unlink()
 
     @classmethod
     def load(cls, path: Path) -> Episode:
@@ -209,21 +198,3 @@ class Podcast:
                 podcast.episodes.append(Episode.load(ep_path))
         return podcast
 
-    def deduplicate_episodes(self, podcast_dir: Path) -> None:
-        """Remove duplicate episode files for the same GUID, keeping the most complete."""
-        episodes_dir = podcast_dir / "episodes"
-        if not episodes_dir.exists():
-            return
-        by_guid: dict[str, list[tuple[Path, Episode]]] = {}
-        for ep_path in sorted(episodes_dir.glob("*.json")):
-            ep = Episode.load(ep_path)
-            by_guid.setdefault(ep.guid, []).append((ep_path, ep))
-        deduped: list[Episode] = []
-        for guid, entries in by_guid.items():
-            if len(entries) > 1:
-                entries.sort(key=lambda e: (-len(e[1].status), -e[0].stat().st_mtime))
-                for stale_path, _ in entries[1:]:
-                    logger.warning("Removing duplicate episode file %s (GUID %s)", stale_path.name, guid)
-                    stale_path.unlink()
-            deduped.append(entries[0][1])
-        self.episodes = deduped

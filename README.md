@@ -83,16 +83,6 @@ uv run podcast-etl reset --all --yes
 
 Deletes the feed's entire output directory (podcast.json, episode JSON files, and downloaded audio) so it can be reprocessed from scratch. Prompts for confirmation unless `--yes` / `-y` is passed.
 
-### Migrate episode files
-
-```sh
-uv run podcast-etl migrate --feed my-podcast
-```
-
-Renames episode JSON state files from the old title-based naming scheme to stable GUID-based filenames (`YYYY-MM-DD-<slug>-<hash>.json`). This prevents duplicate episodes when RSS titles change or title cleaning config is modified. Also deduplicates any existing duplicate files for the same episode.
-
-Run this once per feed after upgrading. New episodes are automatically saved with GUID-based filenames, so migration is only needed for pre-existing data.
-
 ### Check status
 
 ```sh
