@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 logging.disable(logging.ERROR)
 
+import json
 import re
 import shutil
 import sys
@@ -379,6 +380,84 @@ def reset(ctx: click.Context, feed_identifier: str | None, reset_all: bool, yes:
     for d in target_dirs:
         shutil.rmtree(d)
         click.echo(f"Deleted {d}")
+
+
+@main.command()
+@click.option("--feed", "feed_identifier", required=True, help="Feed name or URL to migrate")
+@click.pass_context
+def migrate(ctx: click.Context, feed_identifier: str) -> None:
+    """Migrate episode JSON files from title-based to GUID-based filenames."""
+    from podcast_etl.models import episode_json_filename
+
+    config = ctx.obj["config"]
+    output_dir = get_output_dir(config)
+
+    feed_config = find_feed_config(config, feed_identifier)
+    if not feed_config:
+        click.echo(f"Feed not found: {feed_identifier}")
+        sys.exit(1)
+
+    resolved_url = feed_config["url"]
+
+    # Find the podcast directory
+    podcast_dir = None
+    if output_dir.exists():
+        for d in output_dir.iterdir():
+            if not d.is_dir() or not (d / "podcast.json").exists():
+                continue
+            podcast = Podcast.load(d)
+            if podcast.url == resolved_url:
+                podcast_dir = d
+                break
+
+    if not podcast_dir:
+        click.echo(f"No data found for feed: {feed_identifier}")
+        return
+
+    episodes_dir = podcast_dir / "episodes"
+    if not episodes_dir.exists():
+        click.echo("No episodes directory found.")
+        return
+
+    # Load all episodes, group by GUID
+    episodes_by_guid: dict[str, list[tuple[Path, Episode]]] = {}
+    for ep_path in sorted(episodes_dir.glob("*.json")):
+        try:
+            ep = Episode.load(ep_path)
+        except Exception as exc:
+            click.echo(f"  Skipping {ep_path.name}: {exc}")
+            continue
+        episodes_by_guid.setdefault(ep.guid, []).append((ep_path, ep))
+
+    renamed = 0
+    deduped = 0
+    for guid, entries in episodes_by_guid.items():
+        # Deduplicate: keep the one with most completed steps
+        if len(entries) > 1:
+            entries.sort(key=lambda e: (-len(e[1].status), -e[0].stat().st_mtime))
+            for stale_path, _ in entries[1:]:
+                click.echo(f"  Removing duplicate: {stale_path.name}")
+                stale_path.unlink()
+                deduped += 1
+            entries = [entries[0]]
+
+        ep_path, ep = entries[0]
+        # Backfill raw_title if missing
+        if ep.raw_title is None:
+            ep.raw_title = ep.title
+        new_filename = episode_json_filename(ep.guid, ep.raw_title, ep.published) + ".json"
+        new_path = episodes_dir / new_filename
+
+        if ep_path.name == new_filename:
+            continue  # Already migrated
+
+        # Write updated content (with raw_title) to new path
+        new_path.write_text(json.dumps(ep.to_dict(), indent=2) + "\n")
+        ep_path.unlink()
+        click.echo(f"  Renamed: {ep_path.name} -> {new_filename}")
+        renamed += 1
+
+    click.echo(f"Migration complete: {renamed} renamed, {deduped} duplicates removed.")
 
 
 @main.command()
