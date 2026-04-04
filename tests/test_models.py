@@ -285,3 +285,53 @@ def test_episode_save_no_raw_title_falls_back_to_title(tmp_path: Path):
     assert len(files) == 1
     # Falls back to cleaned title for slug
     assert files[0].name.startswith("2024-01-01-test-episode-")
+
+
+# --- Podcast.load() GUID deduplication ---
+
+def test_podcast_load_deduplicates_by_guid(tmp_path: Path):
+    """When two JSON files have the same GUID, keep the one with more completed steps."""
+    podcast_dir = tmp_path / "my-podcast"
+    episodes_dir = podcast_dir / "episodes"
+    episodes_dir.mkdir(parents=True)
+    (podcast_dir / "podcast.json").write_text(json.dumps({
+        "title": "My Podcast", "url": "https://example.com/feed.xml",
+        "description": None, "image_url": None, "slug": "my-podcast",
+    }))
+
+    # Episode A: 2 completed steps (old-format filename)
+    ep_a = _make_episode(
+        raw_title="Test Episode",
+        status={
+            "download": StepStatus(completed_at="2024-01-01T00:00:00", result={"path": "audio/ep.mp3"}),
+            "tag": StepStatus(completed_at="2024-01-01T00:00:00", result={}),
+        },
+    )
+    (episodes_dir / "old-format-name.json").write_text(json.dumps(ep_a.to_dict(), indent=2))
+
+    # Episode B: same GUID, 1 completed step (new-format filename)
+    ep_b = _make_episode(
+        raw_title="Test Episode",
+        status={"download": StepStatus(completed_at="2024-01-02T00:00:00", result={"path": "audio/ep.mp3"})},
+    )
+    (episodes_dir / "new-format-name.json").write_text(json.dumps(ep_b.to_dict(), indent=2))
+
+    loaded = Podcast.load(podcast_dir)
+    assert len(loaded.episodes) == 1
+    # Should keep the one with more steps
+    assert len(loaded.episodes[0].status) == 2
+    # Stale file should be deleted
+    assert not (episodes_dir / "new-format-name.json").exists()
+    assert (episodes_dir / "old-format-name.json").exists()
+
+
+def test_podcast_load_no_duplicates_unchanged(tmp_path: Path):
+    """Normal load with unique GUIDs is unaffected."""
+    ep = _make_episode(raw_title="Test Episode")
+    p = _make_podcast()
+    p.episodes = [ep]
+    p.save(tmp_path)
+
+    loaded = Podcast.load(tmp_path / "my-podcast")
+    assert len(loaded.episodes) == 1
+    assert loaded.episodes[0].guid == "guid-123"
