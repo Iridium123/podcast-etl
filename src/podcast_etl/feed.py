@@ -57,7 +57,7 @@ def parse_feed(
                 audio_url = enclosure.get("href")
                 break
 
-        title = entry.get("title", "Untitled")
+        raw_title = entry.get("title", "Untitled")
         raw_ep_num = entry.get("itunes_episode")
         episode_number: int | None = None
         if raw_ep_num is not None:
@@ -66,13 +66,13 @@ def parse_feed(
             except (ValueError, TypeError):
                 pass
         title = clean_title(
-            title,
+            raw_title,
             title_cleaning,
             published=entry.get("published"),
             all_entries=feed.entries,
             episode_number=episode_number,
         )
-        guid = entry.get("id", entry.get("link", title))
+        guid = entry.get("id", entry.get("link", raw_title))
         ep_slug = slugify(title)
 
         # Deduplicate slugs
@@ -103,6 +103,7 @@ def parse_feed(
             slug=ep_slug,
             image_url=ep_image_url,
             episode_number=episode_number,
+            raw_title=raw_title,
         )
 
         # Preserve step status from existing data
