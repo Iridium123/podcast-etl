@@ -17,3 +17,5 @@ feeds.yaml
 # Claude Code (share settings + agents, keep local config personal)
 .claude/settings.local.json
 .claude/worktrees/
+.worktrees/
+.superpowers/
