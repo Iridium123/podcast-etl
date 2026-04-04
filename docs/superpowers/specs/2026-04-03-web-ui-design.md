@@ -213,6 +213,10 @@ HTMX and Tailwind are CDN script tags in `base.html`. No JS build tooling.
 
 ## Tests
 
-- **`test_service.py`** — tests for the extracted service layer functions; mostly migrated from `test_cli.py` orchestration tests
-- **`test_web.py`** — FastAPI TestClient tests for each route (GET/POST), form submission, YAML editing, validation error display, resolved config preview
-- **`test_cli.py`** — updated to test that CLI commands call service layer correctly; existing tests adjusted for the extraction
+**Service layer (`test_service.py`):** Tests for the extracted service layer functions — `load_config`, `save_config`, `validate_config`, `get_resolved_config`, `get_feed_status`, etc. Mostly migrated from `test_cli.py` orchestration tests.
+
+**Web routes (`test_web.py`):** FastAPI TestClient tests for each route (GET/POST), form submission, YAML editing, validation error display, resolved config preview. These test HTTP wiring and template rendering — business logic correctness is covered by `test_service.py`.
+
+**Smoke test (`test_web.py`):** A dedicated test that boots the FastAPI app via `TestClient` and hits `GET /` asserting a 200 response. Catches import errors, missing dependencies, broken template loading, and misconfigured routes — things that unit tests on the service layer wouldn't surface. Runs without a real server (TestClient is in-process).
+
+**CLI (`test_cli.py`):** Updated to test that CLI commands call service layer correctly; existing tests adjusted for the extraction.
