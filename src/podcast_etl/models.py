@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from dataclasses import dataclass, field
@@ -48,6 +49,23 @@ def episode_basename(podcast_title: str, episode_title: str, published: str | No
     """Return the base filename (no extension) for an episode, matching the download naming scheme."""
     date_prefix = format_date(published) or "unknown-date"
     return f"{sanitize_filename(podcast_title)} - {date_prefix} - {sanitize_filename(episode_title)}"
+
+
+def episode_json_filename(guid: str, raw_title: str | None, published: str | None) -> str:
+    """Return the base filename (no extension) for an episode's JSON state file.
+
+    Uses a GUID hash for stability — the filename does not change when titles
+    are cleaned or modified in the RSS feed.
+    """
+    date_prefix = format_date(published) or "unknown-date"
+    slug = slugify(raw_title or "")
+    if len(slug) > 60:
+        cut = slug.rfind("-", 0, 61)
+        slug = slug[:cut] if cut > 0 else slug[:60]
+    guid_hash = hashlib.sha256(guid.encode()).hexdigest()[:8]
+    if slug:
+        return f"{date_prefix}-{slug}-{guid_hash}"
+    return f"{date_prefix}-{guid_hash}"
 
 
 @dataclass
