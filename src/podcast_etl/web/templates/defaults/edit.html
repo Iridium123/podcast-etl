@@ -12,7 +12,7 @@
 </div>
 {% endif %}
 
-<form method="post" action="/defaults" class="space-y-6">
+<form method="post" action="/defaults/preview" class="space-y-6">
 
   <!-- General section -->
   <div class="bg-gray-800 border border-gray-700 rounded-lg p-6">
@@ -101,17 +101,17 @@
     </div>
   </div>
 
-  <!-- Advanced (YAML) section -->
+  <!-- Full defaults config section -->
   <div class="bg-gray-800 border border-gray-700 rounded-lg p-6">
-    <h2 class="text-lg font-semibold text-gray-100 mb-1">Advanced</h2>
+    <h2 class="text-lg font-semibold text-gray-100 mb-1">Full defaults config (YAML)</h2>
     <p class="text-xs text-gray-500 mb-4">
-      Raw YAML for tracker, client, ad_detection, audiobookshelf, blacklist, and other nested defaults.
-      Must be a valid YAML mapping.
+      The complete defaults configuration as YAML. Form fields above take precedence over this on save.
+      Use this to set tracker, client, ad_detection, audiobookshelf, blacklist, and other nested options.
     </p>
     <textarea id="extra_yaml" name="extra_yaml" rows="12"
               spellcheck="false"
-              placeholder="# e.g.&#10;# tracker:&#10;#   url: https://tracker.example.com&#10;# client:&#10;#   url: http://localhost:8080"
-              class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-gray-100 text-sm font-mono focus:outline-none focus:border-blue-500 resize-y">{{ extra_yaml }}</textarea>
+              placeholder=""
+              class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-gray-100 text-sm font-mono focus:outline-none focus:border-blue-500 resize-y">{{ full_defaults_yaml or "" }}</textarea>
   </div>
 
   <!-- Buttons -->

@@ -305,6 +305,85 @@ def test_feed_confirm_saves(tmp_path: Path) -> None:
     assert feed["last"] == 7
 
 
+def test_defaults_edit_form_shows_full_yaml(tmp_path: Path) -> None:
+    """Edit form should show the full defaults config YAML in the textarea."""
+    cfg_path = _write_config(tmp_path, {
+        "feeds": [],
+        "defaults": {
+            "output_dir": "./output",
+            "pipeline": ["download"],
+            "tracker": {"url": "https://tracker.example.com"},
+        },
+        "poll_interval": 3600,
+    })
+    app = create_app(cfg_path, start_poller=False)
+    client = TestClient(app)
+    response = client.get("/defaults")
+    assert response.status_code == 200
+    assert "Full defaults config" in response.text
+    assert "tracker" in response.text
+    assert "tracker.example.com" in response.text
+
+
+def test_defaults_preview_shows_diff_page(tmp_path: Path) -> None:
+    """POST to /defaults/preview should show confirm page with diff, not save yet."""
+    cfg_path = _write_config(tmp_path, {
+        "feeds": [],
+        "defaults": {"output_dir": "./output", "pipeline": ["download"]},
+        "poll_interval": 3600,
+    })
+    app = create_app(cfg_path, start_poller=False)
+    client = TestClient(app)
+    response = client.post("/defaults/preview", data={
+        "output_dir": "/new/output",
+        "poll_interval": "1800",
+        "extra_yaml": "output_dir: ./output\npipeline:\n- download\n",
+    })
+    assert response.status_code == 200
+    assert "confirm" in response.text.lower()
+    # File should NOT have been updated yet
+    saved = yaml.safe_load(cfg_path.read_text())
+    assert saved["defaults"]["output_dir"] == "./output"
+    assert saved["poll_interval"] == 3600
+
+
+def test_defaults_preview_invalid_yaml_shows_error(tmp_path: Path) -> None:
+    cfg_path = _write_config(tmp_path, {
+        "feeds": [],
+        "defaults": {"output_dir": "./output", "pipeline": ["download"]},
+        "poll_interval": 3600,
+    })
+    app = create_app(cfg_path, start_poller=False)
+    client = TestClient(app)
+    response = client.post("/defaults/preview", data={
+        "extra_yaml": "invalid: [yaml: {",
+    })
+    assert response.status_code == 200
+    assert "invalid" in response.text.lower() or "error" in response.text.lower()
+
+
+def test_defaults_confirm_saves(tmp_path: Path) -> None:
+    """POST to /defaults/confirm with serialized YAML should actually save."""
+    cfg_path = _write_config(tmp_path, {
+        "feeds": [],
+        "defaults": {"output_dir": "./output", "pipeline": ["download"]},
+        "poll_interval": 3600,
+    })
+    new_payload = {
+        "defaults": {"output_dir": "/confirmed/output", "pipeline": ["download"]},
+        "poll_interval": 900,
+    }
+    app = create_app(cfg_path, start_poller=False)
+    client = TestClient(app)
+    response = client.post("/defaults/confirm", data={
+        "new_config_yaml": yaml.dump(new_payload),
+    }, follow_redirects=False)
+    assert response.status_code == 303
+    saved = yaml.safe_load(cfg_path.read_text())
+    assert saved["defaults"]["output_dir"] == "/confirmed/output"
+    assert saved["poll_interval"] == 900
+
+
 def test_pipeline_chips_show_checked_state(tmp_path: Path) -> None:
     """Pipeline chips should use Jinja2 conditional classes for checked state."""
     cfg_path = _write_config(tmp_path, {
