@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from podcast_etl.models import Episode, Podcast, StepStatus
+from podcast_etl.models import StepStatus
 from podcast_etl.pipeline import PipelineContext
 from podcast_etl.steps.stage import StageStep
 from podcast_etl.steps.torrent import TorrentStep
@@ -24,26 +24,20 @@ _MINIMAL_MP3 = (
 )
 
 
-def _make_podcast():
-    return Podcast(
-        title="Test Podcast",
-        url="https://example.com/rss",
-        slug="test-podcast",
-        description="desc",
-        image_url=None,
-        episodes=[],
-    )
+_EPISODE_DEFAULTS = dict(
+    title="Test Episode",
+    guid="guid-integration-1",
+    published="Sat, 01 Jun 2024 00:00:00 GMT",
+    audio_url="https://example.com/ep.mp3",
+    duration="120",
+    description="Integration test episode",
+    slug="test-episode",
+)
 
 
-def _make_episode(download_path: str) -> Episode:
-    return Episode(
-        title="Test Episode",
-        guid="guid-integration-1",
-        published="Sat, 01 Jun 2024 00:00:00 GMT",
-        audio_url="https://example.com/ep.mp3",
-        duration="120",
-        description="Integration test episode",
-        slug="test-episode",
+def _episode_with_download(make_episode, download_path):
+    return make_episode(
+        **_EPISODE_DEFAULTS,
         status={
             "download": StepStatus(
                 completed_at="2024-06-01T10:00:00",
@@ -53,10 +47,15 @@ def _make_episode(download_path: str) -> Episode:
     )
 
 
-def _make_context(tmp_path: Path, torrent_data_dir: Path) -> PipelineContext:
+def _make_context(tmp_path: Path, torrent_data_dir: Path, make_podcast) -> PipelineContext:
     return PipelineContext(
         output_dir=tmp_path / "output",
-        podcast=_make_podcast(),
+        podcast=make_podcast(
+            title="Test Podcast",
+            url="https://example.com/rss",
+            slug="test-podcast",
+            description="desc",
+        ),
         config={
             "torrent_data_dir": str(torrent_data_dir),
             "tracker": {
@@ -69,16 +68,16 @@ def _make_context(tmp_path: Path, torrent_data_dir: Path) -> PipelineContext:
 
 
 class TestStageIntegration:
-    def test_stage_copies_file_to_torrent_data_dir(self, tmp_path):
+    def test_stage_copies_file_to_torrent_data_dir(self, tmp_path, make_episode, make_podcast):
         torrent_data_dir = tmp_path / "torrent-data"
-        context = _make_context(tmp_path, torrent_data_dir)
+        context = _make_context(tmp_path, torrent_data_dir, make_podcast)
 
         audio_dir = context.podcast_dir / "audio"
         audio_dir.mkdir(parents=True)
         audio_file = audio_dir / "2024-06-01 Test Episode.mp3"
         audio_file.write_bytes(_MINIMAL_MP3)
 
-        episode = _make_episode("audio/2024-06-01 Test Episode.mp3")
+        episode = _episode_with_download(make_episode, "audio/2024-06-01 Test Episode.mp3")
 
         result = StageStep().process(episode, context)
 
@@ -88,16 +87,16 @@ class TestStageIntegration:
         assert result.data["local_path"] == str(dest)
         assert result.data["client_path"] == str(dest)  # no save_path configured
 
-    def test_stage_is_idempotent(self, tmp_path):
+    def test_stage_is_idempotent(self, tmp_path, make_episode, make_podcast):
         torrent_data_dir = tmp_path / "torrent-data"
-        context = _make_context(tmp_path, torrent_data_dir)
+        context = _make_context(tmp_path, torrent_data_dir, make_podcast)
 
         audio_dir = context.podcast_dir / "audio"
         audio_dir.mkdir(parents=True)
         audio_file = audio_dir / "2024-06-01 Test Episode.mp3"
         audio_file.write_bytes(_MINIMAL_MP3)
 
-        episode = _make_episode("audio/2024-06-01 Test Episode.mp3")
+        episode = _episode_with_download(make_episode, "audio/2024-06-01 Test Episode.mp3")
 
         # Run twice
         result1 = StageStep().process(episode, context)
@@ -109,13 +108,13 @@ class TestStageIntegration:
 
 
 class TestTorrentIntegration:
-    def _run_stage(self, tmp_path: Path, torrent_data_dir: Path, context: PipelineContext) -> Episode:
+    def _run_stage(self, tmp_path: Path, torrent_data_dir: Path, context: PipelineContext, make_episode):
         audio_dir = context.podcast_dir / "audio"
         audio_dir.mkdir(parents=True)
         audio_file = audio_dir / "2024-06-01 Test Episode.mp3"
         audio_file.write_bytes(_MINIMAL_MP3)
 
-        episode = _make_episode("audio/2024-06-01 Test Episode.mp3")
+        episode = _episode_with_download(make_episode, "audio/2024-06-01 Test Episode.mp3")
         stage_result = StageStep().process(episode, context)
         episode.status["stage"] = StepStatus(
             completed_at="2024-06-01T10:01:00",
@@ -123,10 +122,10 @@ class TestTorrentIntegration:
         )
         return episode
 
-    def test_torrent_creates_dot_torrent_file(self, tmp_path):
+    def test_torrent_creates_dot_torrent_file(self, tmp_path, make_episode, make_podcast):
         torrent_data_dir = tmp_path / "torrent-data"
-        context = _make_context(tmp_path, torrent_data_dir)
-        episode = self._run_stage(tmp_path, torrent_data_dir, context)
+        context = _make_context(tmp_path, torrent_data_dir, make_podcast)
+        episode = self._run_stage(tmp_path, torrent_data_dir, context, make_episode)
 
         result = TorrentStep().process(episode, context)
 
@@ -136,10 +135,10 @@ class TestTorrentIntegration:
         assert torrent_path.name == "Test Podcast - 2024-06-01 - Test Episode.torrent"
         assert torrent_path.parent == context.podcast_dir / "torrents"
 
-    def test_torrent_returns_valid_info_hash(self, tmp_path):
+    def test_torrent_returns_valid_info_hash(self, tmp_path, make_episode, make_podcast):
         torrent_data_dir = tmp_path / "torrent-data"
-        context = _make_context(tmp_path, torrent_data_dir)
-        episode = self._run_stage(tmp_path, torrent_data_dir, context)
+        context = _make_context(tmp_path, torrent_data_dir, make_podcast)
+        episode = self._run_stage(tmp_path, torrent_data_dir, context, make_episode)
 
         result = TorrentStep().process(episode, context)
 
@@ -149,10 +148,10 @@ class TestTorrentIntegration:
         assert info_hash == info_hash.lower(), "info_hash should be lowercase"
         assert all(c in "0123456789abcdef" for c in info_hash)
 
-    def test_torrent_is_idempotent(self, tmp_path):
+    def test_torrent_is_idempotent(self, tmp_path, make_episode, make_podcast):
         torrent_data_dir = tmp_path / "torrent-data"
-        context = _make_context(tmp_path, torrent_data_dir)
-        episode = self._run_stage(tmp_path, torrent_data_dir, context)
+        context = _make_context(tmp_path, torrent_data_dir, make_podcast)
+        episode = self._run_stage(tmp_path, torrent_data_dir, context, make_episode)
 
         result1 = TorrentStep().process(episode, context)
         result2 = TorrentStep().process(episode, context)
@@ -160,11 +159,11 @@ class TestTorrentIntegration:
         assert result1.data["torrent_path"] == result2.data["torrent_path"]
         assert result1.data["info_hash"] == result2.data["info_hash"]
 
-    def test_torrent_end_to_end_stage_then_torrent(self, tmp_path):
+    def test_torrent_end_to_end_stage_then_torrent(self, tmp_path, make_episode, make_podcast):
         """Full stage→torrent pipeline on a real file."""
         torrent_data_dir = tmp_path / "torrent-data"
-        context = _make_context(tmp_path, torrent_data_dir)
-        episode = self._run_stage(tmp_path, torrent_data_dir, context)
+        context = _make_context(tmp_path, torrent_data_dir, make_podcast)
+        episode = self._run_stage(tmp_path, torrent_data_dir, context, make_episode)
 
         torrent_result = TorrentStep().process(episode, context)
 

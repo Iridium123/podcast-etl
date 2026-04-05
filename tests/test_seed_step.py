@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from podcast_etl.models import Episode, Podcast, StepStatus
+from podcast_etl.models import StepStatus
 from podcast_etl.pipeline import PipelineContext
 from podcast_etl.steps.seed import SeedStep
 
@@ -15,18 +15,26 @@ TORRENT_PATH = "/output/my-podcast/torrents/episode-one.torrent"
 CLIENT_PATH = "/data/2024-01-15 Episode One.mp3"
 
 
-def _make_podcast():
-    return Podcast(
-        title="My Podcast",
-        url="https://example.com/rss",
-        slug="my-podcast",
-        description="desc",
-        image_url=None,
-        episodes=[],
+_EPISODE_DEFAULTS = dict(
+    title="Episode One",
+    guid="guid-1",
+    published="2024-01-15T00:00:00",
+    audio_url="https://example.com/ep1.mp3",
+    duration="3600",
+    description="desc",
+    slug="episode-one",
+)
+
+
+@pytest.fixture
+def podcast(make_podcast):
+    return make_podcast(
+        title="My Podcast", url="https://example.com/rss",
+        slug="my-podcast", description="desc", episodes=[],
     )
 
 
-def _make_episode(with_torrent: bool = True, with_stage: bool = True) -> Episode:
+def _episode_with_status(make_episode, with_torrent=True, with_stage=True):
     status = {}
     if with_torrent:
         status["torrent"] = StepStatus(
@@ -41,20 +49,10 @@ def _make_episode(with_torrent: bool = True, with_stage: bool = True) -> Episode
                 "client_path": CLIENT_PATH,
             },
         )
-    return Episode(
-        title="Episode One",
-        guid="guid-1",
-        published="2024-01-15T00:00:00",
-        audio_url="https://example.com/ep1.mp3",
-        duration="3600",
-        description="desc",
-        slug="episode-one",
-        status=status,
-    )
+    return make_episode(**_EPISODE_DEFAULTS, status=status)
 
 
-def _make_context(tmp_path: Path) -> PipelineContext:
-    podcast = _make_podcast()
+def _make_context(tmp_path: Path, podcast) -> PipelineContext:
     config = {
         "client": {
             "url": "http://localhost:8080",
@@ -71,9 +69,9 @@ def _make_context(tmp_path: Path) -> PipelineContext:
 
 
 class TestSeedStep:
-    def test_adds_torrent_to_client(self, tmp_path):
-        context = _make_context(tmp_path)
-        episode = _make_episode()
+    def test_adds_torrent_to_client(self, tmp_path, make_episode, podcast):
+        context = _make_context(tmp_path, podcast)
+        episode = _episode_with_status(make_episode)
 
         mock_client = MagicMock()
         mock_client.has_torrent.return_value = False
@@ -88,9 +86,9 @@ class TestSeedStep:
         assert result.data["hash"] == INFO_HASH
         assert result.data["client"] == "qbittorrent"
 
-    def test_idempotent_skips_if_already_in_client(self, tmp_path):
-        context = _make_context(tmp_path)
-        episode = _make_episode()
+    def test_idempotent_skips_if_already_in_client(self, tmp_path, make_episode, podcast):
+        context = _make_context(tmp_path, podcast)
+        episode = _episode_with_status(make_episode)
 
         mock_client = MagicMock()
         mock_client.has_torrent.return_value = True
@@ -101,35 +99,34 @@ class TestSeedStep:
         mock_client.add_torrent.assert_not_called()
         assert result.data["hash"] == INFO_HASH
 
-    def test_raises_if_no_torrent_status(self, tmp_path):
-        context = _make_context(tmp_path)
-        episode = _make_episode(with_torrent=False)
+    def test_raises_if_no_torrent_status(self, tmp_path, make_episode, podcast):
+        context = _make_context(tmp_path, podcast)
+        episode = _episode_with_status(make_episode, with_torrent=False)
 
         with pytest.raises(ValueError, match="no completed 'torrent' step"):
             SeedStep().process(episode, context)
 
-    def test_raises_if_no_stage_status(self, tmp_path):
-        context = _make_context(tmp_path)
-        episode = _make_episode(with_stage=False)
+    def test_raises_if_no_stage_status(self, tmp_path, make_episode, podcast):
+        context = _make_context(tmp_path, podcast)
+        episode = _episode_with_status(make_episode, with_stage=False)
 
         with pytest.raises(ValueError, match="no completed 'stage' step"):
             SeedStep().process(episode, context)
 
-    def test_raises_if_no_client_configured(self, tmp_path):
-        podcast = _make_podcast()
+    def test_raises_if_no_client_configured(self, tmp_path, make_episode, podcast):
         context = PipelineContext(
             output_dir=tmp_path / "output",
             podcast=podcast,
             config={},
         )
-        episode = _make_episode()
+        episode = _episode_with_status(make_episode)
 
         with pytest.raises(ValueError, match="No torrent client configured"):
             SeedStep().process(episode, context)
 
-    def test_propagates_client_error(self, tmp_path):
-        context = _make_context(tmp_path)
-        episode = _make_episode()
+    def test_propagates_client_error(self, tmp_path, make_episode, podcast):
+        context = _make_context(tmp_path, podcast)
+        episode = _episode_with_status(make_episode)
 
         mock_client = MagicMock()
         mock_client.has_torrent.return_value = False
@@ -142,9 +139,9 @@ class TestSeedStep:
         checkpoint = context.podcast_dir / "seeds" / f"{episode.slug}.json"
         assert not checkpoint.exists()
 
-    def test_writes_checkpoint_after_success(self, tmp_path):
-        context = _make_context(tmp_path)
-        episode = _make_episode()
+    def test_writes_checkpoint_after_success(self, tmp_path, make_episode, podcast):
+        context = _make_context(tmp_path, podcast)
+        episode = _episode_with_status(make_episode)
 
         mock_client = MagicMock()
         mock_client.has_torrent.return_value = False
@@ -158,9 +155,9 @@ class TestSeedStep:
         assert data["hash"] == INFO_HASH
         assert data["client"] == "qbittorrent"
 
-    def test_skips_all_work_when_checkpoint_exists(self, tmp_path):
-        context = _make_context(tmp_path)
-        episode = _make_episode()
+    def test_skips_all_work_when_checkpoint_exists(self, tmp_path, make_episode, podcast):
+        context = _make_context(tmp_path, podcast)
+        episode = _episode_with_status(make_episode)
 
         checkpoint = context.podcast_dir / "seeds" / f"{episode.slug}.json"
         checkpoint.parent.mkdir(parents=True, exist_ok=True)
@@ -172,10 +169,10 @@ class TestSeedStep:
         mock_from_config.assert_not_called()
         assert result.data["hash"] == INFO_HASH
 
-    def test_checkpoint_ignored_when_overwrite_true(self, tmp_path):
-        context = _make_context(tmp_path)
+    def test_checkpoint_ignored_when_overwrite_true(self, tmp_path, make_episode, podcast):
+        context = _make_context(tmp_path, podcast)
         context.overwrite = True
-        episode = _make_episode()
+        episode = _episode_with_status(make_episode)
 
         checkpoint = context.podcast_dir / "seeds" / f"{episode.slug}.json"
         checkpoint.parent.mkdir(parents=True, exist_ok=True)
@@ -190,9 +187,9 @@ class TestSeedStep:
         mock_client.add_torrent.assert_called_once()
         assert result.data["hash"] == INFO_HASH
 
-    def test_retries_when_checkpoint_corrupt(self, tmp_path):
-        context = _make_context(tmp_path)
-        episode = _make_episode()
+    def test_retries_when_checkpoint_corrupt(self, tmp_path, make_episode, podcast):
+        context = _make_context(tmp_path, podcast)
+        episode = _episode_with_status(make_episode)
 
         checkpoint = context.podcast_dir / "seeds" / f"{episode.slug}.json"
         checkpoint.parent.mkdir(parents=True, exist_ok=True)

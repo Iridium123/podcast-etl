@@ -26,7 +26,7 @@ def _make_context(tmp_path: Path) -> PipelineContext:
     return PipelineContext(output_dir=tmp_path, podcast=_make_podcast())
 
 
-def _make_episode(published="Mon, 01 Jan 2024 00:00:00 +0000", status=None, **kwargs) -> Episode:
+def make_episode(published="Mon, 01 Jan 2024 00:00:00 +0000", status=None, **kwargs) -> Episode:
     defaults = dict(
         title="Episode 1",
         guid="guid-1",
@@ -55,10 +55,10 @@ def _download_status(path: str) -> dict:
 
 # --- MP3 tagging ---
 
-def test_tag_step_mp3_writes_release_date(tmp_path: Path):
-    ctx = _make_context(tmp_path)
+def test_tag_step_mp3_writes_release_date(tmp_path, make_episode, make_context):
+    ctx = make_context(tmp_path)
     audio_path = _make_audio_file(ctx, "ep-1", ".mp3")
-    ep = _make_episode(description="A great episode.", status=_download_status("audio/ep-1.mp3"))
+    ep = make_episode(description="A great episode.", status=_download_status("audio/ep-1.mp3"))
 
     result = TagStep().process(ep, ctx)
 
@@ -71,23 +71,23 @@ def test_tag_step_mp3_writes_release_date(tmp_path: Path):
     assert str(tags["TDRC"]) == "2024"
 
 
-def test_tag_step_mp3_result_includes_path(tmp_path: Path):
-    ctx = _make_context(tmp_path)
+def test_tag_step_mp3_result_includes_path(tmp_path, make_episode, make_context):
+    ctx = make_context(tmp_path)
     _make_audio_file(ctx, "ep-1", ".mp3")
-    ep = _make_episode(status=_download_status("audio/ep-1.mp3"))
+    ep = make_episode(status=_download_status("audio/ep-1.mp3"))
 
     result = TagStep().process(ep, ctx)
 
     assert result.data["path"] == "audio/ep-1.mp3"
 
 
-def test_tag_step_mp3_clears_album_tag(tmp_path: Path):
-    ctx = _make_context(tmp_path)
+def test_tag_step_mp3_clears_album_tag(tmp_path, make_episode, make_context):
+    ctx = make_context(tmp_path)
     audio_path = _make_audio_file(ctx, "ep-1", ".mp3")
     existing = ID3()
     existing.add(TALB(encoding=3, text=["Some Album"]))
     existing.save(audio_path)
-    ep = _make_episode(status=_download_status("audio/ep-1.mp3"))
+    ep = make_episode(status=_download_status("audio/ep-1.mp3"))
 
     TagStep().process(ep, ctx)
 
@@ -95,14 +95,14 @@ def test_tag_step_mp3_clears_album_tag(tmp_path: Path):
     assert "TALB" not in tags
 
 
-def test_tag_step_mp3_does_not_overwrite_existing_artist(tmp_path: Path):
-    ctx = _make_context(tmp_path)
+def test_tag_step_mp3_does_not_overwrite_existing_artist(tmp_path, make_episode, make_context):
+    ctx = make_context(tmp_path)
     audio_path = _make_audio_file(ctx, "ep-1", ".mp3")
     # Pre-write an existing artist tag
     existing = ID3()
     existing.add(TPE1(encoding=3, text=["Original Artist"]))
     existing.save(audio_path)
-    ep = _make_episode(status=_download_status("audio/ep-1.mp3"))
+    ep = make_episode(status=_download_status("audio/ep-1.mp3"))
 
     TagStep().process(ep, ctx)
 
@@ -112,31 +112,31 @@ def test_tag_step_mp3_does_not_overwrite_existing_artist(tmp_path: Path):
 
 # --- Audio file discovery ---
 
-def test_tag_step_finds_audio_from_download_status(tmp_path: Path):
-    ctx = _make_context(tmp_path)
+def test_tag_step_finds_audio_from_download_status(tmp_path, make_episode, make_context):
+    ctx = make_context(tmp_path)
     _make_audio_file(ctx, "ep-1", ".mp3")
-    ep = _make_episode(status=_download_status("audio/ep-1.mp3"))
+    ep = make_episode(status=_download_status("audio/ep-1.mp3"))
 
     # Should succeed without FileNotFoundError
     result = TagStep().process(ep, ctx)
     assert result.data["release_date"] == "2024-01-01"
 
 
-def test_tag_step_falls_back_to_scanning_audio_dir(tmp_path: Path):
-    ctx = _make_context(tmp_path)
+def test_tag_step_falls_back_to_scanning_audio_dir(tmp_path, make_episode, make_context):
+    ctx = make_context(tmp_path)
     _make_audio_file(ctx, "ep-1", ".mp3")
-    ep = _make_episode()  # No download status
+    ep = make_episode()  # No download status
 
     result = TagStep().process(ep, ctx)
 
     assert result.data["release_date"] == "2024-01-01"
 
 
-def test_tag_step_download_status_missing_path_falls_back(tmp_path: Path):
-    ctx = _make_context(tmp_path)
+def test_tag_step_download_status_missing_path_falls_back(tmp_path, make_episode, make_context):
+    ctx = make_context(tmp_path)
     _make_audio_file(ctx, "ep-1", ".mp3")
     # Download status exists but has no 'path' key
-    ep = _make_episode(
+    ep = make_episode(
         status={"download": StepStatus(completed_at="2024-01-01T00:00:00", result={})}
     )
 
@@ -147,27 +147,27 @@ def test_tag_step_download_status_missing_path_falls_back(tmp_path: Path):
 
 # --- Error cases ---
 
-def test_tag_step_raises_if_no_published_date(tmp_path: Path):
-    ctx = _make_context(tmp_path)
+def test_tag_step_raises_if_no_published_date(tmp_path, make_episode, make_context):
+    ctx = make_context(tmp_path)
     _make_audio_file(ctx, "ep-1", ".mp3")
-    ep = _make_episode(published=None)
+    ep = make_episode(published=None)
 
     with pytest.raises(ValueError, match="No published date"):
         TagStep().process(ep, ctx)
 
 
-def test_tag_step_raises_if_file_not_found(tmp_path: Path):
-    ctx = _make_context(tmp_path)
-    ep = _make_episode()  # No audio file on disk
+def test_tag_step_raises_if_file_not_found(tmp_path, make_episode, make_context):
+    ctx = make_context(tmp_path)
+    ep = make_episode()  # No audio file on disk
 
     with pytest.raises(FileNotFoundError, match="Audio file not found"):
         TagStep().process(ep, ctx)
 
 
-def test_tag_step_raises_for_unparseable_date(tmp_path: Path):
-    ctx = _make_context(tmp_path)
+def test_tag_step_raises_for_unparseable_date(tmp_path, make_episode, make_context):
+    ctx = make_context(tmp_path)
     _make_audio_file(ctx, "ep-1", ".mp3")
-    ep = _make_episode(published="not a valid date")
+    ep = make_episode(published="not a valid date")
 
     with pytest.raises(ValueError, match="Cannot parse published date"):
         TagStep().process(ep, ctx)
@@ -175,10 +175,10 @@ def test_tag_step_raises_for_unparseable_date(tmp_path: Path):
 
 # --- Album art embedding ---
 
-def test_tag_step_embeds_episode_image(tmp_path):
-    ctx = _make_context(tmp_path)
+def test_tag_step_embeds_episode_image(tmp_path, make_episode, make_context):
+    ctx = make_context(tmp_path)
     _make_audio_file(ctx, "ep-1", ".mp3")
-    ep = _make_episode(
+    ep = make_episode(
         status=_download_status("audio/ep-1.mp3"),
         image_url="https://example.com/ep1.jpg",
     )
@@ -200,10 +200,10 @@ def test_tag_step_embeds_episode_image(tmp_path):
     assert apic_frames[0].mime == "image/jpeg"
 
 
-def test_tag_step_no_image_skips_apic(tmp_path):
-    ctx = _make_context(tmp_path)
+def test_tag_step_no_image_skips_apic(tmp_path, make_episode, make_context):
+    ctx = make_context(tmp_path)
     _make_audio_file(ctx, "ep-1", ".mp3")
-    ep = _make_episode(status=_download_status("audio/ep-1.mp3"))
+    ep = make_episode(status=_download_status("audio/ep-1.mp3"))
 
     with patch("podcast_etl.steps.tag.resolve_episode_image", return_value=None):
         result = TagStep().process(ep, ctx)
@@ -215,10 +215,10 @@ def test_tag_step_no_image_skips_apic(tmp_path):
 
 # --- Track number (episode number) ---
 
-def test_tag_step_writes_track_number(tmp_path: Path):
-    ctx = _make_context(tmp_path)
+def test_tag_step_writes_track_number(tmp_path, make_episode, make_context):
+    ctx = make_context(tmp_path)
     audio_path = _make_audio_file(ctx, "ep-1", ".mp3")
-    ep = _make_episode(status=_download_status("audio/ep-1.mp3"), episode_number=42)
+    ep = make_episode(status=_download_status("audio/ep-1.mp3"), episode_number=42)
 
     TagStep().process(ep, ctx)
 
@@ -226,10 +226,10 @@ def test_tag_step_writes_track_number(tmp_path: Path):
     assert str(tags["TRCK"]) == "42"
 
 
-def test_tag_step_no_episode_number_skips_trck(tmp_path: Path):
-    ctx = _make_context(tmp_path)
+def test_tag_step_no_episode_number_skips_trck(tmp_path, make_episode, make_context):
+    ctx = make_context(tmp_path)
     audio_path = _make_audio_file(ctx, "ep-1", ".mp3")
-    ep = _make_episode(status=_download_status("audio/ep-1.mp3"))
+    ep = make_episode(status=_download_status("audio/ep-1.mp3"))
 
     TagStep().process(ep, ctx)
 

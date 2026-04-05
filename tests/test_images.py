@@ -128,7 +128,7 @@ def _make_context(tmp_path, podcast=None):
     return PipelineContext(output_dir=tmp_path, podcast=podcast)
 
 
-def _make_episode(**kwargs):
+def make_episode(**kwargs):
     defaults = dict(
         title="Episode 1",
         guid="guid-1",
@@ -143,8 +143,8 @@ def _make_episode(**kwargs):
 
 
 class TestResolveEpisodeImage:
-    def test_downloads_episode_image(self, tmp_path):
-        ep = _make_episode(image_url="https://example.com/ep1.jpg")
+    def test_downloads_episode_image(self, tmp_path, make_episode):
+        ep = make_episode(image_url="https://example.com/ep1.jpg")
         ctx = _make_context(tmp_path)
         mock_response = MagicMock()
         mock_response.content = b"ep-image"
@@ -157,24 +157,24 @@ class TestResolveEpisodeImage:
         assert result.exists()
         assert result.read_bytes() == b"ep-image"
 
-    def test_returns_none_when_no_image_url(self, tmp_path):
-        ep = _make_episode()
+    def test_returns_none_when_no_image_url(self, tmp_path, make_episode):
+        ep = make_episode()
         ctx = _make_context(tmp_path)
 
         result = resolve_episode_image(ep, ctx)
 
         assert result is None
 
-    def test_skips_episode_image_matching_feed_image(self, tmp_path):
-        ep = _make_episode(image_url="https://example.com/feed-cover.jpg")
+    def test_skips_episode_image_matching_feed_image(self, tmp_path, make_episode):
+        ep = make_episode(image_url="https://example.com/feed-cover.jpg")
         ctx = _make_context(tmp_path)
 
         result = resolve_episode_image(ep, ctx)
 
         assert result is None
 
-    def test_falls_back_to_feed_image_when_allowed(self, tmp_path):
-        ep = _make_episode()  # no episode image
+    def test_falls_back_to_feed_image_when_allowed(self, tmp_path, make_episode):
+        ep = make_episode()  # no episode image
         ctx = _make_context(tmp_path)
         mock_response = MagicMock()
         mock_response.content = b"feed-image"
@@ -186,16 +186,16 @@ class TestResolveEpisodeImage:
         assert result is not None
         assert result.read_bytes() == b"feed-image"
 
-    def test_no_fallback_by_default(self, tmp_path):
-        ep = _make_episode()  # no episode image
+    def test_no_fallback_by_default(self, tmp_path, make_episode):
+        ep = make_episode()  # no episode image
         ctx = _make_context(tmp_path)
 
         result = resolve_episode_image(ep, ctx)
 
         assert result is None
 
-    def test_returns_none_on_download_failure(self, tmp_path):
-        ep = _make_episode(image_url="https://example.com/broken.jpg")
+    def test_returns_none_on_download_failure(self, tmp_path, make_episode):
+        ep = make_episode(image_url="https://example.com/broken.jpg")
         ctx = _make_context(tmp_path)
 
         with patch("podcast_etl.images.httpx.get", side_effect=httpx.HTTPError("fail")):
@@ -203,12 +203,12 @@ class TestResolveEpisodeImage:
 
         assert result is None
 
-    def test_no_fallback_when_feed_has_no_image(self, tmp_path):
+    def test_no_fallback_when_feed_has_no_image(self, tmp_path, make_episode):
         podcast = Podcast(
             title="Test Podcast", url="https://example.com/feed.xml",
             description=None, image_url=None, slug="test-podcast",
         )
-        ep = _make_episode()
+        ep = make_episode()
         ctx = _make_context(tmp_path, podcast=podcast)
 
         result = resolve_episode_image(ep, ctx, allow_feed_fallback=True)

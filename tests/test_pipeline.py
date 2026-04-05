@@ -5,34 +5,11 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from podcast_etl.models import Episode, Podcast, StepStatus
+from podcast_etl.models import Episode, StepStatus
 from podcast_etl.pipeline import Pipeline, PipelineContext, StepResult, deep_merge, resolve_feed_config
 
 
 # --- Helpers ---
-
-def _make_episode(slug="ep-1", status=None) -> Episode:
-    return Episode(
-        title="Episode 1",
-        guid="guid-1",
-        published=None,
-        audio_url="https://example.com/ep.mp3",
-        duration=None,
-        description=None,
-        slug=slug,
-        status=status or {},
-    )
-
-
-def _make_context(tmp_path: Path) -> PipelineContext:
-    podcast = Podcast(
-        title="Test Podcast",
-        url="https://example.com/feed.xml",
-        description=None,
-        image_url=None,
-        slug="test-podcast",
-    )
-    return PipelineContext(output_dir=tmp_path, podcast=podcast)
 
 
 @dataclass
@@ -48,31 +25,31 @@ class FakeStep:
 
 # --- Tests ---
 
-def test_pipeline_runs_step_for_episode(tmp_path: Path):
+def test_pipeline_runs_step_for_episode(tmp_path, make_episode, make_context):
     step = FakeStep()
-    ep = _make_episode()
-    ctx = _make_context(tmp_path)
+    ep = make_episode(published=None)
+    ctx = make_context(tmp_path)
 
     Pipeline(steps=[step], context=ctx).run([ep])
 
     assert step.call_count == 1
 
 
-def test_pipeline_skips_already_completed_step(tmp_path: Path):
+def test_pipeline_skips_already_completed_step(tmp_path, make_episode, make_context):
     step = FakeStep()
     completed = StepStatus(completed_at="2024-01-01T00:00:00", result={})
-    ep = _make_episode(status={"fake": completed})
-    ctx = _make_context(tmp_path)
+    ep = make_episode(published=None, status={"fake": completed})
+    ctx = make_context(tmp_path)
 
     Pipeline(steps=[step], context=ctx).run([ep])
 
     assert step.call_count == 0
 
 
-def test_pipeline_saves_status_after_step(tmp_path: Path):
+def test_pipeline_saves_status_after_step(tmp_path, make_episode, make_context):
     step = FakeStep(return_data={"key": "value"})
-    ep = _make_episode()
-    ctx = _make_context(tmp_path)
+    ep = make_episode(published=None)
+    ctx = make_context(tmp_path)
 
     Pipeline(steps=[step], context=ctx).run([ep])
 
@@ -84,11 +61,11 @@ def test_pipeline_saves_status_after_step(tmp_path: Path):
     assert len(list(episodes_dir.glob("*.json"))) == 1
 
 
-def test_pipeline_step_filter_runs_only_named_step(tmp_path: Path):
+def test_pipeline_step_filter_runs_only_named_step(tmp_path, make_episode, make_context):
     step_a = FakeStep(name="step-a")
     step_b = FakeStep(name="step-b")
-    ep = _make_episode()
-    ctx = _make_context(tmp_path)
+    ep = make_episode(published=None)
+    ctx = make_context(tmp_path)
 
     Pipeline(steps=[step_a, step_b], context=ctx).run([ep], step_filter="step-a")
 
@@ -96,37 +73,37 @@ def test_pipeline_step_filter_runs_only_named_step(tmp_path: Path):
     assert step_b.call_count == 0
 
 
-def test_pipeline_step_filter_unknown_raises(tmp_path: Path):
+def test_pipeline_step_filter_unknown_raises(tmp_path, make_episode, make_context):
     step = FakeStep()
-    ep = _make_episode()
-    ctx = _make_context(tmp_path)
+    ep = make_episode(published=None)
+    ctx = make_context(tmp_path)
 
     with pytest.raises(ValueError, match="not found in pipeline"):
         Pipeline(steps=[step], context=ctx).run([ep], step_filter="nonexistent")
 
 
-def test_pipeline_overwrite_reruns_completed_step(tmp_path: Path):
+def test_pipeline_overwrite_reruns_completed_step(tmp_path, make_episode, make_context):
     step = FakeStep()
     completed = StepStatus(completed_at="2024-01-01T00:00:00", result={})
-    ep = _make_episode(status={"fake": completed})
-    ctx = _make_context(tmp_path)
+    ep = make_episode(published=None, status={"fake": completed})
+    ctx = make_context(tmp_path)
 
     Pipeline(steps=[step], context=ctx).run([ep], overwrite=True)
 
     assert step.call_count == 1
 
 
-def test_pipeline_runs_multiple_episodes(tmp_path: Path):
+def test_pipeline_runs_multiple_episodes(tmp_path, make_episode, make_context):
     step = FakeStep()
-    episodes = [_make_episode(slug=f"ep-{i}") for i in range(3)]
-    ctx = _make_context(tmp_path)
+    episodes = [make_episode(published=None, slug=f"ep-{i}") for i in range(3)]
+    ctx = make_context(tmp_path)
 
     Pipeline(steps=[step], context=ctx).run(episodes)
 
     assert step.call_count == 3
 
 
-def test_pipeline_continues_to_next_episode_after_failure(tmp_path: Path):
+def test_pipeline_continues_to_next_episode_after_failure(tmp_path, make_episode, make_context):
     """A failing step should be caught; subsequent episodes still run."""
     call_log = []
 
@@ -139,8 +116,8 @@ def test_pipeline_continues_to_next_episode_after_failure(tmp_path: Path):
                 raise RuntimeError("simulated failure")
             return StepResult()
 
-    episodes = [_make_episode(slug=f"ep-{i}") for i in range(3)]
-    ctx = _make_context(tmp_path)
+    episodes = [make_episode(published=None, slug=f"ep-{i}") for i in range(3)]
+    ctx = make_context(tmp_path)
 
     Pipeline(steps=[BoomStep()], context=ctx).run(episodes)
 
@@ -152,7 +129,7 @@ def test_pipeline_continues_to_next_episode_after_failure(tmp_path: Path):
     assert "boom" in episodes[2].status
 
 
-def test_pipeline_stops_remaining_steps_on_failure(tmp_path: Path):
+def test_pipeline_stops_remaining_steps_on_failure(tmp_path, make_episode, make_context):
     """A failing step should prevent later steps from running for that episode."""
     step_a_log = []
     step_b_log = []
@@ -171,8 +148,8 @@ def test_pipeline_stops_remaining_steps_on_failure(tmp_path: Path):
             step_b_log.append(episode.slug)
             return StepResult()
 
-    ep = _make_episode()
-    ctx = _make_context(tmp_path)
+    ep = make_episode(published=None)
+    ctx = make_context(tmp_path)
 
     Pipeline(steps=[FailingStepA(), StepB()], context=ctx).run([ep])
 
@@ -197,8 +174,8 @@ def test_register_and_get_step(tmp_path: Path):
         STEP_REGISTRY.pop("test-register-step", None)
 
 
-def test_pipeline_context_podcast_dir(tmp_path: Path):
-    ctx = _make_context(tmp_path)
+def test_pipeline_context_podcast_dir(tmp_path, make_context):
+    ctx = make_context(tmp_path)
     assert ctx.podcast_dir == tmp_path / "test-podcast"
 
 

@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from podcast_etl.detectors import AdSegment
-from podcast_etl.models import Episode, Podcast, StepStatus
+from podcast_etl.models import StepStatus
 from podcast_etl.pipeline import PipelineContext
 from podcast_etl.steps.strip_ads import (
     StripAdsStep,
@@ -21,18 +21,27 @@ from podcast_etl.steps.strip_ads import (
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_podcast():
-    return Podcast(
-        title="My Podcast",
-        url="https://example.com/rss",
-        slug="my-podcast",
-        description="desc",
-        image_url=None,
-        episodes=[],
+_EPISODE_DEFAULTS = dict(
+    title="Episode One",
+    guid="guid-1",
+    published="Mon, 15 Jan 2024 00:00:00 +0000",
+    audio_url="https://example.com/ep1.mp3",
+    duration="3600",
+    description="desc",
+    slug="episode-one",
+)
+
+
+@pytest.fixture
+def podcast(make_podcast):
+    return make_podcast(
+        title="My Podcast", url="https://example.com/rss",
+        slug="my-podcast", description="desc", episodes=[],
     )
 
 
-def _make_episode(
+def _episode_with_status(
+    make_episode,
     download_path="audio/episode.mp3",
     detect_segments=None,
     audio_duration=3600.0,
@@ -54,20 +63,10 @@ def _make_episode(
                 "transcript_path": "transcripts/episode.json",
             },
         )
-    return Episode(
-        title="Episode One",
-        guid="guid-1",
-        published="Mon, 15 Jan 2024 00:00:00 +0000",
-        audio_url="https://example.com/ep1.mp3",
-        duration="3600",
-        description="desc",
-        slug="episode-one",
-        status=status,
-    )
+    return make_episode(**_EPISODE_DEFAULTS, status=status)
 
 
-def _make_context(tmp_path):
-    podcast = _make_podcast()
+def _make_context(tmp_path, podcast):
     return PipelineContext(
         output_dir=tmp_path / "output",
         podcast=podcast,
@@ -151,9 +150,9 @@ class TestBuildFfmpegArgs:
 # ---------------------------------------------------------------------------
 
 class TestStripAdsStep:
-    def test_no_segments_returns_original_path(self, tmp_path):
-        context = _make_context(tmp_path)
-        episode = _make_episode(detect_segments=[])
+    def test_no_segments_returns_original_path(self, tmp_path, make_episode, podcast):
+        context = _make_context(tmp_path, podcast)
+        episode = _episode_with_status(make_episode, detect_segments=[])
         _create_audio_file(context)
 
         result = StripAdsStep().process(episode, context)
@@ -162,10 +161,10 @@ class TestStripAdsStep:
         assert result.data["segments_removed"] == 0
         assert result.data["duration_removed"] == 0.0
 
-    def test_strips_ads_with_ffmpeg(self, tmp_path):
-        context = _make_context(tmp_path)
+    def test_strips_ads_with_ffmpeg(self, tmp_path, make_episode, podcast):
+        context = _make_context(tmp_path, podcast)
         segments = [AdSegment(start=0.0, end=30.0, confidence=0.9, detector="transcription", label="Ad")]
-        episode = _make_episode(detect_segments=segments, audio_duration=600.0)
+        episode = _episode_with_status(make_episode, detect_segments=segments, audio_duration=600.0)
         _create_audio_file(context)
 
         mock_result = MagicMock()
@@ -186,10 +185,10 @@ class TestStripAdsStep:
         assert result.data["chapters"][0]["title"] == "Chapter 1"
         assert "Ad" in result.data["comment"]
 
-    def test_idempotent_skips_if_cleaned_exists(self, tmp_path):
-        context = _make_context(tmp_path)
+    def test_idempotent_skips_if_cleaned_exists(self, tmp_path, make_episode, podcast):
+        context = _make_context(tmp_path, podcast)
         segments = [AdSegment(start=0.0, end=30.0, confidence=0.9, detector="transcription")]
-        episode = _make_episode(detect_segments=segments)
+        episode = _episode_with_status(make_episode, detect_segments=segments)
         _create_audio_file(context)
 
         # Pre-create cleaned file
@@ -204,11 +203,11 @@ class TestStripAdsStep:
         mock_run.assert_not_called()
         assert result.data["path"] == "cleaned/episode.mp3"
 
-    def test_overwrites_when_overwrite_true(self, tmp_path):
-        context = _make_context(tmp_path)
+    def test_overwrites_when_overwrite_true(self, tmp_path, make_episode, podcast):
+        context = _make_context(tmp_path, podcast)
         context.overwrite = True
         segments = [AdSegment(start=0.0, end=30.0, confidence=0.9, detector="transcription")]
-        episode = _make_episode(detect_segments=segments, audio_duration=600.0)
+        episode = _episode_with_status(make_episode, detect_segments=segments, audio_duration=600.0)
         _create_audio_file(context)
 
         # Pre-create cleaned file
@@ -225,16 +224,16 @@ class TestStripAdsStep:
 
         mock_run.assert_called_once()
 
-    def test_raises_if_no_detect_ads_step(self, tmp_path):
-        context = _make_context(tmp_path)
-        episode = _make_episode()  # no detect_ads status
+    def test_raises_if_no_detect_ads_step(self, tmp_path, make_episode, podcast):
+        context = _make_context(tmp_path, podcast)
+        episode = _episode_with_status(make_episode)  # no detect_ads status
 
         with pytest.raises(ValueError, match="no completed 'detect_ads' step"):
             StripAdsStep().process(episode, context)
 
-    def test_raises_if_no_download_step(self, tmp_path):
-        context = _make_context(tmp_path)
-        episode = _make_episode(download_path=None)
+    def test_raises_if_no_download_step(self, tmp_path, make_episode, podcast):
+        context = _make_context(tmp_path, podcast)
+        episode = _episode_with_status(make_episode, download_path=None)
         # Manually add detect_ads status
         episode.status["detect_ads"] = StepStatus(
             completed_at="2024-01-15T10:05:00",
@@ -245,10 +244,10 @@ class TestStripAdsStep:
         with pytest.raises(ValueError, match="no completed 'download' step"):
             StripAdsStep().process(episode, context)
 
-    def test_raises_on_ffmpeg_failure(self, tmp_path):
-        context = _make_context(tmp_path)
+    def test_raises_on_ffmpeg_failure(self, tmp_path, make_episode, podcast):
+        context = _make_context(tmp_path, podcast)
         segments = [AdSegment(start=0.0, end=30.0, confidence=0.9, detector="transcription")]
-        episode = _make_episode(detect_segments=segments, audio_duration=600.0)
+        episode = _episode_with_status(make_episode, detect_segments=segments, audio_duration=600.0)
         _create_audio_file(context)
 
         mock_result = MagicMock()

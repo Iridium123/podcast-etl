@@ -14,7 +14,7 @@ from podcast_etl.steps.download import DownloadStep
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_episode(audio_url="https://example.com/ep.mp3", published="Mon, 01 Jan 2024 00:00:00 +0000", **kwargs) -> Episode:
+def make_episode(audio_url="https://example.com/ep.mp3", published="Mon, 01 Jan 2024 00:00:00 +0000", **kwargs) -> Episode:
     defaults = dict(
         title="Episode 1",
         guid="guid-1",
@@ -57,32 +57,32 @@ def _mock_httpx_stream(chunks: list[bytes]):
 # episode_basename
 # ---------------------------------------------------------------------------
 
-def test_episode_basename_with_valid_published_date():
-    ep = _make_episode(title="Great Episode", published="Mon, 01 Jan 2024 00:00:00 +0000")
+def test_episode_basename_with_valid_published_date(make_episode):
+    ep = make_episode(title="Great Episode", published="Mon, 01 Jan 2024 00:00:00 +0000")
     assert episode_basename("My Podcast", ep.title, ep.published) + ".mp3" == "My Podcast - 2024-01-01 - Great Episode.mp3"
 
 
-def test_episode_basename_with_no_published_date():
-    ep = _make_episode(title="No Date Episode", published=None)
+def test_episode_basename_with_no_published_date(make_episode):
+    ep = make_episode(title="No Date Episode", published=None)
     basename = episode_basename("My Podcast", ep.title, ep.published)
     assert basename.startswith("My Podcast - unknown-date - ")
 
 
-def test_episode_basename_with_invalid_published_date():
-    ep = _make_episode(title="Bad Date", published="not a real date")
+def test_episode_basename_with_invalid_published_date(make_episode):
+    ep = make_episode(title="Bad Date", published="not a real date")
     basename = episode_basename("My Podcast", ep.title, ep.published)
     assert basename.startswith("My Podcast - unknown-date - ")
 
 
-def test_episode_basename_sanitizes_title():
+def test_episode_basename_sanitizes_title(make_episode):
     """Colons in titles should be converted to ' - ' in filenames."""
-    ep = _make_episode(title="Ep 1: Great Title", published="Mon, 01 Jan 2024 00:00:00 +0000")
+    ep = make_episode(title="Ep 1: Great Title", published="Mon, 01 Jan 2024 00:00:00 +0000")
     assert episode_basename("My Podcast", ep.title, ep.published) + ".mp3" == "My Podcast - 2024-01-01 - Ep 1 - Great Title.mp3"
 
 
-def test_episode_basename_sanitizes_podcast_title():
+def test_episode_basename_sanitizes_podcast_title(make_episode):
     """Colons in podcast title should be sanitized."""
-    ep = _make_episode(title="Episode", published="Mon, 01 Jan 2024 00:00:00 +0000")
+    ep = make_episode(title="Episode", published="Mon, 01 Jan 2024 00:00:00 +0000")
     assert episode_basename("My Podcast: Season 1", ep.title, ep.published) + ".mp3" == "My Podcast - Season 1 - 2024-01-01 - Episode.mp3"
 
 
@@ -90,9 +90,9 @@ def test_episode_basename_sanitizes_podcast_title():
 # process — extension extraction
 # ---------------------------------------------------------------------------
 
-def test_process_extracts_mp3_extension_from_url(tmp_path: Path):
-    ctx = _make_context(tmp_path)
-    ep = _make_episode(audio_url="https://example.com/episode.mp3")
+def test_process_extracts_mp3_extension_from_url(tmp_path, make_episode, make_context):
+    ctx = make_context(tmp_path)
+    ep = make_episode(audio_url="https://example.com/episode.mp3")
 
     with patch("podcast_etl.steps.download.httpx.stream", _mock_httpx_stream([b"audio data"])):
         result = DownloadStep().process(ep, ctx)
@@ -100,9 +100,9 @@ def test_process_extracts_mp3_extension_from_url(tmp_path: Path):
     assert result.data["path"].endswith(".mp3")
 
 
-def test_process_strips_query_string_before_extracting_extension(tmp_path: Path):
-    ctx = _make_context(tmp_path)
-    ep = _make_episode(audio_url="https://example.com/episode.mp3?token=abc&t=123")
+def test_process_strips_query_string_before_extracting_extension(tmp_path, make_episode, make_context):
+    ctx = make_context(tmp_path)
+    ep = make_episode(audio_url="https://example.com/episode.mp3?token=abc&t=123")
 
     with patch("podcast_etl.steps.download.httpx.stream", _mock_httpx_stream([b"audio data"])):
         result = DownloadStep().process(ep, ctx)
@@ -110,9 +110,9 @@ def test_process_strips_query_string_before_extracting_extension(tmp_path: Path)
     assert result.data["path"].endswith(".mp3")
 
 
-def test_process_defaults_to_mp3_when_url_has_no_extension(tmp_path: Path):
-    ctx = _make_context(tmp_path)
-    ep = _make_episode(audio_url="https://example.com/stream/episode")
+def test_process_defaults_to_mp3_when_url_has_no_extension(tmp_path, make_episode, make_context):
+    ctx = make_context(tmp_path)
+    ep = make_episode(audio_url="https://example.com/stream/episode")
 
     with patch("podcast_etl.steps.download.httpx.stream", _mock_httpx_stream([b"audio data"])):
         result = DownloadStep().process(ep, ctx)
@@ -124,9 +124,9 @@ def test_process_defaults_to_mp3_when_url_has_no_extension(tmp_path: Path):
 # process — file already exists
 # ---------------------------------------------------------------------------
 
-def test_process_skips_download_if_file_already_exists(tmp_path: Path):
-    ctx = _make_context(tmp_path)
-    ep = _make_episode(audio_url="https://example.com/ep.mp3", published="Mon, 01 Jan 2024 00:00:00 +0000")
+def test_process_skips_download_if_file_already_exists(tmp_path, make_episode, make_context):
+    ctx = make_context(tmp_path)
+    ep = make_episode(audio_url="https://example.com/ep.mp3", published="Mon, 01 Jan 2024 00:00:00 +0000")
 
     # Pre-create the expected file
     audio_dir = ctx.podcast_dir / "audio"
@@ -145,9 +145,9 @@ def test_process_skips_download_if_file_already_exists(tmp_path: Path):
 # process — download
 # ---------------------------------------------------------------------------
 
-def test_process_downloads_and_saves_file(tmp_path: Path):
-    ctx = _make_context(tmp_path)
-    ep = _make_episode(audio_url="https://example.com/ep.mp3", published="Mon, 01 Jan 2024 00:00:00 +0000")
+def test_process_downloads_and_saves_file(tmp_path, make_episode, make_context):
+    ctx = make_context(tmp_path)
+    ep = make_episode(audio_url="https://example.com/ep.mp3", published="Mon, 01 Jan 2024 00:00:00 +0000")
     audio_content = b"fake audio bytes"
 
     with patch("podcast_etl.steps.download.httpx.stream", _mock_httpx_stream([audio_content])):
@@ -159,9 +159,9 @@ def test_process_downloads_and_saves_file(tmp_path: Path):
     assert saved_path.read_bytes() == audio_content
 
 
-def test_process_creates_audio_directory(tmp_path: Path):
-    ctx = _make_context(tmp_path)
-    ep = _make_episode(audio_url="https://example.com/ep.mp3")
+def test_process_creates_audio_directory(tmp_path, make_episode, make_context):
+    ctx = make_context(tmp_path)
+    ep = make_episode(audio_url="https://example.com/ep.mp3")
 
     with patch("podcast_etl.steps.download.httpx.stream", _mock_httpx_stream([b"data"])):
         DownloadStep().process(ep, ctx)
@@ -169,9 +169,9 @@ def test_process_creates_audio_directory(tmp_path: Path):
     assert (ctx.podcast_dir / "audio").is_dir()
 
 
-def test_process_result_path_is_relative_to_podcast_dir(tmp_path: Path):
-    ctx = _make_context(tmp_path)
-    ep = _make_episode(audio_url="https://example.com/ep.mp3")
+def test_process_result_path_is_relative_to_podcast_dir(tmp_path, make_episode, make_context):
+    ctx = make_context(tmp_path)
+    ep = make_episode(audio_url="https://example.com/ep.mp3")
 
     with patch("podcast_etl.steps.download.httpx.stream", _mock_httpx_stream([b"data"])):
         result = DownloadStep().process(ep, ctx)
@@ -183,17 +183,17 @@ def test_process_result_path_is_relative_to_podcast_dir(tmp_path: Path):
 # process — error cases
 # ---------------------------------------------------------------------------
 
-def test_process_raises_if_no_audio_url(tmp_path: Path):
-    ctx = _make_context(tmp_path)
-    ep = _make_episode(audio_url=None)
+def test_process_raises_if_no_audio_url(tmp_path, make_episode, make_context):
+    ctx = make_context(tmp_path)
+    ep = make_episode(audio_url=None)
 
     with pytest.raises(ValueError, match="No audio URL"):
         DownloadStep().process(ep, ctx)
 
 
-def test_process_propagates_http_error(tmp_path: Path):
-    ctx = _make_context(tmp_path)
-    ep = _make_episode(audio_url="https://example.com/ep.mp3")
+def test_process_propagates_http_error(tmp_path, make_episode, make_context):
+    ctx = make_context(tmp_path)
+    ep = make_episode(audio_url="https://example.com/ep.mp3")
 
     mock_response = MagicMock()
     mock_response.raise_for_status.side_effect = Exception("404 Not Found")

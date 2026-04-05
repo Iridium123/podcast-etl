@@ -6,45 +6,43 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from podcast_etl.models import Episode, Podcast, StepStatus
+from podcast_etl.models import StepStatus
 from podcast_etl.pipeline import PipelineContext
 from podcast_etl.steps.upload import UploadStep
 
 TORRENT_PATH = "/output/my-podcast/torrents/episode-one.torrent"
 
 
-def _make_podcast():
-    return Podcast(
-        title="My Podcast",
-        url="https://example.com/rss",
-        slug="my-podcast",
-        description="desc",
-        image_url=None,
-        episodes=[],
+_EPISODE_DEFAULTS = dict(
+    title="Episode One",
+    guid="guid-1",
+    published="2024-01-15T00:00:00",
+    audio_url="https://example.com/ep1.mp3",
+    duration="3600",
+    description="desc",
+    slug="episode-one",
+)
+
+
+@pytest.fixture
+def podcast(make_podcast):
+    return make_podcast(
+        title="My Podcast", url="https://example.com/rss",
+        slug="my-podcast", description="desc", episodes=[],
     )
 
 
-def _make_episode(with_torrent: bool = True) -> Episode:
+def _episode_with_torrent(make_episode, with_torrent=True):
     status = {}
     if with_torrent:
         status["torrent"] = StepStatus(
             completed_at="2024-01-15T10:00:00",
             result={"torrent_path": TORRENT_PATH, "info_hash": "abc123"},
         )
-    return Episode(
-        title="Episode One",
-        guid="guid-1",
-        published="2024-01-15T00:00:00",
-        audio_url="https://example.com/ep1.mp3",
-        duration="3600",
-        description="desc",
-        slug="episode-one",
-        status=status,
-    )
+    return make_episode(**_EPISODE_DEFAULTS, status=status)
 
 
-def _make_context(tmp_path: Path) -> PipelineContext:
-    podcast = _make_podcast()
+def _make_context(tmp_path: Path, podcast) -> PipelineContext:
     config = {
         "tracker": {
             "url": "https://tracker.example.com",
@@ -63,9 +61,9 @@ def _make_context(tmp_path: Path) -> PipelineContext:
 
 
 class TestUploadStep:
-    def test_calls_tracker_upload(self, tmp_path):
-        context = _make_context(tmp_path)
-        episode = _make_episode()
+    def test_calls_tracker_upload(self, tmp_path, make_episode, podcast):
+        context = _make_context(tmp_path, podcast)
+        episode = _episode_with_torrent(make_episode)
 
         mock_tracker = MagicMock()
         mock_tracker.upload.return_value = {"torrent_id": 42, "url": "https://tracker.example.com/torrents/42"}
@@ -87,28 +85,27 @@ class TestUploadStep:
         assert result.data["torrent_id"] == 42
         assert result.data["url"] == "https://tracker.example.com/torrents/42"
 
-    def test_raises_if_no_torrent_status(self, tmp_path):
-        context = _make_context(tmp_path)
-        episode = _make_episode(with_torrent=False)
+    def test_raises_if_no_torrent_status(self, tmp_path, make_episode, podcast):
+        context = _make_context(tmp_path, podcast)
+        episode = _episode_with_torrent(make_episode, with_torrent=False)
 
         with pytest.raises(ValueError, match="no completed 'torrent' step"):
             UploadStep().process(episode, context)
 
-    def test_raises_if_no_tracker_configured(self, tmp_path):
-        podcast = _make_podcast()
+    def test_raises_if_no_tracker_configured(self, tmp_path, make_episode, podcast):
         context = PipelineContext(
             output_dir=tmp_path / "output",
             podcast=podcast,
             config={"category_id": 14, "type_id": 9},
         )
-        episode = _make_episode()
+        episode = _episode_with_torrent(make_episode)
 
         with pytest.raises(ValueError, match="No tracker configured"):
             UploadStep().process(episode, context)
 
-    def test_propagates_tracker_error(self, tmp_path):
-        context = _make_context(tmp_path)
-        episode = _make_episode()
+    def test_propagates_tracker_error(self, tmp_path, make_episode, podcast):
+        context = _make_context(tmp_path, podcast)
+        episode = _episode_with_torrent(make_episode)
 
         mock_tracker = MagicMock()
         mock_tracker.upload.side_effect = ValueError("Feed config must specify 'category_id'")
@@ -117,9 +114,9 @@ class TestUploadStep:
             with pytest.raises(ValueError, match="category_id"):
                 UploadStep().process(episode, context)
 
-    def test_writes_checkpoint_after_upload(self, tmp_path):
-        context = _make_context(tmp_path)
-        episode = _make_episode()
+    def test_writes_checkpoint_after_upload(self, tmp_path, make_episode, podcast):
+        context = _make_context(tmp_path, podcast)
+        episode = _episode_with_torrent(make_episode)
 
         mock_tracker = MagicMock()
         mock_tracker.upload.return_value = {"torrent_id": 42, "url": "https://tracker.example.com/torrents/42"}
@@ -132,9 +129,9 @@ class TestUploadStep:
         data = json.loads(checkpoint.read_text())
         assert data["torrent_id"] == 42
 
-    def test_skips_upload_if_checkpoint_exists(self, tmp_path):
-        context = _make_context(tmp_path)
-        episode = _make_episode()
+    def test_skips_upload_if_checkpoint_exists(self, tmp_path, make_episode, podcast):
+        context = _make_context(tmp_path, podcast)
+        episode = _episode_with_torrent(make_episode)
 
         checkpoint = context.podcast_dir / "uploads" / f"{episode.slug}.json"
         checkpoint.parent.mkdir(parents=True)
@@ -147,10 +144,10 @@ class TestUploadStep:
         mock_tracker.upload.assert_not_called()
         assert result.data["torrent_id"] == 99
 
-    def test_overwrite_ignores_checkpoint(self, tmp_path):
-        context = _make_context(tmp_path)
+    def test_overwrite_ignores_checkpoint(self, tmp_path, make_episode, podcast):
+        context = _make_context(tmp_path, podcast)
         context.overwrite = True
-        episode = _make_episode()
+        episode = _episode_with_torrent(make_episode)
 
         checkpoint = context.podcast_dir / "uploads" / f"{episode.slug}.json"
         checkpoint.parent.mkdir(parents=True)
@@ -166,8 +163,7 @@ class TestUploadStep:
         assert result.data["torrent_id"] == 100
         assert json.loads(checkpoint.read_text())["torrent_id"] == 100
 
-    def test_tracker_config_from_resolved_config(self, tmp_path):
-        podcast = _make_podcast()
+    def test_tracker_config_from_resolved_config(self, tmp_path, make_episode, podcast):
         context = PipelineContext(
             output_dir=tmp_path / "output",
             podcast=podcast,
@@ -183,7 +179,7 @@ class TestUploadStep:
                 "type_id": 9,
             },
         )
-        episode = _make_episode()
+        episode = _episode_with_torrent(make_episode)
 
         mock_tracker = MagicMock()
         mock_tracker.upload.return_value = {"torrent_id": 42, "url": "https://tracker.example.com/torrents/42"}
@@ -195,8 +191,7 @@ class TestUploadStep:
         assert called_config["mod_queue_opt_in"] == 1
         assert called_config["url"] == "https://tracker.example.com"
 
-    def test_tracker_description_suffix_in_resolved_config(self, tmp_path):
-        podcast = _make_podcast()
+    def test_tracker_description_suffix_in_resolved_config(self, tmp_path, make_episode, podcast):
         context = PipelineContext(
             output_dir=tmp_path / "output",
             podcast=podcast,
@@ -212,7 +207,7 @@ class TestUploadStep:
                 "type_id": 9,
             },
         )
-        episode = _make_episode()
+        episode = _episode_with_torrent(make_episode)
 
         mock_tracker = MagicMock()
         mock_tracker.upload.return_value = {"torrent_id": 42, "url": "https://tracker.example.com/torrents/42"}
@@ -223,9 +218,9 @@ class TestUploadStep:
         called_config = mock_from_config.call_args[0][0]
         assert called_config["description_suffix"] == "Per-feed suffix"
 
-    def test_corrupt_checkpoint_triggers_reupload(self, tmp_path):
-        context = _make_context(tmp_path)
-        episode = _make_episode()
+    def test_corrupt_checkpoint_triggers_reupload(self, tmp_path, make_episode, podcast):
+        context = _make_context(tmp_path, podcast)
+        episode = _episode_with_torrent(make_episode)
 
         checkpoint = context.podcast_dir / "uploads" / f"{episode.slug}.json"
         checkpoint.parent.mkdir(parents=True)
@@ -245,9 +240,9 @@ class TestUploadStep:
 
 
 class TestUploadStepCoverOverride:
-    def test_passes_episode_image_as_cover_override(self, tmp_path):
-        context = _make_context(tmp_path)
-        episode = _make_episode()
+    def test_passes_episode_image_as_cover_override(self, tmp_path, make_episode, podcast):
+        context = _make_context(tmp_path, podcast)
+        episode = _episode_with_torrent(make_episode)
 
         # Create a fake resolved image
         images_dir = context.podcast_dir / "images"
@@ -270,9 +265,9 @@ class TestUploadStepCoverOverride:
         call_kwargs = mock_tracker.upload.call_args.kwargs
         assert call_kwargs["cover_image_override"] == converted
 
-    def test_no_episode_image_passes_none(self, tmp_path):
-        context = _make_context(tmp_path)
-        episode = _make_episode()
+    def test_no_episode_image_passes_none(self, tmp_path, make_episode, podcast):
+        context = _make_context(tmp_path, podcast)
+        episode = _episode_with_torrent(make_episode)
 
         mock_tracker = MagicMock()
         mock_tracker.upload.return_value = {"torrent_id": 42, "url": "https://tracker.example.com/torrents/42"}

@@ -59,34 +59,28 @@ def test_step_status_roundtrip():
 
 # --- Episode roundtrip ---
 
-def _make_episode(**kwargs) -> Episode:
-    defaults = dict(
-        title="Test Episode",
-        guid="guid-123",
-        published="Mon, 01 Jan 2024 00:00:00 +0000",
-        audio_url="https://example.com/ep.mp3",
-        duration="1:00:00",
-        description="A test episode.",
-        slug="test-episode",
-        status={},
-    )
-    defaults.update(kwargs)
-    return Episode(**defaults)
+_EP_DEFAULTS = dict(
+    title="Test Episode",
+    guid="guid-123",
+    duration="1:00:00",
+    description="A test episode.",
+    slug="test-episode",
+)
 
 
-def test_episode_dict_roundtrip():
-    ep = _make_episode()
+def test_episode_dict_roundtrip(make_episode):
+    ep = make_episode(**_EP_DEFAULTS)
     assert Episode.from_dict(ep.to_dict()) == ep
 
 
-def test_episode_dict_roundtrip_with_status():
+def test_episode_dict_roundtrip_with_status(make_episode):
     status = {"download": StepStatus(completed_at="2024-01-01T00:00:00", result={"size_bytes": 42})}
-    ep = _make_episode(status=status)
+    ep = make_episode(**_EP_DEFAULTS, status=status)
     assert Episode.from_dict(ep.to_dict()) == ep
 
 
-def test_episode_save_and_load(tmp_path: Path):
-    ep = _make_episode()
+def test_episode_save_and_load(tmp_path, make_episode):
+    ep = make_episode(**_EP_DEFAULTS)
     ep.save(tmp_path, "My Podcast")
     files = list((tmp_path / "episodes").glob("*.json"))
     assert len(files) == 1
@@ -94,8 +88,8 @@ def test_episode_save_and_load(tmp_path: Path):
     assert loaded == ep
 
 
-def test_episode_save_creates_directory(tmp_path: Path):
-    ep = _make_episode()
+def test_episode_save_creates_directory(tmp_path, make_episode):
+    ep = make_episode(**_EP_DEFAULTS)
     ep.save(tmp_path, "My Podcast")
     assert (tmp_path / "episodes").exists()
     assert len(list((tmp_path / "episodes").glob("*.json"))) == 1
@@ -103,26 +97,22 @@ def test_episode_save_creates_directory(tmp_path: Path):
 
 # --- Podcast roundtrip ---
 
-def _make_podcast(**kwargs) -> Podcast:
-    defaults = dict(
-        title="My Podcast",
-        url="https://example.com/feed.xml",
-        description="A podcast.",
-        image_url="https://example.com/img.png",
-        slug="my-podcast",
-    )
-    defaults.update(kwargs)
-    return Podcast(**defaults)
+_PODCAST_DEFAULTS = dict(
+    title="My Podcast",
+    description="A podcast.",
+    image_url="https://example.com/img.png",
+    slug="my-podcast",
+)
 
 
-def test_podcast_dict_roundtrip():
-    p = _make_podcast()
+def test_podcast_dict_roundtrip(make_podcast):
+    p = make_podcast(**_PODCAST_DEFAULTS)
     assert Podcast.from_dict(p.to_dict()) == p
 
 
-def test_podcast_save_and_load(tmp_path: Path):
-    ep = _make_episode()
-    p = _make_podcast()
+def test_podcast_save_and_load(tmp_path, make_episode, make_podcast):
+    ep = make_episode(**_EP_DEFAULTS)
+    p = make_podcast(**_PODCAST_DEFAULTS)
     p.episodes = [ep]
     p.save(tmp_path)
 
@@ -133,9 +123,9 @@ def test_podcast_save_and_load(tmp_path: Path):
     assert loaded.episodes[0].slug == ep.slug
 
 
-def test_podcast_load_no_episodes_dir(tmp_path: Path):
+def test_podcast_load_no_episodes_dir(tmp_path, make_podcast):
     # Save a podcast with no episodes — episodes dir is never created
-    p = _make_podcast()
+    p = make_podcast(**_PODCAST_DEFAULTS)
     p.save(tmp_path)
     assert not (tmp_path / "my-podcast" / "episodes").exists()
 
@@ -155,48 +145,48 @@ def test_step_status_from_dict_missing_result_defaults_to_empty():
     assert s.result == {}
 
 
-def test_episode_from_dict_with_none_status_value():
-    ep = _make_episode()
+def test_episode_from_dict_with_none_status_value(make_episode):
+    ep = make_episode(**_EP_DEFAULTS)
     d = ep.to_dict()
     d["status"]["download"] = None
     loaded = Episode.from_dict(d)
     assert loaded.status["download"] is None
 
 
-def test_episode_dict_roundtrip_with_image_url():
-    ep = _make_episode(image_url="https://example.com/ep1.jpg")
+def test_episode_dict_roundtrip_with_image_url(make_episode):
+    ep = make_episode(**_EP_DEFAULTS, image_url="https://example.com/ep1.jpg")
     assert Episode.from_dict(ep.to_dict()) == ep
     assert ep.to_dict()["image_url"] == "https://example.com/ep1.jpg"
 
 
-def test_episode_dict_roundtrip_without_image_url():
-    ep = _make_episode()
+def test_episode_dict_roundtrip_without_image_url(make_episode):
+    ep = make_episode(**_EP_DEFAULTS)
     assert ep.image_url is None
     roundtripped = Episode.from_dict(ep.to_dict())
     assert roundtripped.image_url is None
 
 
-def test_episode_dict_roundtrip_with_episode_number():
-    ep = _make_episode(episode_number=42)
+def test_episode_dict_roundtrip_with_episode_number(make_episode):
+    ep = make_episode(**_EP_DEFAULTS, episode_number=42)
     assert ep.to_dict()["episode_number"] == 42
     assert Episode.from_dict(ep.to_dict()) == ep
 
 
-def test_episode_dict_roundtrip_without_episode_number():
-    ep = _make_episode()
+def test_episode_dict_roundtrip_without_episode_number(make_episode):
+    ep = make_episode(**_EP_DEFAULTS)
     assert ep.episode_number is None
     roundtripped = Episode.from_dict(ep.to_dict())
     assert roundtripped.episode_number is None
 
 
-def test_episode_dict_roundtrip_with_raw_title():
-    ep = _make_episode(raw_title="Original RSS Title")
+def test_episode_dict_roundtrip_with_raw_title(make_episode):
+    ep = make_episode(**_EP_DEFAULTS, raw_title="Original RSS Title")
     roundtripped = Episode.from_dict(ep.to_dict())
     assert roundtripped.raw_title == "Original RSS Title"
 
 
-def test_episode_dict_roundtrip_without_raw_title():
-    ep = _make_episode()
+def test_episode_dict_roundtrip_without_raw_title(make_episode):
+    ep = make_episode(**_EP_DEFAULTS)
     roundtripped = Episode.from_dict(ep.to_dict())
     assert roundtripped.raw_title is None
 
@@ -251,8 +241,8 @@ def test_episode_json_filename_different_guid_different_hash():
 
 # --- Episode.save() GUID-based filenames ---
 
-def test_episode_save_uses_guid_based_filename(tmp_path: Path):
-    ep = _make_episode(raw_title="My Raw Title")
+def test_episode_save_uses_guid_based_filename(tmp_path, make_episode):
+    ep = make_episode(**_EP_DEFAULTS, raw_title="My Raw Title")
     ep.save(tmp_path, "My Podcast")
     # Should NOT use the old title-based pattern
     old_pattern = tmp_path / "episodes" / "My Podcast - 2024-01-01 - Test Episode.json"
@@ -264,8 +254,8 @@ def test_episode_save_uses_guid_based_filename(tmp_path: Path):
     assert files[0].name.startswith("2024-01-01-my-raw-title-")
 
 
-def test_episode_save_no_raw_title_falls_back_to_title(tmp_path: Path):
-    ep = _make_episode()  # raw_title is None
+def test_episode_save_no_raw_title_falls_back_to_title(tmp_path, make_episode):
+    ep = make_episode(**_EP_DEFAULTS)  # raw_title is None
     ep.save(tmp_path, "My Podcast")
     files = list((tmp_path / "episodes").glob("*.json"))
     assert len(files) == 1
@@ -273,10 +263,10 @@ def test_episode_save_no_raw_title_falls_back_to_title(tmp_path: Path):
     assert files[0].name.startswith("2024-01-01-test-episode-")
 
 
-def test_podcast_load_no_duplicates_unchanged(tmp_path: Path):
+def test_podcast_load_no_duplicates_unchanged(tmp_path, make_episode, make_podcast):
     """Normal load with unique GUIDs is unaffected."""
-    ep = _make_episode(raw_title="Test Episode")
-    p = _make_podcast()
+    ep = make_episode(**_EP_DEFAULTS, raw_title="Test Episode")
+    p = make_podcast(**_PODCAST_DEFAULTS)
     p.episodes = [ep]
     p.save(tmp_path)
 
