@@ -149,10 +149,15 @@ async def feed_delete_confirm(request: Request, name: str):
         from fastapi import HTTPException
         raise HTTPException(status_code=404, detail=f"Feed {name!r} not found.")
 
+    token = secrets.token_urlsafe(16)
+    if not hasattr(request.app.state, "pending_deletes"):
+        request.app.state.pending_deletes = {}
+    request.app.state.pending_deletes[token] = name
+
     return templates.TemplateResponse(
         request,
         "feeds/delete_confirm.html",
-        {"feed": feed, "name": name},
+        {"feed": feed, "name": name, "token": token},
     )
 
 
@@ -161,6 +166,14 @@ async def feed_delete(request: Request, name: str):
     import shutil
 
     from podcast_etl.service import find_feed_config, get_output_dir, load_config, save_config
+
+    form_data = await request.form()
+    token = str(form_data.get("token", ""))
+    pending = getattr(request.app.state, "pending_deletes", {})
+    expected_name = pending.pop(token, None)
+    if not expected_name or expected_name != name:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="Invalid or expired delete token.")
 
     config = load_config(request.app.state.config_path)
     feed = find_feed_config(config, name)
@@ -402,6 +415,8 @@ def _parse_feed_form(form_data, all_steps: list[str]) -> tuple[dict, str | None]
         del base["pipeline"]
     if any(title_cleaning.values()):
         base["title_cleaning"] = title_cleaning
+    elif "title_cleaning" in base:
+        del base["title_cleaning"]
 
     return base, None
 

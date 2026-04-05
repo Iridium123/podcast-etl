@@ -85,6 +85,8 @@ def _parse_defaults_form(form_data, all_steps: list[str]) -> tuple[dict, int | N
         del base["pipeline"]
     if any(title_cleaning.values()):
         base["title_cleaning"] = title_cleaning
+    elif "title_cleaning" in base:
+        del base["title_cleaning"]
 
     return base, poll_interval, None
 

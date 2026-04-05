@@ -418,6 +418,15 @@ def test_delete_feed_confirmation_page(tmp_path: Path) -> None:
     assert "delete" in response.text.lower()
 
 
+def _get_delete_token(client: TestClient, name: str) -> str:
+    """Get the CSRF token from the delete confirmation page."""
+    import re
+    response = client.get(f"/feeds/{name}/delete")
+    match = re.search(r'name="token"\s+value="([^"]+)"', response.text)
+    assert match, "Delete confirmation page should contain a token"
+    return match.group(1)
+
+
 def test_delete_feed_removes_from_config(tmp_path: Path) -> None:
     cfg_path = _write_config(tmp_path, {
         "feeds": [
@@ -428,11 +437,27 @@ def test_delete_feed_removes_from_config(tmp_path: Path) -> None:
     })
     app = create_app(cfg_path, start_poller=False)
     client = TestClient(app)
-    response = client.post("/feeds/show-a/delete", follow_redirects=False)
+    token = _get_delete_token(client, "show-a")
+    response = client.post("/feeds/show-a/delete", data={"token": token}, follow_redirects=False)
     assert response.status_code == 303
     updated = yaml.safe_load(cfg_path.read_text())
     assert len(updated["feeds"]) == 1
     assert updated["feeds"][0]["name"] == "show-b"
+
+
+def test_delete_feed_rejects_missing_token(tmp_path: Path) -> None:
+    """POST without a valid token should be rejected."""
+    cfg_path = _write_config(tmp_path, {
+        "feeds": [{"url": "http://a.com/rss", "name": "show-a"}],
+        "defaults": {"output_dir": str(tmp_path / "output"), "pipeline": ["download"]},
+    })
+    app = create_app(cfg_path, start_poller=False)
+    client = TestClient(app, raise_server_exceptions=False)
+    response = client.post("/feeds/show-a/delete", data={"token": ""})
+    assert response.status_code == 400
+    # Feed should NOT be deleted
+    updated = yaml.safe_load(cfg_path.read_text())
+    assert len(updated["feeds"]) == 1
 
 
 def test_delete_feed_removes_matching_directory(tmp_path: Path) -> None:
@@ -457,7 +482,8 @@ def test_delete_feed_removes_matching_directory(tmp_path: Path) -> None:
     })
     app = create_app(cfg_path, start_poller=False)
     client = TestClient(app)
-    client.post("/feeds/show-a/delete", follow_redirects=False)
+    token = _get_delete_token(client, "show-a")
+    client.post("/feeds/show-a/delete", data={"token": token}, follow_redirects=False)
 
     assert not show_a_dir.exists(), "Podcast directory should be deleted"
 
@@ -486,7 +512,8 @@ def test_delete_feed_leaves_other_directories_intact(tmp_path: Path) -> None:
     })
     app = create_app(cfg_path, start_poller=False)
     client = TestClient(app)
-    client.post("/feeds/show-a/delete", follow_redirects=False)
+    token = _get_delete_token(client, "show-a")
+    client.post("/feeds/show-a/delete", data={"token": token}, follow_redirects=False)
 
     assert not (output_dir / "show-a-slug").exists(), "Deleted feed dir should be gone"
     assert (output_dir / "show-b-slug").exists(), "Other feed dir should remain"
@@ -501,7 +528,8 @@ def test_delete_feed_no_output_dir_does_not_crash(tmp_path: Path) -> None:
     })
     app = create_app(cfg_path, start_poller=False)
     client = TestClient(app)
-    response = client.post("/feeds/show-a/delete", follow_redirects=False)
+    token = _get_delete_token(client, "show-a")
+    response = client.post("/feeds/show-a/delete", data={"token": token}, follow_redirects=False)
     assert response.status_code == 303
     updated = yaml.safe_load(cfg_path.read_text())
     assert len(updated["feeds"]) == 0
@@ -531,7 +559,8 @@ def test_delete_feed_skips_dirs_without_podcast_json(tmp_path: Path) -> None:
     })
     app = create_app(cfg_path, start_poller=False)
     client = TestClient(app)
-    client.post("/feeds/show-a/delete", follow_redirects=False)
+    token = _get_delete_token(client, "show-a")
+    client.post("/feeds/show-a/delete", data={"token": token}, follow_redirects=False)
 
     assert not show_dir.exists(), "Matching podcast dir should be deleted"
     assert random_dir.exists(), "Non-podcast dir should remain"
@@ -557,7 +586,8 @@ def test_delete_feed_does_not_delete_mismatched_url(tmp_path: Path) -> None:
     })
     app = create_app(cfg_path, start_poller=False)
     client = TestClient(app)
-    client.post("/feeds/show-a/delete", follow_redirects=False)
+    token = _get_delete_token(client, "show-a")
+    client.post("/feeds/show-a/delete", data={"token": token}, follow_redirects=False)
 
     assert other_dir.exists(), "Dir with different URL should not be deleted"
 

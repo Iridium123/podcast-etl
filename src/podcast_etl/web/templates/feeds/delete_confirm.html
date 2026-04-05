@@ -24,6 +24,7 @@
 </div>
 
 <form method="post" action="/feeds/{{ name }}/delete">
+  <input type="hidden" name="token" value="{{ token }}">
   <div class="flex items-center gap-3">
     <button type="submit"
             class="px-6 py-2 bg-red-700 hover:bg-red-600 text-white text-sm font-medium rounded">
