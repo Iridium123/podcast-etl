@@ -171,8 +171,10 @@ async def feed_delete(request: Request, name: str):
 
     # Remove feed from config
     url = feed.get("url", "")
+    logger.info("Deleting feed %r (url=%s)", name, url)
     config["feeds"] = [f for f in config.get("feeds", []) if f.get("name") != name and f.get("url") != name]
     save_config(config, request.app.state.config_path)
+    logger.info("Removed feed %r from config at %s", name, request.app.state.config_path)
 
     # Delete output directory for this feed
     output_dir = get_output_dir(config)
@@ -190,8 +192,15 @@ async def feed_delete(request: Request, name: str):
             except Exception:
                 continue
             if podcast.url == url:
-                shutil.rmtree(podcast_dir, ignore_errors=True)
+                abs_path = podcast_dir.resolve()
+                logger.info("Deleting podcast directory: %s", abs_path)
+                shutil.rmtree(abs_path, ignore_errors=True)
+                logger.info("Deleted podcast directory: %s", abs_path)
                 break
+        else:
+            logger.info("No podcast directory found on disk for url=%s", url)
+    else:
+        logger.info("No output directory to clean up (output_dir=%s, url=%s)", output_dir, url)
 
     return RedirectResponse(url="/feeds", status_code=303)
 
