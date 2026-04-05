@@ -24,6 +24,7 @@ from podcast_etl.service import (
     get_output_dir,
     get_pipeline_steps,
     load_config,
+    reset_feed_data,
     run_pipeline,
     save_config,
     validate_config,
@@ -248,32 +249,37 @@ def reset(ctx: click.Context, feed_identifier: str | None, reset_all: bool, yes:
         click.echo("Specify --feed NAME or --all")
         sys.exit(1)
 
-    target_dirs: list[Path] = []
-    if output_dir.exists():
-        for d in sorted(output_dir.iterdir()):
-            if not d.is_dir() or not (d / "podcast.json").exists():
-                continue
-            if reset_all:
-                target_dirs.append(d)
-            else:
-                data = json.loads((d / "podcast.json").read_text())
-                feed_config = find_feed_config(config, feed_identifier)  # type: ignore[arg-type]
-                resolved_url = feed_config["url"] if feed_config else feed_identifier
-                if data.get("url") == resolved_url:
-                    target_dirs.append(d)
-                    break
-
-    if not target_dirs:
-        click.echo(f"No data found for {'all feeds' if reset_all else feed_identifier}")
-        return
-
-    if not yes:
-        dirs_display = ", ".join(str(d) for d in target_dirs)
-        click.confirm(f"Delete all data in {dirs_display}? This cannot be undone.", abort=True)
-
-    for d in target_dirs:
-        shutil.rmtree(d)
-        click.echo(f"Deleted {d}")
+    if reset_all:
+        # Collect all podcast dirs
+        target_urls: list[str] = []
+        if output_dir.exists():
+            for d in sorted(output_dir.iterdir()):
+                if not d.is_dir() or not (d / "podcast.json").exists():
+                    continue
+                try:
+                    podcast = Podcast.load(d)
+                    target_urls.append(podcast.url)
+                except Exception:
+                    continue
+        if not target_urls:
+            click.echo("No data found for all feeds")
+            return
+        if not yes:
+            click.confirm(f"Delete all data for {len(target_urls)} feed(s)? This cannot be undone.", abort=True)
+        for url in target_urls:
+            deleted = reset_feed_data(output_dir, url)
+            if deleted:
+                click.echo(f"Deleted {deleted}")
+    else:
+        feed_config = find_feed_config(config, feed_identifier)  # type: ignore[arg-type]
+        resolved_url = feed_config["url"] if feed_config else feed_identifier
+        if not yes:
+            click.confirm(f"Delete all data for {feed_identifier!r}? This cannot be undone.", abort=True)
+        deleted = reset_feed_data(output_dir, resolved_url)  # type: ignore[arg-type]
+        if deleted:
+            click.echo(f"Deleted {deleted}")
+        else:
+            click.echo(f"No data found for {feed_identifier}")
 
 
 @main.command()
