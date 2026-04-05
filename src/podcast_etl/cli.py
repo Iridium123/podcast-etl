@@ -112,13 +112,9 @@ def find_feed_config(config: dict, identifier: str) -> dict | None:
     return None
 
 
-def reset_feed_data(output_dir: Path, url: str) -> Path | None:
-    """Delete the podcast output directory matching the given feed URL.
-
-    Returns the deleted directory path, or None if no match was found.
-    """
+def find_podcast_dir(output_dir: Path, url: str) -> Path | None:
+    """Find the podcast output directory matching the given feed URL."""
     if not output_dir.exists() or not url:
-        logger.info("No output directory to clean up (output_dir=%s, url=%s)", output_dir, url)
         return None
 
     for podcast_dir in sorted(output_dir.iterdir()):
@@ -132,14 +128,25 @@ def reset_feed_data(output_dir: Path, url: str) -> Path | None:
         except Exception:
             continue
         if data.get("url") == url:
-            abs_path = podcast_dir.resolve()
-            logger.info("Deleting podcast directory: %s", abs_path)
-            shutil.rmtree(abs_path)
-            logger.info("Deleted podcast directory: %s", abs_path)
-            return abs_path
+            return podcast_dir.resolve()
 
-    logger.info("No podcast directory found on disk for url=%s", url)
     return None
+
+
+def reset_feed_data(output_dir: Path, url: str) -> Path | None:
+    """Delete the podcast output directory matching the given feed URL.
+
+    Returns the deleted directory path, or None if no match was found.
+    """
+    abs_path = find_podcast_dir(output_dir, url)
+    if abs_path is None:
+        logger.info("No podcast directory found on disk for url=%s", url)
+        return None
+
+    logger.info("Deleting podcast directory: %s", abs_path)
+    shutil.rmtree(abs_path)
+    logger.info("Deleted podcast directory: %s", abs_path)
+    return abs_path
 
 
 def delete_feed(config: dict, config_path: Path, identifier: str) -> tuple[str | None, Path | None]:
@@ -410,27 +417,18 @@ def reset(ctx: click.Context, feed_identifier: str | None, reset_all: bool, yes:
         click.echo("Specify --feed NAME or --all")
         sys.exit(1)
 
-    # Resolve URL once before scanning
-    resolved_url: str | None = None
-    if not reset_all:
+    target_dirs: list[Path] = []
+    if reset_all:
+        if output_dir.exists():
+            for d in sorted(output_dir.iterdir()):
+                if d.is_dir() and (d / "podcast.json").exists():
+                    target_dirs.append(d)
+    else:
         fc = find_feed_config(config, feed_identifier)  # type: ignore[arg-type]
         resolved_url = fc["url"] if fc else feed_identifier
-
-    target_dirs: list[Path] = []
-    if output_dir.exists():
-        for d in sorted(output_dir.iterdir()):
-            if not d.is_dir() or not (d / "podcast.json").exists():
-                continue
-            if reset_all:
-                target_dirs.append(d)
-            else:
-                try:
-                    data = json.loads((d / "podcast.json").read_text())
-                except Exception:
-                    continue
-                if data.get("url") == resolved_url:
-                    target_dirs.append(d)
-                    break
+        match = find_podcast_dir(output_dir, resolved_url)
+        if match:
+            target_dirs.append(match)
 
     if not target_dirs:
         click.echo(f"No data found for {'all feeds' if reset_all else feed_identifier}")
