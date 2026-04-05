@@ -130,17 +130,17 @@
     </div>
   </div>
 
-  <!-- Advanced overrides section -->
+  <!-- Full feed config section -->
   <div class="bg-gray-800 border border-gray-700 rounded-lg p-6">
-    <h2 class="text-lg font-semibold text-gray-100 mb-1">Advanced overrides</h2>
+    <h2 class="text-lg font-semibold text-gray-100 mb-1">Full feed config (YAML)</h2>
     <p class="text-xs text-gray-500 mb-4">
-      Raw YAML for tracker, ad_detection, audiobookshelf, client, and other nested overrides.
-      Must be a valid YAML mapping.
+      The complete feed configuration as YAML. Form fields above take precedence over this on save.
+      Use this to set tracker, ad_detection, audiobookshelf, client, and other nested options.
     </p>
     <textarea id="extra_yaml" name="extra_yaml" rows="10"
               spellcheck="false"
-              placeholder="# e.g.&#10;# tracker:&#10;#   mod_queue_opt_in: 1"
-              class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-gray-100 text-sm font-mono focus:outline-none focus:border-blue-500 resize-y">{{ extra_yaml if extra_yaml else defaults_preview }}</textarea>
+              placeholder=""
+              class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-gray-100 text-sm font-mono focus:outline-none focus:border-blue-500 resize-y">{{ full_feed_yaml or "" }}</textarea>
   </div>
 
   <!-- Buttons -->

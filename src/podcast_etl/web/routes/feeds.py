@@ -151,8 +151,9 @@ async def feed_detail(request: Request, name: str):
     output_dir = get_output_dir(config)
     episodes = []
     step_names: list[str] = resolved.get("pipeline") or ["download"]
+    podcast_slug = None
     if output_dir.exists():
-        from podcast_etl.models import Podcast as PodcastModel
+        from podcast_etl.models import Podcast as PodcastModel, format_date
 
         url = feed.get("url", "")
         for podcast_dir in sorted(output_dir.iterdir()):
@@ -167,6 +168,7 @@ async def feed_detail(request: Request, name: str):
                 continue
             if podcast.url != url:
                 continue
+            podcast_slug = podcast.slug
             for ep in podcast.episodes:
                 ep_statuses = {}
                 for step_name in step_names:
@@ -174,8 +176,28 @@ async def feed_detail(request: Request, name: str):
                         ep_statuses[step_name] = "done"
                     else:
                         ep_statuses[step_name] = "pending"
-                episodes.append({"title": ep.title, "statuses": ep_statuses})
+                episodes.append({
+                    "title": ep.title,
+                    "statuses": ep_statuses,
+                    "published": format_date(ep.published),
+                    "_published_raw": ep.published or "",
+                })
             break
+
+    # Sort episodes newest first
+    episodes.sort(key=lambda e: e["_published_raw"], reverse=True)
+
+    # Build directory paths if we have a podcast slug
+    dirs = None
+    if podcast_slug is not None:
+        torrent_data_dir = resolved.get("torrent_data_dir", "/torrent-data")
+        dirs = {
+            "audio": str(output_dir / podcast_slug / "audio") + "/",
+            "cleaned": str(output_dir / podcast_slug / "cleaned") + "/",
+            "transcripts": str(output_dir / podcast_slug / "transcripts") + "/",
+            "torrents": str(output_dir / podcast_slug / "torrents") + "/",
+            "staged": str(torrent_data_dir).rstrip("/") + "/" + podcast_slug + "/",
+        }
 
     return templates.TemplateResponse(
         request,
@@ -188,6 +210,7 @@ async def feed_detail(request: Request, name: str):
             "source_map": source_map,
             "step_names": step_names,
             "episodes": episodes,
+            "dirs": dirs,
         },
     )
 
@@ -209,20 +232,7 @@ async def feed_edit_form(request: Request, name: str):
         from fastapi import HTTPException
         raise HTTPException(status_code=404, detail=f"Feed {name!r} not found.")
 
-    _, extra = split_config_fields(feed, KNOWN_FEED_FIELDS)
-    extra_yaml = yaml.dump(extra, default_flow_style=False, sort_keys=False) if extra else ""
-
-    # Build defaults_preview: inherited defaults for non-known fields, as commented YAML
-    defaults = config.get("defaults", {})
-    from podcast_etl.service import KNOWN_FEED_FIELDS as KFF  # noqa: N812 (same ref)
-    inherited_extras = {k: v for k, v in defaults.items() if k not in KFF}
-    if inherited_extras:
-        lines = ["# Inherited from defaults (uncomment to override):"]
-        for line in yaml.dump(inherited_extras, default_flow_style=False, sort_keys=False).splitlines():
-            lines.append(f"# {line}")
-        defaults_preview = "\n".join(lines)
-    else:
-        defaults_preview = ""
+    full_feed_yaml = yaml.dump(feed, default_flow_style=False, sort_keys=False)
 
     all_steps = list(STEP_REGISTRY.keys())
 
@@ -231,8 +241,7 @@ async def feed_edit_form(request: Request, name: str):
         "feeds/form.html",
         {
             "feed": feed,
-            "extra_yaml": extra_yaml,
-            "defaults_preview": defaults_preview,
+            "full_feed_yaml": full_feed_yaml,
             "all_steps": all_steps,
             "error": None,
         },
@@ -242,10 +251,9 @@ async def feed_edit_form(request: Request, name: str):
 def _parse_feed_form(form_data, all_steps: list[str]) -> tuple[dict, str | None]:
     """Parse feed edit form data into (updated_feed_dict, error_str_or_None).
 
+    The full-feed YAML textarea is the base; form fields overlay on top (form fields win).
     Returns (feed_dict, None) on success, or ({}, error_message) on parse failure.
     """
-    from podcast_etl.service import merge_config_fields
-
     url = str(form_data.get("url", ""))
     feed_name = str(form_data.get("name", ""))
     enabled = str(form_data.get("enabled", ""))
@@ -263,44 +271,52 @@ def _parse_feed_form(form_data, all_steps: list[str]) -> tuple[dict, str | None]
         "sanitize": form_data.get("title_sanitize") == "on",
     }
 
-    known: dict = {"url": url}
-    if feed_name:
-        known["name"] = feed_name
-    known["enabled"] = enabled == "on"
-    if last.strip():
-        try:
-            known["last"] = int(last.strip())
-        except ValueError:
-            pass
-    if episode_filter.strip():
-        known["episode_filter"] = episode_filter.strip()
-    if category_id.strip():
-        try:
-            known["category_id"] = int(category_id.strip())
-        except ValueError:
-            known["category_id"] = category_id.strip()
-    if type_id.strip():
-        try:
-            known["type_id"] = int(type_id.strip())
-        except ValueError:
-            known["type_id"] = type_id.strip()
-    if pipeline:
-        known["pipeline"] = pipeline
-    if any(title_cleaning.values()):
-        known["title_cleaning"] = title_cleaning
-
-    extra: dict = {}
+    # Start from the full YAML textarea as base
+    base: dict = {}
     if extra_yaml.strip():
         try:
             parsed = yaml.safe_load(extra_yaml)
             if parsed is not None:
                 if not isinstance(parsed, dict):
-                    raise ValueError("Extra YAML must be a mapping")
-                extra = parsed
+                    raise ValueError("Full feed YAML must be a mapping")
+                base = parsed
         except (yaml.YAMLError, ValueError) as exc:
             return {}, f"Invalid YAML: {exc}"
 
-    return merge_config_fields(known, extra), None
+    # Overlay form field values on top (form fields always win)
+    if url:
+        base["url"] = url
+    if feed_name:
+        base["name"] = feed_name
+    base["enabled"] = enabled == "on"
+    if last.strip():
+        try:
+            base["last"] = int(last.strip())
+        except ValueError:
+            pass
+    elif "last" in base and not last.strip():
+        # If form field is cleared, remove it
+        del base["last"]
+    if episode_filter.strip():
+        base["episode_filter"] = episode_filter.strip()
+    elif "episode_filter" in base and not episode_filter.strip():
+        del base["episode_filter"]
+    if category_id.strip():
+        try:
+            base["category_id"] = int(category_id.strip())
+        except ValueError:
+            base["category_id"] = category_id.strip()
+    if type_id.strip():
+        try:
+            base["type_id"] = int(type_id.strip())
+        except ValueError:
+            base["type_id"] = type_id.strip()
+    if pipeline:
+        base["pipeline"] = pipeline
+    if any(title_cleaning.values()):
+        base["title_cleaning"] = title_cleaning
+
+    return base, None
 
 
 @router.post("/{name}", response_class=HTMLResponse)
@@ -318,11 +334,9 @@ async def feed_save(
 ):
     from podcast_etl.pipeline import STEP_REGISTRY
     from podcast_etl.service import (
-        KNOWN_FEED_FIELDS,
         find_feed_config,
         load_config,
         save_config,
-        split_config_fields,
         validate_config,
     )
 
@@ -338,15 +352,12 @@ async def feed_save(
 
     updated_feed, error = _parse_feed_form(form_data, all_steps)
     if error:
-        _, existing_extra = split_config_fields(existing_feed, KNOWN_FEED_FIELDS)
-        existing_extra_yaml = yaml.dump(existing_extra, default_flow_style=False, sort_keys=False) if existing_extra else ""
         return templates.TemplateResponse(
             request,
             "feeds/form.html",
             {
                 "feed": existing_feed,
-                "extra_yaml": extra_yaml,
-                "defaults_preview": "",
+                "full_feed_yaml": extra_yaml,
                 "all_steps": all_steps,
                 "error": error,
             },
@@ -375,15 +386,12 @@ async def feed_save(
     try:
         validate_config(config)
     except SystemExit as exc:
-        _, existing_extra = split_config_fields(existing_feed, KNOWN_FEED_FIELDS)
-        existing_extra_yaml = yaml.dump(existing_extra, default_flow_style=False, sort_keys=False) if existing_extra else ""
         return templates.TemplateResponse(
             request,
             "feeds/form.html",
             {
                 "feed": existing_feed,
-                "extra_yaml": extra_yaml,
-                "defaults_preview": "",
+                "full_feed_yaml": extra_yaml,
                 "all_steps": all_steps,
                 "error": str(exc),
             },
@@ -401,10 +409,8 @@ async def feed_save_preview(request: Request, name: str):
     """Show diff preview before saving. If valid, display confirm page."""
     from podcast_etl.pipeline import STEP_REGISTRY
     from podcast_etl.service import (
-        KNOWN_FEED_FIELDS,
         find_feed_config,
         load_config,
-        split_config_fields,
         validate_config,
     )
 
@@ -421,15 +427,12 @@ async def feed_save_preview(request: Request, name: str):
 
     updated_feed, error = _parse_feed_form(form_data, all_steps)
     if error:
-        _, existing_extra = split_config_fields(existing_feed, KNOWN_FEED_FIELDS)
-        existing_extra_yaml = yaml.dump(existing_extra, default_flow_style=False, sort_keys=False) if existing_extra else ""
         return templates.TemplateResponse(
             request,
             "feeds/form.html",
             {
                 "feed": existing_feed,
-                "extra_yaml": extra_yaml_raw,
-                "defaults_preview": "",
+                "full_feed_yaml": extra_yaml_raw,
                 "all_steps": all_steps,
                 "error": error,
             },
@@ -458,15 +461,12 @@ async def feed_save_preview(request: Request, name: str):
     try:
         validate_config(candidate_config)
     except SystemExit as exc:
-        _, existing_extra = split_config_fields(existing_feed, KNOWN_FEED_FIELDS)
-        existing_extra_yaml = yaml.dump(existing_extra, default_flow_style=False, sort_keys=False) if existing_extra else ""
         return templates.TemplateResponse(
             request,
             "feeds/form.html",
             {
                 "feed": existing_feed,
-                "extra_yaml": extra_yaml_raw,
-                "defaults_preview": "",
+                "full_feed_yaml": extra_yaml_raw,
                 "all_steps": all_steps,
                 "error": str(exc),
             },

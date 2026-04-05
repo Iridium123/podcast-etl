@@ -68,6 +68,23 @@
     </div>
     {% endif %}
 
+    <!-- Directories section (only shown when podcast data exists on disk) -->
+    {% if dirs %}
+    <div class="bg-gray-800 border border-gray-700 rounded-lg p-4">
+      <div class="font-semibold text-gray-200 mb-3">Directories</div>
+      <dl class="space-y-2 text-sm">
+        {% for label, path in [("Audio", dirs.audio), ("Cleaned", dirs.cleaned), ("Transcripts", dirs.transcripts), ("Torrents", dirs.torrents), ("Staged", dirs.staged)] %}
+        <div class="flex gap-2 items-center">
+          <dt class="text-gray-400 w-24 shrink-0">{{ label }}</dt>
+          <dd class="text-gray-100 font-mono text-xs break-all flex-1">{{ path }}</dd>
+          <button onclick="navigator.clipboard.writeText('{{ path }}')"
+                  class="text-xs text-gray-500 hover:text-gray-300 ml-2 shrink-0">copy</button>
+        </div>
+        {% endfor %}
+      </dl>
+    </div>
+    {% endif %}
+
     <!-- Resolved config collapsible -->
     <details class="bg-gray-800 border border-gray-700 rounded-lg">
       <summary class="px-4 py-3 font-semibold text-gray-200 cursor-pointer select-none">
@@ -90,6 +107,7 @@
           <thead>
             <tr class="text-left border-b border-gray-700">
               <th class="pb-2 pr-3 text-gray-400 font-medium">Title</th>
+              <th class="pb-2 pr-3 text-gray-400 font-medium whitespace-nowrap">Date</th>
               {% for step in step_names %}
               <th class="pb-2 px-1 text-gray-400 font-medium text-center">{{ step }}</th>
               {% endfor %}
@@ -99,6 +117,7 @@
             {% for ep in episodes %}
             <tr>
               <td class="py-2 pr-3 text-gray-100 max-w-xs truncate">{{ ep.title }}</td>
+              <td class="py-2 pr-3 text-gray-400 text-xs whitespace-nowrap">{{ ep.published or "" }}</td>
               {% for step in step_names %}
               <td class="py-2 px-1 text-center">
                 {% if ep.statuses[step] == "done" %}

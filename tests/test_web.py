@@ -226,10 +226,10 @@ def test_add_feed_duplicate_rejected(tmp_path: Path) -> None:
     assert "already exists" in response.text.lower()
 
 
-def test_feed_edit_form_shows_defaults_preview(tmp_path: Path) -> None:
-    """Edit form should show inherited defaults when extra_yaml is empty."""
+def test_feed_edit_form_shows_full_yaml(tmp_path: Path) -> None:
+    """Edit form should show the full feed config YAML in the textarea."""
     cfg_path = _write_config(tmp_path, {
-        "feeds": [{"url": "http://a.com/rss", "name": "show-a"}],
+        "feeds": [{"url": "http://a.com/rss", "name": "show-a", "tracker": {"mod_queue_opt_in": 1}}],
         "defaults": {
             "output_dir": str(tmp_path / "output"),
             "pipeline": ["download"],
@@ -240,9 +240,10 @@ def test_feed_edit_form_shows_defaults_preview(tmp_path: Path) -> None:
     client = TestClient(app)
     response = client.get("/feeds/show-a/edit")
     assert response.status_code == 200
-    # The defaults_preview should appear in the textarea as commented YAML
-    assert "Inherited from defaults" in response.text
-    assert "tracker" in response.text
+    # The full feed YAML should appear in the textarea, including per-feed overrides
+    assert "Full feed config" in response.text
+    assert "show-a" in response.text
+    assert "mod_queue_opt_in" in response.text
 
 
 def test_feed_preview_shows_diff_page(tmp_path: Path) -> None:
