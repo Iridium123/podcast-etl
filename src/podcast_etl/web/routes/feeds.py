@@ -357,19 +357,19 @@ def _parse_feed_form(form_data, all_steps: list[str]) -> tuple[dict, str | None]
     base["enabled"] = enabled == "on"
     if title_override.strip():
         base["title_override"] = title_override.strip()
-    elif "title_override" in base and not title_override.strip():
+    elif "title_override" in base:
         del base["title_override"]
     if last.strip():
         try:
             base["last"] = int(last.strip())
         except ValueError:
             pass
-    elif "last" in base and not last.strip():
+    elif "last" in base:
         # If form field is cleared, remove it
         del base["last"]
     if episode_filter.strip():
         base["episode_filter"] = episode_filter.strip()
-    elif "episode_filter" in base and not episode_filter.strip():
+    elif "episode_filter" in base:
         del base["episode_filter"]
     if category_id.strip():
         try:

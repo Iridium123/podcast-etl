@@ -602,3 +602,82 @@ def test_resolved_config_with_sources_empty_defaults() -> None:
     feed = {"url": "https://example.com/rss", "pipeline": ["download"]}
     _resolved, source_map = get_resolved_config_with_sources(defaults, feed)
     assert all(v == "feed" for v in source_map.values())
+
+
+# ---------------------------------------------------------------------------
+# reset_feed_data
+# ---------------------------------------------------------------------------
+
+def _make_podcast_dir(output_dir: Path, slug: str, url: str) -> Path:
+    """Create a minimal podcast directory with podcast.json."""
+    import json
+    d = output_dir / slug
+    (d / "episodes").mkdir(parents=True)
+    (d / "podcast.json").write_text(json.dumps({
+        "title": slug, "url": url,
+        "description": None, "image_url": None, "slug": slug,
+    }))
+    return d
+
+
+def test_reset_feed_data_deletes_matching_dir(tmp_path: Path) -> None:
+    from podcast_etl.service import reset_feed_data
+    output_dir = tmp_path / "output"
+    podcast_dir = _make_podcast_dir(output_dir, "my-show", "http://example.com/rss")
+    (podcast_dir / "audio").mkdir()
+    (podcast_dir / "audio" / "ep.mp3").write_bytes(b"data")
+
+    deleted = reset_feed_data(output_dir, "http://example.com/rss")
+    assert deleted is not None
+    assert not podcast_dir.exists()
+
+
+def test_reset_feed_data_leaves_other_dirs(tmp_path: Path) -> None:
+    from podcast_etl.service import reset_feed_data
+    output_dir = tmp_path / "output"
+    _make_podcast_dir(output_dir, "show-a", "http://a.com/rss")
+    show_b = _make_podcast_dir(output_dir, "show-b", "http://b.com/rss")
+
+    reset_feed_data(output_dir, "http://a.com/rss")
+    assert show_b.exists()
+
+
+def test_reset_feed_data_no_match_returns_none(tmp_path: Path) -> None:
+    from podcast_etl.service import reset_feed_data
+    output_dir = tmp_path / "output"
+    _make_podcast_dir(output_dir, "show-a", "http://a.com/rss")
+
+    result = reset_feed_data(output_dir, "http://nonexistent.com/rss")
+    assert result is None
+
+
+def test_reset_feed_data_missing_output_dir(tmp_path: Path) -> None:
+    from podcast_etl.service import reset_feed_data
+    result = reset_feed_data(tmp_path / "nonexistent", "http://a.com/rss")
+    assert result is None
+
+
+def test_reset_feed_data_empty_url(tmp_path: Path) -> None:
+    from podcast_etl.service import reset_feed_data
+    output_dir = tmp_path / "output"
+    _make_podcast_dir(output_dir, "show-a", "http://a.com/rss")
+
+    result = reset_feed_data(output_dir, "")
+    assert result is None
+    assert (output_dir / "show-a").exists()
+
+
+def test_reset_feed_data_skips_corrupt_podcast_json(tmp_path: Path) -> None:
+    from podcast_etl.service import reset_feed_data
+    output_dir = tmp_path / "output"
+    # Create a dir with bad podcast.json
+    bad_dir = output_dir / "bad-show"
+    bad_dir.mkdir(parents=True)
+    (bad_dir / "podcast.json").write_text("not valid json{{{")
+    # Create a good dir
+    good_dir = _make_podcast_dir(output_dir, "good-show", "http://good.com/rss")
+
+    deleted = reset_feed_data(output_dir, "http://good.com/rss")
+    assert deleted is not None
+    assert not good_dir.exists()
+    assert bad_dir.exists()  # corrupt dir untouched

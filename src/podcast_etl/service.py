@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import logging
+import os
 import re
+import shutil
 from datetime import date
 from email.utils import parsedate_to_datetime
 from pathlib import Path
@@ -55,7 +57,6 @@ def load_config(config_path: Path) -> dict:
 
 
 def save_config(config: dict, config_path: Path) -> None:
-    import os
     text = yaml.dump(config, default_flow_style=False, sort_keys=False)
     tmp = config_path.with_suffix(".tmp")
     tmp.write_text(text)
@@ -111,8 +112,6 @@ def reset_feed_data(output_dir: Path, url: str) -> Path | None:
 
     Returns the deleted directory path, or None if no match was found.
     """
-    import shutil
-
     if not output_dir.exists() or not url:
         logger.info("No output directory to clean up (output_dir=%s, url=%s)", output_dir, url)
         return None
