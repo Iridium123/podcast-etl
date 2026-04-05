@@ -34,6 +34,14 @@
       </div>
 
       <div>
+        <label class="block text-sm text-gray-400 mb-1" for="title_override">Title override</label>
+        <input id="title_override" name="title_override" type="text"
+               value="{{ feed.title_override or '' }}"
+               placeholder="(uses RSS title)"
+               class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-gray-100 text-sm focus:outline-none focus:border-blue-500">
+      </div>
+
+      <div>
         <label class="block text-sm text-gray-400 mb-1" for="last">Last N episodes</label>
         <input id="last" name="last" type="number" min="1"
                value="{{ feed.last or '' }}"

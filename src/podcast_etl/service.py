@@ -228,6 +228,7 @@ def get_feed_status(output_dir: Path, config: dict) -> list[dict]:
 KNOWN_FEED_FIELDS = {
     "url", "name", "enabled", "last", "episode_filter",
     "category_id", "type_id", "pipeline", "title_cleaning",
+    "title_override",
 }
 
 KNOWN_DEFAULTS_FIELDS = {

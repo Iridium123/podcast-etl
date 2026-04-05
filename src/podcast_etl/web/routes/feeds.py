@@ -355,6 +355,7 @@ def _parse_feed_form(form_data, all_steps: list[str]) -> tuple[dict, str | None]
     url = str(form_data.get("url", ""))
     feed_name = str(form_data.get("name", ""))
     enabled = str(form_data.get("enabled", ""))
+    title_override = str(form_data.get("title_override", ""))
     last = str(form_data.get("last", ""))
     episode_filter = str(form_data.get("episode_filter", ""))
     category_id = str(form_data.get("category_id", ""))
@@ -387,6 +388,10 @@ def _parse_feed_form(form_data, all_steps: list[str]) -> tuple[dict, str | None]
     if feed_name:
         base["name"] = feed_name
     base["enabled"] = enabled == "on"
+    if title_override.strip():
+        base["title_override"] = title_override.strip()
+    elif "title_override" in base and not title_override.strip():
+        del base["title_override"]
     if last.strip():
         try:
             base["last"] = int(last.strip())

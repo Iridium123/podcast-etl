@@ -30,6 +30,12 @@
             {% endif %}
           </dd>
         </div>
+        {% if feed.get("title_override") %}
+        <div class="flex gap-2">
+          <dt class="text-gray-400 w-36 shrink-0">Title override</dt>
+          <dd class="text-gray-100">{{ feed.title_override }}</dd>
+        </div>
+        {% endif %}
         {% if feed.get("last") %}
         <div class="flex gap-2">
           <dt class="text-gray-400 w-36 shrink-0">Last N episodes</dt>
