@@ -118,6 +118,7 @@ def reset_feed_data(output_dir: Path, url: str) -> Path | None:
     Returns the deleted directory path, or None if no match was found.
     """
     if not output_dir.exists() or not url:
+        logger.info("No output directory to clean up (output_dir=%s, url=%s)", output_dir, url)
         return None
 
     for podcast_dir in sorted(output_dir.iterdir()):
@@ -134,8 +135,10 @@ def reset_feed_data(output_dir: Path, url: str) -> Path | None:
             abs_path = podcast_dir.resolve()
             logger.info("Deleting podcast directory: %s", abs_path)
             shutil.rmtree(abs_path, ignore_errors=True)
+            logger.info("Deleted podcast directory: %s", abs_path)
             return abs_path
 
+    logger.info("No podcast directory found on disk for url=%s", url)
     return None
 
 
@@ -410,6 +413,12 @@ def reset(ctx: click.Context, feed_identifier: str | None, reset_all: bool, yes:
         click.echo("Specify --feed NAME or --all")
         sys.exit(1)
 
+    # Resolve URL once before scanning
+    resolved_url: str | None = None
+    if not reset_all:
+        fc = find_feed_config(config, feed_identifier)  # type: ignore[arg-type]
+        resolved_url = fc["url"] if fc else feed_identifier
+
     target_dirs: list[Path] = []
     if output_dir.exists():
         for d in sorted(output_dir.iterdir()):
@@ -422,8 +431,6 @@ def reset(ctx: click.Context, feed_identifier: str | None, reset_all: bool, yes:
                     data = json.loads((d / "podcast.json").read_text())
                 except Exception:
                     continue
-                fc = find_feed_config(config, feed_identifier)  # type: ignore[arg-type]
-                resolved_url = fc["url"] if fc else feed_identifier
                 if data.get("url") == resolved_url:
                     target_dirs.append(d)
                     break
