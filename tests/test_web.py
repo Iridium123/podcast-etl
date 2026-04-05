@@ -435,6 +435,133 @@ def test_delete_feed_removes_from_config(tmp_path: Path) -> None:
     assert updated["feeds"][0]["name"] == "show-b"
 
 
+def test_delete_feed_removes_matching_directory(tmp_path: Path) -> None:
+    """Delete should remove the podcast dir whose podcast.url matches the feed URL."""
+    import json
+
+    output_dir = tmp_path / "output"
+    # Create podcast dir for show-a
+    show_a_dir = output_dir / "show-a-slug"
+    (show_a_dir / "episodes").mkdir(parents=True)
+    (show_a_dir / "audio").mkdir()
+    (show_a_dir / "podcast.json").write_text(json.dumps({
+        "title": "Show A", "url": "http://a.com/rss",
+        "description": None, "image_url": None, "slug": "show-a-slug",
+    }))
+    # Create a dummy audio file inside
+    (show_a_dir / "audio" / "episode.mp3").write_bytes(b"fake audio")
+
+    cfg_path = _write_config(tmp_path, {
+        "feeds": [{"url": "http://a.com/rss", "name": "show-a"}],
+        "defaults": {"output_dir": str(output_dir), "pipeline": ["download"]},
+    })
+    app = create_app(cfg_path, start_poller=False)
+    client = TestClient(app)
+    client.post("/feeds/show-a/delete", follow_redirects=False)
+
+    assert not show_a_dir.exists(), "Podcast directory should be deleted"
+
+
+def test_delete_feed_leaves_other_directories_intact(tmp_path: Path) -> None:
+    """Delete should only remove the directory matching the feed URL, not others."""
+    import json
+
+    output_dir = tmp_path / "output"
+    # Create podcast dirs for two feeds
+    for slug, url in [("show-a-slug", "http://a.com/rss"), ("show-b-slug", "http://b.com/rss")]:
+        d = output_dir / slug
+        (d / "episodes").mkdir(parents=True)
+        (d / "podcast.json").write_text(json.dumps({
+            "title": slug, "url": url,
+            "description": None, "image_url": None, "slug": slug,
+        }))
+        (d / "data.txt").write_text("keep me")
+
+    cfg_path = _write_config(tmp_path, {
+        "feeds": [
+            {"url": "http://a.com/rss", "name": "show-a"},
+            {"url": "http://b.com/rss", "name": "show-b"},
+        ],
+        "defaults": {"output_dir": str(output_dir), "pipeline": ["download"]},
+    })
+    app = create_app(cfg_path, start_poller=False)
+    client = TestClient(app)
+    client.post("/feeds/show-a/delete", follow_redirects=False)
+
+    assert not (output_dir / "show-a-slug").exists(), "Deleted feed dir should be gone"
+    assert (output_dir / "show-b-slug").exists(), "Other feed dir should remain"
+    assert (output_dir / "show-b-slug" / "data.txt").read_text() == "keep me"
+
+
+def test_delete_feed_no_output_dir_does_not_crash(tmp_path: Path) -> None:
+    """Delete should work even if the output directory doesn't exist."""
+    cfg_path = _write_config(tmp_path, {
+        "feeds": [{"url": "http://a.com/rss", "name": "show-a"}],
+        "defaults": {"output_dir": str(tmp_path / "nonexistent"), "pipeline": ["download"]},
+    })
+    app = create_app(cfg_path, start_poller=False)
+    client = TestClient(app)
+    response = client.post("/feeds/show-a/delete", follow_redirects=False)
+    assert response.status_code == 303
+    updated = yaml.safe_load(cfg_path.read_text())
+    assert len(updated["feeds"]) == 0
+
+
+def test_delete_feed_skips_dirs_without_podcast_json(tmp_path: Path) -> None:
+    """Directories without podcast.json should not be touched."""
+    import json
+
+    output_dir = tmp_path / "output"
+    # Create a random dir without podcast.json
+    random_dir = output_dir / "random-stuff"
+    random_dir.mkdir(parents=True)
+    (random_dir / "important.txt").write_text("don't delete me")
+
+    # Create the actual podcast dir
+    show_dir = output_dir / "show-a-slug"
+    (show_dir / "episodes").mkdir(parents=True)
+    (show_dir / "podcast.json").write_text(json.dumps({
+        "title": "Show A", "url": "http://a.com/rss",
+        "description": None, "image_url": None, "slug": "show-a-slug",
+    }))
+
+    cfg_path = _write_config(tmp_path, {
+        "feeds": [{"url": "http://a.com/rss", "name": "show-a"}],
+        "defaults": {"output_dir": str(output_dir), "pipeline": ["download"]},
+    })
+    app = create_app(cfg_path, start_poller=False)
+    client = TestClient(app)
+    client.post("/feeds/show-a/delete", follow_redirects=False)
+
+    assert not show_dir.exists(), "Matching podcast dir should be deleted"
+    assert random_dir.exists(), "Non-podcast dir should remain"
+    assert (random_dir / "important.txt").read_text() == "don't delete me"
+
+
+def test_delete_feed_does_not_delete_mismatched_url(tmp_path: Path) -> None:
+    """A podcast dir with a different URL should not be deleted."""
+    import json
+
+    output_dir = tmp_path / "output"
+    # Create podcast dir with a different URL than the feed being deleted
+    other_dir = output_dir / "other-show"
+    (other_dir / "episodes").mkdir(parents=True)
+    (other_dir / "podcast.json").write_text(json.dumps({
+        "title": "Other", "url": "http://other.com/rss",
+        "description": None, "image_url": None, "slug": "other-show",
+    }))
+
+    cfg_path = _write_config(tmp_path, {
+        "feeds": [{"url": "http://a.com/rss", "name": "show-a"}],
+        "defaults": {"output_dir": str(output_dir), "pipeline": ["download"]},
+    })
+    app = create_app(cfg_path, start_poller=False)
+    client = TestClient(app)
+    client.post("/feeds/show-a/delete", follow_redirects=False)
+
+    assert other_dir.exists(), "Dir with different URL should not be deleted"
+
+
 def test_add_feed_saves_all_fields(tmp_path: Path) -> None:
     cfg_path = _write_config(tmp_path, {
         "feeds": [],
