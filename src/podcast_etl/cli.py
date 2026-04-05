@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 logging.disable(logging.ERROR)
 
+import json
 import os
 import re
 import shutil
@@ -418,12 +419,12 @@ def reset(ctx: click.Context, feed_identifier: str | None, reset_all: bool, yes:
                 target_dirs.append(d)
             else:
                 try:
-                    podcast = Podcast.load(d)
+                    data = json.loads((d / "podcast.json").read_text())
                 except Exception:
                     continue
                 fc = find_feed_config(config, feed_identifier)  # type: ignore[arg-type]
                 resolved_url = fc["url"] if fc else feed_identifier
-                if podcast.url == resolved_url:
+                if data.get("url") == resolved_url:
                     target_dirs.append(d)
                     break
 
@@ -492,8 +493,8 @@ def status(ctx: click.Context, feed_url: str | None) -> None:
                 continue
             podcast_json = d / "podcast.json"
             if podcast_json.exists():
-                podcast = Podcast.load(d)
-                if podcast.url == resolved_url:
+                data = json.loads(podcast_json.read_text())
+                if data.get("url") == resolved_url:
                     podcast_dirs = [d]
                     break
         if not podcast_dirs:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from dataclasses import dataclass, field
@@ -50,6 +51,23 @@ def episode_basename(podcast_title: str, episode_title: str, published: str | No
     return f"{sanitize_filename(podcast_title)} - {date_prefix} - {sanitize_filename(episode_title)}"
 
 
+def episode_json_filename(guid: str, raw_title: str | None, published: str | None) -> str:
+    """Return the base filename (no extension) for an episode's JSON state file.
+
+    Uses a GUID hash for stability — the filename does not change when titles
+    are cleaned or modified in the RSS feed.
+    """
+    date_prefix = format_date(published) or "unknown-date"
+    slug = slugify(raw_title or "")
+    if len(slug) > 60:
+        cut = slug.rfind("-", 0, 61)
+        slug = slug[:cut] if cut > 0 else slug[:60]
+    guid_hash = hashlib.sha256(guid.encode()).hexdigest()[:8]
+    if slug:
+        return f"{date_prefix}-{slug}-{guid_hash}"
+    return f"{date_prefix}-{guid_hash}"
+
+
 @dataclass
 class StepStatus:
     completed_at: str
@@ -74,6 +92,7 @@ class Episode:
     slug: str
     image_url: str | None = None
     episode_number: int | None = None
+    raw_title: str | None = None
     status: dict[str, StepStatus | None] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -90,6 +109,7 @@ class Episode:
             "slug": self.slug,
             "image_url": self.image_url,
             "episode_number": self.episode_number,
+            "raw_title": self.raw_title,
             "status": status_dict,
         }
 
@@ -108,15 +128,19 @@ class Episode:
             slug=data["slug"],
             image_url=data.get("image_url"),
             episode_number=data.get("episode_number"),
+            raw_title=data.get("raw_title"),
             status=status,
         )
 
     def save(self, podcast_dir: Path, podcast_title: str) -> None:
         episodes_dir = podcast_dir / "episodes"
         episodes_dir.mkdir(parents=True, exist_ok=True)
-        filename = episode_basename(podcast_title, self.title, self.published) + ".json"
+        filename = episode_json_filename(self.guid, self.raw_title or self.title, self.published) + ".json"
         path = episodes_dir / filename
-        path.write_text(json.dumps(self.to_dict(), indent=2) + "\n")
+        content = json.dumps(self.to_dict(), indent=2) + "\n"
+        if path.exists() and path.read_text(encoding="utf-8") == content:
+            return
+        path.write_text(content, encoding="utf-8")
 
     @classmethod
     def load(cls, path: Path) -> Episode:
@@ -176,3 +200,4 @@ class Podcast:
             for ep_path in sorted(episodes_dir.glob("*.json")):
                 podcast.episodes.append(Episode.load(ep_path))
         return podcast
+

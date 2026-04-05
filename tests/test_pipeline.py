@@ -79,8 +79,9 @@ def test_pipeline_saves_status_after_step(tmp_path: Path):
     assert "fake" in ep.status
     assert ep.status["fake"].result == {"key": "value"}
     # Verify it was written to disk
-    saved_path = ctx.podcast_dir / "episodes" / "Test Podcast - unknown-date - Episode 1.json"
-    assert saved_path.exists()
+    episodes_dir = ctx.podcast_dir / "episodes"
+    assert episodes_dir.exists()
+    assert len(list(episodes_dir.glob("*.json"))) == 1
 
 
 def test_pipeline_step_filter_runs_only_named_step(tmp_path: Path):
