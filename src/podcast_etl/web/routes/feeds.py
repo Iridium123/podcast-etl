@@ -163,9 +163,7 @@ async def feed_delete_confirm(request: Request, name: str):
 
 @router.post("/{name}/delete", response_class=HTMLResponse)
 async def feed_delete(request: Request, name: str):
-    import shutil
-
-    from podcast_etl.service import find_feed_config, get_output_dir, load_config, save_config
+    from podcast_etl.service import delete_feed, find_feed_config, load_config
 
     form_data = await request.form()
     token = str(form_data.get("token", ""))
@@ -182,38 +180,7 @@ async def feed_delete(request: Request, name: str):
         from fastapi import HTTPException
         raise HTTPException(status_code=404, detail=f"Feed {name!r} not found.")
 
-    # Remove feed from config
-    url = feed.get("url", "")
-    logger.info("Deleting feed %r (url=%s)", name, url)
-    config["feeds"] = [f for f in config.get("feeds", []) if f.get("name") != name and f.get("url") != name]
-    save_config(config, request.app.state.config_path)
-    logger.info("Removed feed %r from config at %s", name, request.app.state.config_path)
-
-    # Delete output directory for this feed
-    output_dir = get_output_dir(config)
-    if output_dir.exists() and url:
-        from podcast_etl.models import Podcast as PodcastModel
-
-        for podcast_dir in sorted(output_dir.iterdir()):
-            if not podcast_dir.is_dir():
-                continue
-            podcast_json = podcast_dir / "podcast.json"
-            if not podcast_json.exists():
-                continue
-            try:
-                podcast = PodcastModel.load(podcast_dir)
-            except Exception:
-                continue
-            if podcast.url == url:
-                abs_path = podcast_dir.resolve()
-                logger.info("Deleting podcast directory: %s", abs_path)
-                shutil.rmtree(abs_path, ignore_errors=True)
-                logger.info("Deleted podcast directory: %s", abs_path)
-                break
-        else:
-            logger.info("No podcast directory found on disk for url=%s", url)
-    else:
-        logger.info("No output directory to clean up (output_dir=%s, url=%s)", output_dir, url)
+    delete_feed(config, request.app.state.config_path, name)
 
     return RedirectResponse(url="/feeds", status_code=303)
 

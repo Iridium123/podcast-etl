@@ -106,6 +106,58 @@ def find_feed_config(config: dict, identifier: str) -> dict | None:
     return None
 
 
+def delete_feed(config: dict, config_path: Path, identifier: str) -> tuple[str | None, Path | None]:
+    """Remove a feed from config and delete its output directory.
+
+    Returns (url, deleted_dir) on success, or (None, None) if feed not found.
+    """
+    import shutil
+
+    feed = find_feed_config(config, identifier)
+    if feed is None:
+        return None, None
+
+    url = feed.get("url", "")
+    name = feed.get("name", "")
+    logger.info("Deleting feed %r (url=%s)", identifier, url)
+
+    # Remove feed from config
+    config["feeds"] = [
+        f for f in config.get("feeds", [])
+        if f.get("name") != identifier and f.get("url") != identifier
+    ]
+    save_config(config, config_path)
+    logger.info("Removed feed %r from config at %s", identifier, config_path)
+
+    # Delete output directory for this feed
+    deleted_dir = None
+    output_dir = get_output_dir(config)
+    if output_dir.exists() and url:
+        for podcast_dir in sorted(output_dir.iterdir()):
+            if not podcast_dir.is_dir():
+                continue
+            podcast_json = podcast_dir / "podcast.json"
+            if not podcast_json.exists():
+                continue
+            try:
+                podcast = Podcast.load(podcast_dir)
+            except Exception:
+                continue
+            if podcast.url == url:
+                abs_path = podcast_dir.resolve()
+                logger.info("Deleting podcast directory: %s", abs_path)
+                shutil.rmtree(abs_path, ignore_errors=True)
+                logger.info("Deleted podcast directory: %s", abs_path)
+                deleted_dir = abs_path
+                break
+        else:
+            logger.info("No podcast directory found on disk for url=%s", url)
+    else:
+        logger.info("No output directory to clean up (output_dir=%s, url=%s)", output_dir, url)
+
+    return url, deleted_dir
+
+
 def get_pipeline_steps(resolved_config: dict) -> list[str]:
     return resolved_config.get("pipeline") or ["download"]
 

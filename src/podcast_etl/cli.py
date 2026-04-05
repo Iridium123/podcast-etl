@@ -17,6 +17,7 @@ import click
 from podcast_etl.models import Podcast
 from podcast_etl.pipeline import resolve_feed_config
 from podcast_etl.service import (
+    delete_feed,
     fetch_feed,
     filter_episodes,
     find_feed_config,
@@ -273,6 +274,35 @@ def reset(ctx: click.Context, feed_identifier: str | None, reset_all: bool, yes:
     for d in target_dirs:
         shutil.rmtree(d)
         click.echo(f"Deleted {d}")
+
+
+@main.command()
+@click.argument("feed_identifier")
+@click.option("-y", "--yes", is_flag=True, help="Skip confirmation prompt")
+@click.pass_context
+def delete(ctx: click.Context, feed_identifier: str, yes: bool) -> None:
+    """Remove a feed from config and delete all its data."""
+    config = ctx.obj["config"]
+    config_path = ctx.obj["config_path"]
+
+    feed = find_feed_config(config, feed_identifier)
+    if not feed:
+        click.echo(f"Feed not found: {feed_identifier}")
+        sys.exit(1)
+
+    feed_name = feed.get("name") or feed.get("url")
+    if not yes:
+        click.confirm(
+            f"Delete feed {feed_name!r} and all its data? This cannot be undone.",
+            abort=True,
+        )
+
+    url, deleted_dir = delete_feed(config, config_path, feed_identifier)
+    click.echo(f"Removed feed {feed_name!r} from config")
+    if deleted_dir:
+        click.echo(f"Deleted data directory: {deleted_dir}")
+    else:
+        click.echo("No data directory found on disk")
 
 
 @main.command()
