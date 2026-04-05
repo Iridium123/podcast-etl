@@ -24,7 +24,6 @@ from podcast_etl.service import (
     get_output_dir,
     get_pipeline_steps,
     load_config,
-    reset_feed_data,
     run_pipeline,
     save_config,
     validate_config,
@@ -249,7 +248,13 @@ def reset(ctx: click.Context, feed_identifier: str | None, reset_all: bool, yes:
         click.echo("Specify --feed NAME or --all")
         sys.exit(1)
 
-    # Find matching directories first
+    # Resolve URL once before scanning
+    resolved_url: str | None = None
+    if not reset_all:
+        fc = find_feed_config(config, feed_identifier)  # type: ignore[arg-type]
+        resolved_url = fc["url"] if fc else feed_identifier
+
+    # Find matching directories
     target_dirs: list[Path] = []
     if output_dir.exists():
         for d in sorted(output_dir.iterdir()):
@@ -262,8 +267,6 @@ def reset(ctx: click.Context, feed_identifier: str | None, reset_all: bool, yes:
                     podcast = Podcast.load(d)
                 except Exception:
                     continue
-                fc = find_feed_config(config, feed_identifier)  # type: ignore[arg-type]
-                resolved_url = fc["url"] if fc else feed_identifier
                 if podcast.url == resolved_url:
                     target_dirs.append(d)
                     break
