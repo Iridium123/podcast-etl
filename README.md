@@ -83,6 +83,18 @@ uv run podcast-etl reset --all --yes
 
 Deletes the feed's entire output directory (podcast.json, episode JSON files, and downloaded audio) so it can be reprocessed from scratch. Prompts for confirmation unless `--yes` / `-y` is passed.
 
+### Delete a feed
+
+```sh
+uv run podcast-etl delete my-podcast
+# skip confirmation prompt
+uv run podcast-etl delete my-podcast --yes
+# by URL
+uv run podcast-etl delete "https://example.com/feed.xml" --yes
+```
+
+Removes the feed from `feeds.yaml` and deletes its output directory. Prompts for confirmation unless `--yes` / `-y` is passed.
+
 ### Check status
 
 ```sh

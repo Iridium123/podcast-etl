@@ -21,7 +21,7 @@ Tests live in `tests/` and use pytest:
 - `test_models.py` — `slugify`, `StepStatus`, `Episode`, `Podcast` (dict roundtrips, save/load)
 - `test_pipeline.py` — `Pipeline` step execution, skipping already-completed steps, step filters, `deep_merge`
 - `test_feed.py` — `parse_feed` (audio extraction, slug dedup, status preservation, episode image extraction, episode number parsing)
-- `test_cli.py` — `load_config`, `save_config`, `get_output_dir`, `find_feed_config`, `get_pipeline_steps`, `filter_episodes` (last, date_range, episode_filter regex, composability), `validate_config`
+- `test_cli.py` — `load_config`, `save_config` (atomic writes), `get_output_dir`, `find_feed_config`, `get_pipeline_steps`, `filter_episodes` (last, date_range, episode_filter regex, composability), `validate_config`, `reset_feed_data` (matching, safety, corrupt JSON), `delete_feed` (config removal, disk cleanup, isolation)
 - `test_download_step.py` — `DownloadStep` filename construction, skip-existing, download
 - `test_tag_step.py` — `TagStep` MP3 tagging, TRCK track number, APIC album art embedding, audio file discovery, error cases
 - `test_qbittorrent_client.py` — `QBittorrentClient` login, has_torrent, add_torrent
@@ -50,7 +50,7 @@ The pipeline is step-based and resumable. Each episode tracks its own completion
 1. `feed.py` — fetches RSS via `feedparser`, parses into `Podcast`/`Episode` models, merges existing on-disk step status to preserve progress; parses `itunes:episode` into `Episode.episode_number`
 2. `models.py` — `Podcast`, `Episode`, `StepStatus` dataclasses with `save()`/`load()` methods; persisted to `output/<podcast-slug>/podcast.json` and `output/<podcast-slug>/episodes/<ep-slug>.json`; `Episode.image_url` stores per-episode artwork URL from RSS `<itunes:image>`; `Episode.episode_number` stores the parsed `itunes:episode` value as `int | None`
 3. `pipeline.py` — `Pipeline` runs registered `Step` instances over episodes, skipping any where `episode.status[step.name]` is already set; writes status back to disk after each step; `PipelineContext` carries `output_dir`, `podcast`, and a single resolved config dict produced by `resolve_feed_config` (deep-merging `defaults` with per-feed overrides via `deep_merge`)
-4. `cli.py` — Click commands (`add`, `fetch`, `run`, `reset`, `status`, `poll`); registers built-in steps at import time via `register_step()`; `find_feed_config(config, identifier)` resolves a feed by name or URL
+4. `cli.py` — Click commands (`add`, `fetch`, `run`, `reset`, `delete`, `status`, `poll`); registers built-in steps at import time via `register_step()`; `find_feed_config(config, identifier)` resolves a feed by name or URL; `reset_feed_data(output_dir, url)` deletes the podcast directory matching a feed URL; `delete_feed(config, config_path, identifier)` removes a feed from config and deletes its data
 5. `poller.py` — long-running loop that reloads config each cycle and handles SIGTERM/SIGINT gracefully; uses per-feed `pipeline` list when set
 6. `clients/qbittorrent.py` — `QBittorrentClient` implementing `TorrentClient` protocol; session-based auth, `has_torrent`, `add_torrent`
 7. `trackers/unit3d.py` — `ModifiedUnit3dTracker` implementing `Tracker` protocol; multipart upload to UNIT3D REST API
