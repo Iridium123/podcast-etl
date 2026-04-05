@@ -405,6 +405,62 @@ def test_defaults_confirm_saves(tmp_path: Path) -> None:
     assert saved["poll_interval"] == 900
 
 
+def test_delete_feed_confirmation_page(tmp_path: Path) -> None:
+    cfg_path = _write_config(tmp_path, {
+        "feeds": [{"url": "http://a.com/rss", "name": "show-a"}],
+        "defaults": {"output_dir": str(tmp_path / "output"), "pipeline": ["download"]},
+    })
+    app = create_app(cfg_path, start_poller=False)
+    client = TestClient(app)
+    response = client.get("/feeds/show-a/delete")
+    assert response.status_code == 200
+    assert "show-a" in response.text
+    assert "delete" in response.text.lower()
+
+
+def test_delete_feed_removes_from_config(tmp_path: Path) -> None:
+    cfg_path = _write_config(tmp_path, {
+        "feeds": [
+            {"url": "http://a.com/rss", "name": "show-a"},
+            {"url": "http://b.com/rss", "name": "show-b"},
+        ],
+        "defaults": {"output_dir": str(tmp_path / "output"), "pipeline": ["download"]},
+    })
+    app = create_app(cfg_path, start_poller=False)
+    client = TestClient(app)
+    response = client.post("/feeds/show-a/delete", follow_redirects=False)
+    assert response.status_code == 303
+    updated = yaml.safe_load(cfg_path.read_text())
+    assert len(updated["feeds"]) == 1
+    assert updated["feeds"][0]["name"] == "show-b"
+
+
+def test_add_feed_saves_all_fields(tmp_path: Path) -> None:
+    cfg_path = _write_config(tmp_path, {
+        "feeds": [],
+        "defaults": {"output_dir": str(tmp_path / "output"), "pipeline": ["download"]},
+    })
+    app = create_app(cfg_path, start_poller=False)
+    client = TestClient(app)
+    response = client.post("/feeds/add", data={
+        "url": "http://new.com/rss",
+        "name": "new-show",
+        "enabled": "on",
+        "last": "5",
+        "pipeline_download": "on",
+        "pipeline_tag": "on",
+        "title_sanitize": "on",
+        "extra_yaml": "",
+    }, follow_redirects=False)
+    assert response.status_code == 303
+    updated = yaml.safe_load(cfg_path.read_text())
+    feed = next(f for f in updated["feeds"] if f["name"] == "new-show")
+    assert feed["enabled"] is True
+    assert feed["last"] == 5
+    assert "download" in feed["pipeline"]
+    assert "tag" in feed["pipeline"]
+
+
 def test_pipeline_chips_show_checked_state(tmp_path: Path) -> None:
     """Pipeline chips should use Jinja2 conditional classes for checked state."""
     cfg_path = _write_config(tmp_path, {

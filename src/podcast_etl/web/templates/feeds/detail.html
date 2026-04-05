@@ -3,7 +3,10 @@
 {% block content %}
 <div class="flex items-center justify-between mb-6">
   <h1 class="text-2xl font-bold">{{ feed.name or feed.url }}</h1>
-  <a href="/feeds/{{ feed.name or feed.url }}/edit" class="px-4 py-2 bg-blue-700 hover:bg-blue-600 text-white text-sm rounded">Edit</a>
+  <div class="flex gap-2">
+    <a href="/feeds/{{ feed.name or feed.url }}/edit" class="px-4 py-2 bg-blue-700 hover:bg-blue-600 text-white text-sm rounded">Edit</a>
+    <a href="/feeds/{{ feed.name or feed.url }}/delete" class="px-4 py-2 bg-red-700 hover:bg-red-600 text-white text-sm rounded">Delete</a>
+  </div>
 </div>
 
 <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">

@@ -67,36 +67,50 @@ async def feed_add_form(request: Request):
 
 
 @router.post("/add", response_class=HTMLResponse)
-async def feed_add(
-    request: Request,
-    url: str = Form(""),
-    feed_name: str = Form("", alias="name"),
-):
+async def feed_add(request: Request):
     from podcast_etl.pipeline import STEP_REGISTRY
     from podcast_etl.service import load_config, save_config
 
-    if not url.strip():
-        all_steps = list(STEP_REGISTRY.keys())
+    form_data = await request.form()
+    all_steps = list(STEP_REGISTRY.keys())
+
+    parsed, error = _parse_feed_form(form_data, all_steps)
+    if error:
         return templates.TemplateResponse(
             request,
             "feeds/form.html",
             {
-                "feed": {"name": feed_name},
-                "extra_yaml": "",
+                "feed": dict(form_data),
+                "extra_yaml": str(form_data.get("extra_yaml", "")),
+                "all_steps": all_steps,
+                "error": error,
+            },
+            status_code=200,
+        )
+
+    url = parsed.get("url", "").strip()
+    feed_name = parsed.get("name", "").strip()
+
+    if not url:
+        return templates.TemplateResponse(
+            request,
+            "feeds/form.html",
+            {
+                "feed": parsed,
+                "extra_yaml": str(form_data.get("extra_yaml", "")),
                 "all_steps": all_steps,
                 "error": "URL is required.",
             },
             status_code=200,
         )
 
-    if not feed_name.strip():
-        all_steps = list(STEP_REGISTRY.keys())
+    if not feed_name:
         return templates.TemplateResponse(
             request,
             "feeds/form.html",
             {
-                "feed": {"url": url},
-                "extra_yaml": "",
+                "feed": parsed,
+                "extra_yaml": str(form_data.get("extra_yaml", "")),
                 "all_steps": all_steps,
                 "error": "Name is required.",
             },
@@ -105,26 +119,81 @@ async def feed_add(
 
     config = load_config(request.app.state.config_path)
     existing_urls = [f.get("url", "") for f in config.get("feeds", [])]
-    if url.strip() in existing_urls:
-        all_steps = list(STEP_REGISTRY.keys())
+    if url in existing_urls:
         return templates.TemplateResponse(
             request,
             "feeds/form.html",
             {
-                "feed": {"url": url, "name": feed_name},
-                "extra_yaml": "",
+                "feed": parsed,
+                "extra_yaml": str(form_data.get("extra_yaml", "")),
                 "all_steps": all_steps,
                 "error": f"Feed with URL {url!r} already exists.",
             },
             status_code=200,
         )
 
-    entry: dict = {"url": url.strip(), "name": feed_name.strip()}
-
-    config.setdefault("feeds", []).append(entry)
+    config.setdefault("feeds", []).append(parsed)
     save_config(config, request.app.state.config_path)
 
-    return RedirectResponse(url=f"/feeds/{entry['name']}", status_code=303)
+    return RedirectResponse(url=f"/feeds/{feed_name}", status_code=303)
+
+
+@router.get("/{name}/delete", response_class=HTMLResponse)
+async def feed_delete_confirm(request: Request, name: str):
+    from podcast_etl.service import find_feed_config, load_config
+
+    config = load_config(request.app.state.config_path)
+    feed = find_feed_config(config, name)
+
+    if feed is None:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail=f"Feed {name!r} not found.")
+
+    return templates.TemplateResponse(
+        request,
+        "feeds/delete_confirm.html",
+        {"feed": feed, "name": name},
+    )
+
+
+@router.post("/{name}/delete", response_class=HTMLResponse)
+async def feed_delete(request: Request, name: str):
+    import shutil
+
+    from podcast_etl.service import find_feed_config, get_output_dir, load_config, save_config
+
+    config = load_config(request.app.state.config_path)
+    feed = find_feed_config(config, name)
+
+    if feed is None:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail=f"Feed {name!r} not found.")
+
+    # Remove feed from config
+    url = feed.get("url", "")
+    config["feeds"] = [f for f in config.get("feeds", []) if f.get("name") != name and f.get("url") != name]
+    save_config(config, request.app.state.config_path)
+
+    # Delete output directory for this feed
+    output_dir = get_output_dir(config)
+    if output_dir.exists() and url:
+        from podcast_etl.models import Podcast as PodcastModel
+
+        for podcast_dir in sorted(output_dir.iterdir()):
+            if not podcast_dir.is_dir():
+                continue
+            podcast_json = podcast_dir / "podcast.json"
+            if not podcast_json.exists():
+                continue
+            try:
+                podcast = PodcastModel.load(podcast_dir)
+            except Exception:
+                continue
+            if podcast.url == url:
+                shutil.rmtree(podcast_dir, ignore_errors=True)
+                break
+
+    return RedirectResponse(url="/feeds", status_code=303)
 
 
 @router.get("/{name}", response_class=HTMLResponse)
