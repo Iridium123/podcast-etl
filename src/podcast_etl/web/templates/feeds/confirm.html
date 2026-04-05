@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Confirm save — {{ feed_name }} — podcast-etl{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+  <h1 class="text-2xl font-bold">Confirm save — {{ feed_name }}</h1>
+  <a href="/feeds/{{ feed_name }}/edit" class="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white text-sm rounded">Go Back</a>
+</div>
+
+<div class="bg-gray-800 border border-gray-700 rounded-lg p-6 mb-6">
+  <h2 class="text-lg font-semibold text-gray-100 mb-4">Changes</h2>
+  {% if diff_lines %}
+  <pre class="text-xs font-mono overflow-x-auto leading-5">{% for line in diff_lines %}{% if line.startswith('+') and not line.startswith('+++') %}<span class="text-green-400">{{ line }}</span>
+{% elif line.startswith('-') and not line.startswith('---') %}<span class="text-red-400">{{ line }}</span>
+{% elif line.startswith('@@') %}<span class="text-blue-400">{{ line }}</span>
+{% else %}<span class="text-gray-400">{{ line }}</span>
+{% endif %}{% endfor %}</pre>
+  {% else %}
+  <p class="text-gray-400 text-sm">No changes detected.</p>
+  {% endif %}
+</div>
+
+<form method="post" action="/feeds/{{ feed_name }}/confirm">
+  <input type="hidden" name="new_config_yaml" value="{{ new_config_yaml | e }}">
+  <div class="flex items-center gap-3">
+    <button type="submit"
+            class="px-6 py-2 bg-blue-700 hover:bg-blue-600 text-white text-sm font-medium rounded">
+      Confirm Save
+    </button>
+    <a href="/feeds/{{ feed_name }}/edit"
+       class="px-6 py-2 bg-gray-700 hover:bg-gray-600 text-gray-200 text-sm font-medium rounded">
+      Go Back
+    </a>
+  </div>
+</form>
+{% endblock %}

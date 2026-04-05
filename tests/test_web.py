@@ -224,3 +224,97 @@ def test_add_feed_duplicate_rejected(tmp_path: Path) -> None:
     })
     assert response.status_code == 200
     assert "already exists" in response.text.lower()
+
+
+def test_feed_edit_form_shows_defaults_preview(tmp_path: Path) -> None:
+    """Edit form should show inherited defaults when extra_yaml is empty."""
+    cfg_path = _write_config(tmp_path, {
+        "feeds": [{"url": "http://a.com/rss", "name": "show-a"}],
+        "defaults": {
+            "output_dir": str(tmp_path / "output"),
+            "pipeline": ["download"],
+            "tracker": {"url": "https://tracker.example.com"},
+        },
+    })
+    app = create_app(cfg_path, start_poller=False)
+    client = TestClient(app)
+    response = client.get("/feeds/show-a/edit")
+    assert response.status_code == 200
+    # The defaults_preview should appear in the textarea as commented YAML
+    assert "Inherited from defaults" in response.text
+    assert "tracker" in response.text
+
+
+def test_feed_preview_shows_diff_page(tmp_path: Path) -> None:
+    """POST to /preview should show confirm page with diff, not save yet."""
+    cfg_path = _write_config(tmp_path, {
+        "feeds": [{"url": "http://a.com/rss", "name": "show-a", "enabled": True}],
+        "defaults": {"output_dir": str(tmp_path / "output"), "pipeline": ["download"]},
+    })
+    app = create_app(cfg_path, start_poller=False)
+    client = TestClient(app)
+    response = client.post("/feeds/show-a/preview", data={
+        "name": "show-a",
+        "url": "http://a.com/rss",
+        "enabled": "on",
+        "last": "5",
+        "extra_yaml": "",
+    })
+    assert response.status_code == 200
+    # Should show confirm page, not redirect
+    assert "confirm" in response.text.lower()
+    # File should NOT have been updated yet
+    saved = yaml.safe_load(cfg_path.read_text())
+    feed = next(f for f in saved["feeds"] if f["name"] == "show-a")
+    assert "last" not in feed
+
+
+def test_feed_preview_invalid_yaml_shows_error(tmp_path: Path) -> None:
+    cfg_path = _write_config(tmp_path, {
+        "feeds": [{"url": "http://a.com/rss", "name": "show-a"}],
+        "defaults": {"output_dir": str(tmp_path / "output"), "pipeline": ["download"]},
+    })
+    app = create_app(cfg_path, start_poller=False)
+    client = TestClient(app)
+    response = client.post("/feeds/show-a/preview", data={
+        "name": "show-a",
+        "url": "http://a.com/rss",
+        "extra_yaml": "invalid: [yaml: {",
+    })
+    assert response.status_code == 200
+    assert "invalid" in response.text.lower() or "error" in response.text.lower()
+
+
+def test_feed_confirm_saves(tmp_path: Path) -> None:
+    """POST to /confirm with serialized YAML should actually save."""
+    cfg_path = _write_config(tmp_path, {
+        "feeds": [{"url": "http://a.com/rss", "name": "show-a", "enabled": True}],
+        "defaults": {"output_dir": str(tmp_path / "output"), "pipeline": ["download"]},
+    })
+    import yaml as _yaml
+    new_feed = {"url": "http://a.com/rss", "name": "show-a", "enabled": True, "last": 7}
+    app = create_app(cfg_path, start_poller=False)
+    client = TestClient(app)
+    response = client.post("/feeds/show-a/confirm", data={
+        "new_config_yaml": _yaml.dump(new_feed),
+    }, follow_redirects=False)
+    assert response.status_code == 303
+    saved = _yaml.safe_load(cfg_path.read_text())
+    feed = next(f for f in saved["feeds"] if f["name"] == "show-a")
+    assert feed["last"] == 7
+
+
+def test_pipeline_chips_show_checked_state(tmp_path: Path) -> None:
+    """Pipeline chips should use Jinja2 conditional classes for checked state."""
+    cfg_path = _write_config(tmp_path, {
+        "feeds": [{"url": "http://a.com/rss", "name": "show-a", "pipeline": ["download"]}],
+        "defaults": {"output_dir": str(tmp_path / "output"), "pipeline": ["download"]},
+    })
+    app = create_app(cfg_path, start_poller=False)
+    client = TestClient(app)
+    response = client.get("/feeds/show-a/edit")
+    assert response.status_code == 200
+    # The checked chip should have the blue styling applied via server-side class
+    assert "bg-blue-800" in response.text
+    # Should have visible checkbox input (not sr-only)
+    assert "sr-only" not in response.text

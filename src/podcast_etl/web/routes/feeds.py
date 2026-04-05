@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import difflib
 
 import yaml
 from fastapi import APIRouter, Form, Request
@@ -211,6 +212,18 @@ async def feed_edit_form(request: Request, name: str):
     _, extra = split_config_fields(feed, KNOWN_FEED_FIELDS)
     extra_yaml = yaml.dump(extra, default_flow_style=False, sort_keys=False) if extra else ""
 
+    # Build defaults_preview: inherited defaults for non-known fields, as commented YAML
+    defaults = config.get("defaults", {})
+    from podcast_etl.service import KNOWN_FEED_FIELDS as KFF  # noqa: N812 (same ref)
+    inherited_extras = {k: v for k, v in defaults.items() if k not in KFF}
+    if inherited_extras:
+        lines = ["# Inherited from defaults (uncomment to override):"]
+        for line in yaml.dump(inherited_extras, default_flow_style=False, sort_keys=False).splitlines():
+            lines.append(f"# {line}")
+        defaults_preview = "\n".join(lines)
+    else:
+        defaults_preview = ""
+
     all_steps = list(STEP_REGISTRY.keys())
 
     return templates.TemplateResponse(
@@ -219,44 +232,28 @@ async def feed_edit_form(request: Request, name: str):
         {
             "feed": feed,
             "extra_yaml": extra_yaml,
+            "defaults_preview": defaults_preview,
             "all_steps": all_steps,
             "error": None,
         },
     )
 
 
-@router.post("/{name}", response_class=HTMLResponse)
-async def feed_save(
-    request: Request,
-    name: str,
-    feed_name: str = Form("", alias="name"),
-    url: str = Form(""),
-    enabled: str = Form(""),
-    last: str = Form(""),
-    episode_filter: str = Form(""),
-    category_id: str = Form(""),
-    type_id: str = Form(""),
-    extra_yaml: str = Form(""),
-):
-    from podcast_etl.pipeline import STEP_REGISTRY
-    from podcast_etl.service import (
-        find_feed_config,
-        load_config,
-        merge_config_fields,
-        save_config,
-        validate_config,
-    )
+def _parse_feed_form(form_data, all_steps: list[str]) -> tuple[dict, str | None]:
+    """Parse feed edit form data into (updated_feed_dict, error_str_or_None).
 
-    config = load_config(request.app.state.config_path)
-    existing_feed = find_feed_config(config, name)
+    Returns (feed_dict, None) on success, or ({}, error_message) on parse failure.
+    """
+    from podcast_etl.service import merge_config_fields
 
-    if existing_feed is None:
-        from fastapi import HTTPException
-        raise HTTPException(status_code=404, detail=f"Feed {name!r} not found.")
-
-    # Parse form data
-    form_data = await request.form()
-    all_steps = list(STEP_REGISTRY.keys())
+    url = str(form_data.get("url", ""))
+    feed_name = str(form_data.get("name", ""))
+    enabled = str(form_data.get("enabled", ""))
+    last = str(form_data.get("last", ""))
+    episode_filter = str(form_data.get("episode_filter", ""))
+    category_id = str(form_data.get("category_id", ""))
+    type_id = str(form_data.get("type_id", ""))
+    extra_yaml = str(form_data.get("extra_yaml", ""))
 
     pipeline = [step for step in all_steps if form_data.get(f"pipeline_{step}") == "on"]
     title_cleaning = {
@@ -292,7 +289,6 @@ async def feed_save(
     if any(title_cleaning.values()):
         known["title_cleaning"] = title_cleaning
 
-    # Parse extra YAML
     extra: dict = {}
     if extra_yaml.strip():
         try:
@@ -302,19 +298,60 @@ async def feed_save(
                     raise ValueError("Extra YAML must be a mapping")
                 extra = parsed
         except (yaml.YAMLError, ValueError) as exc:
-            return templates.TemplateResponse(
-                request,
-                "feeds/form.html",
-                {
-                    "feed": existing_feed,
-                    "extra_yaml": extra_yaml,
-                    "all_steps": all_steps,
-                    "error": f"Invalid YAML: {exc}",
-                },
-                status_code=200,
-            )
+            return {}, f"Invalid YAML: {exc}"
 
-    updated_feed = merge_config_fields(known, extra)
+    return merge_config_fields(known, extra), None
+
+
+@router.post("/{name}", response_class=HTMLResponse)
+async def feed_save(
+    request: Request,
+    name: str,
+    feed_name: str = Form("", alias="name"),
+    url: str = Form(""),
+    enabled: str = Form(""),
+    last: str = Form(""),
+    episode_filter: str = Form(""),
+    category_id: str = Form(""),
+    type_id: str = Form(""),
+    extra_yaml: str = Form(""),
+):
+    from podcast_etl.pipeline import STEP_REGISTRY
+    from podcast_etl.service import (
+        KNOWN_FEED_FIELDS,
+        find_feed_config,
+        load_config,
+        save_config,
+        split_config_fields,
+        validate_config,
+    )
+
+    config = load_config(request.app.state.config_path)
+    existing_feed = find_feed_config(config, name)
+
+    if existing_feed is None:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail=f"Feed {name!r} not found.")
+
+    form_data = await request.form()
+    all_steps = list(STEP_REGISTRY.keys())
+
+    updated_feed, error = _parse_feed_form(form_data, all_steps)
+    if error:
+        _, existing_extra = split_config_fields(existing_feed, KNOWN_FEED_FIELDS)
+        existing_extra_yaml = yaml.dump(existing_extra, default_flow_style=False, sort_keys=False) if existing_extra else ""
+        return templates.TemplateResponse(
+            request,
+            "feeds/form.html",
+            {
+                "feed": existing_feed,
+                "extra_yaml": extra_yaml,
+                "defaults_preview": "",
+                "all_steps": all_steps,
+                "error": error,
+            },
+            status_code=200,
+        )
 
     # Preserve cover_image / banner_image from existing feed if not in form
     for preserve_key in ("cover_image", "banner_image"):
@@ -338,17 +375,177 @@ async def feed_save(
     try:
         validate_config(config)
     except SystemExit as exc:
+        _, existing_extra = split_config_fields(existing_feed, KNOWN_FEED_FIELDS)
+        existing_extra_yaml = yaml.dump(existing_extra, default_flow_style=False, sort_keys=False) if existing_extra else ""
         return templates.TemplateResponse(
             request,
             "feeds/form.html",
             {
                 "feed": existing_feed,
                 "extra_yaml": extra_yaml,
+                "defaults_preview": "",
                 "all_steps": all_steps,
                 "error": str(exc),
             },
             status_code=200,
         )
+
+    save_config(config, request.app.state.config_path)
+
+    redirect_name = updated_feed.get("name") or updated_feed.get("url", name)
+    return RedirectResponse(url=f"/feeds/{redirect_name}", status_code=303)
+
+
+@router.post("/{name}/preview", response_class=HTMLResponse)
+async def feed_save_preview(request: Request, name: str):
+    """Show diff preview before saving. If valid, display confirm page."""
+    from podcast_etl.pipeline import STEP_REGISTRY
+    from podcast_etl.service import (
+        KNOWN_FEED_FIELDS,
+        find_feed_config,
+        load_config,
+        split_config_fields,
+        validate_config,
+    )
+
+    config = load_config(request.app.state.config_path)
+    existing_feed = find_feed_config(config, name)
+
+    if existing_feed is None:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail=f"Feed {name!r} not found.")
+
+    form_data = await request.form()
+    all_steps = list(STEP_REGISTRY.keys())
+    extra_yaml_raw = str(form_data.get("extra_yaml", ""))
+
+    updated_feed, error = _parse_feed_form(form_data, all_steps)
+    if error:
+        _, existing_extra = split_config_fields(existing_feed, KNOWN_FEED_FIELDS)
+        existing_extra_yaml = yaml.dump(existing_extra, default_flow_style=False, sort_keys=False) if existing_extra else ""
+        return templates.TemplateResponse(
+            request,
+            "feeds/form.html",
+            {
+                "feed": existing_feed,
+                "extra_yaml": extra_yaml_raw,
+                "defaults_preview": "",
+                "all_steps": all_steps,
+                "error": error,
+            },
+            status_code=200,
+        )
+
+    # Preserve cover_image / banner_image
+    for preserve_key in ("cover_image", "banner_image"):
+        if preserve_key in existing_feed and preserve_key not in updated_feed:
+            updated_feed[preserve_key] = existing_feed[preserve_key]
+
+    # Build candidate config for validation
+    new_feeds = []
+    replaced = False
+    for f in config.get("feeds", []):
+        if f.get("name") == name or f.get("url") == name:
+            new_feeds.append(updated_feed)
+            replaced = True
+        else:
+            new_feeds.append(f)
+    if not replaced:
+        new_feeds.append(updated_feed)
+    candidate_config = dict(config)
+    candidate_config["feeds"] = new_feeds
+
+    try:
+        validate_config(candidate_config)
+    except SystemExit as exc:
+        _, existing_extra = split_config_fields(existing_feed, KNOWN_FEED_FIELDS)
+        existing_extra_yaml = yaml.dump(existing_extra, default_flow_style=False, sort_keys=False) if existing_extra else ""
+        return templates.TemplateResponse(
+            request,
+            "feeds/form.html",
+            {
+                "feed": existing_feed,
+                "extra_yaml": extra_yaml_raw,
+                "defaults_preview": "",
+                "all_steps": all_steps,
+                "error": str(exc),
+            },
+            status_code=200,
+        )
+
+    old_yaml = yaml.dump(existing_feed, default_flow_style=False, sort_keys=False)
+    new_yaml = yaml.dump(updated_feed, default_flow_style=False, sort_keys=False)
+
+    diff_lines = list(difflib.unified_diff(
+        old_yaml.splitlines(),
+        new_yaml.splitlines(),
+        fromfile="current",
+        tofile="updated",
+        lineterm="",
+    ))
+
+    feed_display_name = name
+    return templates.TemplateResponse(
+        request,
+        "feeds/confirm.html",
+        {
+            "feed_name": feed_display_name,
+            "diff_lines": diff_lines,
+            "new_config_yaml": new_yaml,
+        },
+    )
+
+
+@router.post("/{name}/confirm", response_class=HTMLResponse)
+async def feed_save_confirm(
+    request: Request,
+    name: str,
+    new_config_yaml: str = Form(""),
+):
+    """Deserialize the confirmed new feed YAML and write it to disk."""
+    from podcast_etl.service import (
+        find_feed_config,
+        load_config,
+        save_config,
+        validate_config,
+    )
+
+    if not new_config_yaml.strip():
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="No config data submitted.")
+
+    try:
+        updated_feed = yaml.safe_load(new_config_yaml)
+        if not isinstance(updated_feed, dict):
+            raise ValueError("Config must be a YAML mapping")
+    except (yaml.YAMLError, ValueError) as exc:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail=f"Invalid config data: {exc}")
+
+    config = load_config(request.app.state.config_path)
+    existing_feed = find_feed_config(config, name)
+
+    if existing_feed is None:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail=f"Feed {name!r} not found.")
+
+    new_feeds = []
+    replaced = False
+    for f in config.get("feeds", []):
+        if f.get("name") == name or f.get("url") == name:
+            new_feeds.append(updated_feed)
+            replaced = True
+        else:
+            new_feeds.append(f)
+    if not replaced:
+        new_feeds.append(updated_feed)
+    config["feeds"] = new_feeds
+
+    try:
+        validate_config(config)
+    except SystemExit as exc:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail=f"Config validation failed: {exc}")
 
     save_config(config, request.app.state.config_path)
 

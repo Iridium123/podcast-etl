@@ -12,7 +12,7 @@
 </div>
 {% endif %}
 
-<form method="post" action="{% if feed.name or feed.url %}/feeds/{{ feed.name or feed.url }}{% else %}/feeds/add{% endif %}" class="space-y-6">
+<form method="post" action="{% if feed.name or feed.url %}/feeds/{{ feed.name or feed.url }}/preview{% else %}/feeds/add{% endif %}" class="space-y-6">
 
   <!-- General section -->
   <div class="bg-gray-800 border border-gray-700 rounded-lg p-6">
@@ -82,13 +82,12 @@
     <div class="flex flex-wrap gap-2">
       {% set feed_pipeline = feed.get("pipeline", []) %}
       {% for step in all_steps %}
-      <label class="flex items-center gap-2 cursor-pointer">
+      <label class="flex items-center gap-2 px-3 py-1.5 text-sm rounded-full border cursor-pointer
+          {% if step in feed_pipeline %}bg-blue-800 border-blue-600 text-blue-200{% else %}border-gray-600 text-gray-400{% endif %}">
         <input type="checkbox" name="pipeline_{{ step }}"
                {% if step in feed_pipeline %}checked{% endif %}
-               class="sr-only peer">
-        <span class="px-3 py-1.5 text-sm rounded-full border border-gray-600 text-gray-400
-                     peer-checked:bg-blue-800 peer-checked:border-blue-600 peer-checked:text-blue-200
-                     hover:border-gray-400 transition-colors select-none">{{ step }}</span>
+               class="w-3.5 h-3.5 rounded accent-blue-500">
+        {{ step }}
       </label>
       {% endfor %}
     </div>
@@ -141,7 +140,7 @@
     <textarea id="extra_yaml" name="extra_yaml" rows="10"
               spellcheck="false"
               placeholder="# e.g.&#10;# tracker:&#10;#   mod_queue_opt_in: 1"
-              class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-gray-100 text-sm font-mono focus:outline-none focus:border-blue-500 resize-y">{{ extra_yaml }}</textarea>
+              class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-gray-100 text-sm font-mono focus:outline-none focus:border-blue-500 resize-y">{{ extra_yaml if extra_yaml else defaults_preview }}</textarea>
   </div>
 
   <!-- Buttons -->
