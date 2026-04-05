@@ -191,12 +191,13 @@ async def feed_detail(request: Request, name: str):
     dirs = None
     if podcast_slug is not None:
         torrent_data_dir = resolved.get("torrent_data_dir", "/torrent-data")
+        abs_output = output_dir.resolve()
         dirs = {
-            "audio": str(output_dir / podcast_slug / "audio") + "/",
-            "cleaned": str(output_dir / podcast_slug / "cleaned") + "/",
-            "transcripts": str(output_dir / podcast_slug / "transcripts") + "/",
-            "torrents": str(output_dir / podcast_slug / "torrents") + "/",
-            "staged": str(torrent_data_dir).rstrip("/") + "/" + podcast_slug + "/",
+            "audio": str(abs_output / podcast_slug / "audio") + "/",
+            "cleaned": str(abs_output / podcast_slug / "cleaned") + "/",
+            "transcripts": str(abs_output / podcast_slug / "transcripts") + "/",
+            "torrents": str(abs_output / podcast_slug / "torrents") + "/",
+            "staged": str(Path(torrent_data_dir).resolve()).rstrip("/") + "/" + podcast_slug + "/",
         }
 
     return templates.TemplateResponse(
