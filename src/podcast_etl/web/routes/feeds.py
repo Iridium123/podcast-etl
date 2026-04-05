@@ -185,8 +185,9 @@ async def feed_detail(request: Request, name: str):
                 })
             break
 
-    # Sort episodes newest first
-    episodes.sort(key=lambda e: e["_published_raw"], reverse=True)
+    # Disk order is oldest-first (date-prefixed filenames sort ascending).
+    # Reverse to show newest first, matching RSS feed order and `last N` behavior.
+    episodes.reverse()
 
     # Build directory paths if we have a podcast slug
     dirs = None
