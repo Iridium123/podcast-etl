@@ -128,13 +128,13 @@ def reset_feed_data(output_dir: Path, url: str) -> Path | None:
         if not podcast_json.exists():
             continue
         try:
-            podcast = Podcast.load(podcast_dir)
+            data = json.loads(podcast_json.read_text())
         except Exception:
             continue
-        if podcast.url == url:
+        if data.get("url") == url:
             abs_path = podcast_dir.resolve()
             logger.info("Deleting podcast directory: %s", abs_path)
-            shutil.rmtree(abs_path, ignore_errors=True)
+            shutil.rmtree(abs_path)
             logger.info("Deleted podcast directory: %s", abs_path)
             return abs_path
 
@@ -154,10 +154,7 @@ def delete_feed(config: dict, config_path: Path, identifier: str) -> tuple[str |
     url = feed.get("url", "")
     logger.info("Deleting feed %r (url=%s)", identifier, url)
 
-    config["feeds"] = [
-        f for f in config.get("feeds", [])
-        if f.get("name") != identifier and f.get("url") != identifier
-    ]
+    config["feeds"] = [f for f in config.get("feeds", []) if f.get("url") != url]
     save_config(config, config_path)
     logger.info("Removed feed %r from config at %s", identifier, config_path)
 
