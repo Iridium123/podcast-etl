@@ -140,7 +140,7 @@ class Episode:
         content = json.dumps(self.to_dict(), indent=2) + "\n"
         if path.exists() and path.read_text() == content:
             return
-        path.write_text(content)
+        path.write_text(content, encoding="utf-8")
 
     @classmethod
     def load(cls, path: Path) -> Episode:
