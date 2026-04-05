@@ -138,7 +138,7 @@ class Episode:
         filename = episode_json_filename(self.guid, self.raw_title or self.title, self.published) + ".json"
         path = episodes_dir / filename
         content = json.dumps(self.to_dict(), indent=2) + "\n"
-        if path.exists() and path.read_text() == content:
+        if path.exists() and path.read_text(encoding="utf-8") == content:
             return
         path.write_text(content, encoding="utf-8")
 
