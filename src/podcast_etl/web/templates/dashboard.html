@@ -52,9 +52,20 @@
     id="log-tail"
     hx-get="/log-tail"
     hx-trigger="every 2s"
-    class="overflow-y-auto max-h-64 space-y-0.5"
+    class="overflow-y-auto max-h-96 space-y-0.5"
   >
     {% include "fragments/log_tail.html" %}
   </div>
 </div>
+<script>
+  // Scroll log to bottom on load and after each HTMX swap
+  function scrollLog() {
+    var el = document.getElementById('log-tail');
+    if (el) el.scrollTop = el.scrollHeight;
+  }
+  scrollLog();
+  document.body.addEventListener('htmx:afterSwap', function(e) {
+    if (e.detail.target.id === 'log-tail') scrollLog();
+  });
+</script>
 {% endblock %}
