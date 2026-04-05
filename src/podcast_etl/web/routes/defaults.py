@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import difflib
+import secrets
 
 import yaml
 from fastapi import APIRouter, Form, Request
@@ -80,6 +81,8 @@ def _parse_defaults_form(form_data, all_steps: list[str]) -> tuple[dict, int | N
         base["torrent_data_dir"] = torrent_data_dir
     if pipeline:
         base["pipeline"] = pipeline
+    elif "pipeline" in base:
+        del base["pipeline"]
     if any(title_cleaning.values()):
         base["title_cleaning"] = title_cleaning
 
@@ -219,12 +222,17 @@ async def defaults_save_preview(request: Request):
     }
     new_config_yaml = yaml.dump(new_config_payload, default_flow_style=False, sort_keys=False)
 
+    token = secrets.token_urlsafe(16)
+    if not hasattr(request.app.state, "pending_changes"):
+        request.app.state.pending_changes = {}
+    request.app.state.pending_changes[token] = new_config_yaml
+
     return templates.TemplateResponse(
         request,
         "defaults/confirm.html",
         {
             "diff_lines": diff_lines,
-            "new_config_yaml": new_config_yaml,
+            "token": token,
         },
     )
 
@@ -232,18 +240,20 @@ async def defaults_save_preview(request: Request):
 @router.post("/defaults/confirm", response_class=HTMLResponse)
 async def defaults_save_confirm(
     request: Request,
-    new_config_yaml: str = Form(""),
+    token: str = Form(""),
 ):
-    """Deserialize the confirmed new defaults YAML and write it to disk."""
+    """Look up pending change by token and write it to disk."""
     from podcast_etl.service import (
         load_config,
         save_config,
         validate_config,
     )
 
-    if not new_config_yaml.strip():
+    pending = getattr(request.app.state, "pending_changes", {})
+    new_config_yaml = pending.pop(token, None)
+    if not new_config_yaml:
         from fastapi import HTTPException
-        raise HTTPException(status_code=400, detail="No config data submitted.")
+        raise HTTPException(status_code=400, detail="Invalid or expired change token.")
 
     try:
         payload = yaml.safe_load(new_config_yaml)

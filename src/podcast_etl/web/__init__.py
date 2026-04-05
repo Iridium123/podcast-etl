@@ -29,7 +29,11 @@ def create_app(config_path: Path, *, start_poller: bool = True) -> FastAPI:
         yield
         poll_control.shutdown.set()
         if task:
-            await task
+            try:
+                await task
+            except Exception:
+                import logging
+                logging.getLogger(__name__).exception("Poll loop exited with error")
 
     app = FastAPI(title="podcast-etl", lifespan=lifespan)
     app.state.config_path = config_path

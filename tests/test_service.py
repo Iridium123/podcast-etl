@@ -79,6 +79,15 @@ def test_save_config_roundtrip(tmp_path: Path):
     assert load_config(cfg_file) == original
 
 
+def test_save_config_is_atomic(tmp_path: Path):
+    """save_config must not leave a .tmp file behind after a successful write."""
+    cfg_file = tmp_path / "feeds.yaml"
+    data = {"feeds": [], "poll_interval": 3600}
+    save_config(data, cfg_file)
+    assert cfg_file.exists()
+    assert not (tmp_path / "feeds.tmp").exists()
+
+
 # ---------------------------------------------------------------------------
 # get_output_dir
 # ---------------------------------------------------------------------------

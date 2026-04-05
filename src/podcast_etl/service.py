@@ -55,7 +55,11 @@ def load_config(config_path: Path) -> dict:
 
 
 def save_config(config: dict, config_path: Path) -> None:
-    config_path.write_text(yaml.dump(config, default_flow_style=False, sort_keys=False))
+    import os
+    text = yaml.dump(config, default_flow_style=False, sort_keys=False)
+    tmp = config_path.with_suffix(".tmp")
+    tmp.write_text(text)
+    os.replace(tmp, config_path)
 
 
 def validate_config(config: dict) -> None:

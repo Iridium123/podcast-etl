@@ -76,8 +76,8 @@
         {% for label, path in [("Audio", dirs.audio), ("Cleaned", dirs.cleaned), ("Transcripts", dirs.transcripts), ("Torrents", dirs.torrents), ("Staged", dirs.staged)] %}
         <div class="flex gap-2 items-center">
           <dt class="text-gray-400 w-24 shrink-0">{{ label }}</dt>
-          <dd class="text-gray-100 font-mono text-xs break-all flex-1">{{ path }}</dd>
-          <button onclick="navigator.clipboard.writeText('{{ path }}')"
+          <dd class="text-gray-100 font-mono text-xs break-all flex-1" data-path="{{ path }}">{{ path }}</dd>
+          <button onclick="navigator.clipboard.writeText(this.previousElementSibling.dataset.path)"
                   class="text-xs text-gray-500 hover:text-gray-300 ml-2 shrink-0">copy</button>
         </div>
         {% endfor %}

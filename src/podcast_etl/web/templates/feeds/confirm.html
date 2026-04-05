@@ -20,7 +20,7 @@
 </div>
 
 <form method="post" action="/feeds/{{ feed_name }}/confirm">
-  <input type="hidden" name="new_config_yaml" value="{{ new_config_yaml | e }}">
+  <input type="hidden" name="token" value="{{ token }}">
   <div class="flex items-center gap-3">
     <button type="submit"
             class="px-6 py-2 bg-blue-700 hover:bg-blue-600 text-white text-sm font-medium rounded">

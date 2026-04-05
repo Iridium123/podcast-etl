@@ -287,18 +287,31 @@ def test_feed_preview_invalid_yaml_shows_error(tmp_path: Path) -> None:
 
 
 def test_feed_confirm_saves(tmp_path: Path) -> None:
-    """POST to /confirm with serialized YAML should actually save."""
+    """Preview then confirm flow should save the new feed config."""
     cfg_path = _write_config(tmp_path, {
         "feeds": [{"url": "http://a.com/rss", "name": "show-a", "enabled": True}],
         "defaults": {"output_dir": str(tmp_path / "output"), "pipeline": ["download"]},
     })
     import yaml as _yaml
-    new_feed = {"url": "http://a.com/rss", "name": "show-a", "enabled": True, "last": 7}
     app = create_app(cfg_path, start_poller=False)
     client = TestClient(app)
-    response = client.post("/feeds/show-a/confirm", data={
-        "new_config_yaml": _yaml.dump(new_feed),
-    }, follow_redirects=False)
+    # Step 1: preview to get a token
+    preview_resp = client.post("/feeds/show-a/preview", data={
+        "name": "show-a",
+        "url": "http://a.com/rss",
+        "enabled": "on",
+        "last": "7",
+        "extra_yaml": "",
+    })
+    assert preview_resp.status_code == 200
+    assert "confirm" in preview_resp.text.lower()
+    # Extract token from hidden input
+    import re
+    token_match = re.search(r'<input type="hidden" name="token" value="([^"]+)"', preview_resp.text)
+    assert token_match, "Token not found in preview response"
+    token = token_match.group(1)
+    # Step 2: confirm with the token
+    response = client.post("/feeds/show-a/confirm", data={"token": token}, follow_redirects=False)
     assert response.status_code == 303
     saved = _yaml.safe_load(cfg_path.read_text())
     feed = next(f for f in saved["feeds"] if f["name"] == "show-a")
@@ -363,21 +376,29 @@ def test_defaults_preview_invalid_yaml_shows_error(tmp_path: Path) -> None:
 
 
 def test_defaults_confirm_saves(tmp_path: Path) -> None:
-    """POST to /defaults/confirm with serialized YAML should actually save."""
+    """Preview then confirm flow should save the new defaults config."""
     cfg_path = _write_config(tmp_path, {
         "feeds": [],
         "defaults": {"output_dir": "./output", "pipeline": ["download"]},
         "poll_interval": 3600,
     })
-    new_payload = {
-        "defaults": {"output_dir": "/confirmed/output", "pipeline": ["download"]},
-        "poll_interval": 900,
-    }
     app = create_app(cfg_path, start_poller=False)
     client = TestClient(app)
-    response = client.post("/defaults/confirm", data={
-        "new_config_yaml": yaml.dump(new_payload),
-    }, follow_redirects=False)
+    # Step 1: preview to get a token
+    preview_resp = client.post("/defaults/preview", data={
+        "output_dir": "/confirmed/output",
+        "poll_interval": "900",
+        "extra_yaml": "output_dir: ./output\npipeline:\n- download\n",
+    })
+    assert preview_resp.status_code == 200
+    assert "confirm" in preview_resp.text.lower()
+    # Extract token from hidden input
+    import re
+    token_match = re.search(r'<input type="hidden" name="token" value="([^"]+)"', preview_resp.text)
+    assert token_match, "Token not found in preview response"
+    token = token_match.group(1)
+    # Step 2: confirm with the token
+    response = client.post("/defaults/confirm", data={"token": token}, follow_redirects=False)
     assert response.status_code == 303
     saved = yaml.safe_load(cfg_path.read_text())
     assert saved["defaults"]["output_dir"] == "/confirmed/output"

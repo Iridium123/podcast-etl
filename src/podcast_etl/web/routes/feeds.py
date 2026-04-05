@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import difflib
+import logging
+import secrets
 from pathlib import Path
 
 import yaml
@@ -9,6 +11,8 @@ from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from podcast_etl.web import templates
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/feeds")
 
@@ -316,6 +320,8 @@ def _parse_feed_form(form_data, all_steps: list[str]) -> tuple[dict, str | None]
             base["type_id"] = type_id.strip()
     if pipeline:
         base["pipeline"] = pipeline
+    elif "pipeline" in base:
+        del base["pipeline"]
     if any(title_cleaning.values()):
         base["title_cleaning"] = title_cleaning
 
@@ -487,6 +493,11 @@ async def feed_save_preview(request: Request, name: str):
         lineterm="",
     ))
 
+    token = secrets.token_urlsafe(16)
+    if not hasattr(request.app.state, "pending_changes"):
+        request.app.state.pending_changes = {}
+    request.app.state.pending_changes[token] = new_yaml
+
     feed_display_name = name
     return templates.TemplateResponse(
         request,
@@ -494,7 +505,7 @@ async def feed_save_preview(request: Request, name: str):
         {
             "feed_name": feed_display_name,
             "diff_lines": diff_lines,
-            "new_config_yaml": new_yaml,
+            "token": token,
         },
     )
 
@@ -503,9 +514,9 @@ async def feed_save_preview(request: Request, name: str):
 async def feed_save_confirm(
     request: Request,
     name: str,
-    new_config_yaml: str = Form(""),
+    token: str = Form(""),
 ):
-    """Deserialize the confirmed new feed YAML and write it to disk."""
+    """Look up pending change by token and write it to disk."""
     from podcast_etl.service import (
         find_feed_config,
         load_config,
@@ -513,9 +524,11 @@ async def feed_save_confirm(
         validate_config,
     )
 
-    if not new_config_yaml.strip():
+    pending = getattr(request.app.state, "pending_changes", {})
+    new_config_yaml = pending.pop(token, None)
+    if not new_config_yaml:
         from fastapi import HTTPException
-        raise HTTPException(status_code=400, detail="No config data submitted.")
+        raise HTTPException(status_code=400, detail="Invalid or expired change token.")
 
     try:
         updated_feed = yaml.safe_load(new_config_yaml)
@@ -575,5 +588,8 @@ async def feed_run(request: Request, name: str):
         podcast = await asyncio.to_thread(fetch_feed, feed["url"], output_dir, resolved)
         await asyncio.to_thread(run_pipeline, podcast, output_dir, resolved)
 
-    asyncio.create_task(_run())
+    task = asyncio.create_task(_run())
+    task.add_done_callback(
+        lambda t: logger.error("feed_run failed: %s", t.exception()) if not t.cancelled() and t.exception() else None
+    )
     return HTMLResponse('<span class="text-blue-400">Running...</span>')

@@ -152,8 +152,10 @@ async def async_poll_loop(config: dict, config_path: Path, control: PollControl)
                         resolved = resolve_feed_config(defaults, feed_entry)
                         blacklist = resolved.get("blacklist", [])
                         title_cleaning = resolved.get("title_cleaning") or None
-                        podcast = parse_feed(url, output_dir=output_dir, blacklist=blacklist, title_cleaning=title_cleaning)
-                        podcast.save(output_dir)
+                        podcast = await asyncio.to_thread(
+                            parse_feed, url, output_dir=output_dir, blacklist=blacklist, title_cleaning=title_cleaning
+                        )
+                        await asyncio.to_thread(podcast.save, output_dir)
 
                         last = resolved.get("last")
                         episode_filter = resolved.get("episode_filter")
@@ -163,7 +165,7 @@ async def async_poll_loop(config: dict, config_path: Path, control: PollControl)
                         steps = [get_step(name) for name in feed_step_names]
                         context = PipelineContext(output_dir=output_dir, podcast=podcast, config=resolved)
                         pipeline = Pipeline(steps=steps, context=context)
-                        pipeline.run(episodes)
+                        await asyncio.to_thread(pipeline.run, episodes)
                         logger.info("Completed %s: %d episodes processed", podcast.title, len(episodes))
                     except Exception:
                         logger.exception("Error processing feed %s", url)
