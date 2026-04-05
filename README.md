@@ -1,29 +1,67 @@
 # podcast-etl
 
-A step-based pipeline that ingests podcast RSS feeds, downloads audio, and tracks per-episode processing status for resumability. Optionally packages episodes as torrents, seeds them via qBittorrent, and uploads to a UNIT3D-based tracker for archiving.
+A step-based pipeline that ingests podcast RSS feeds, downloads audio, tags MP3s, detects and strips ads, creates torrents, and uploads to a UNIT3D tracker. Manage everything through a browser-based web UI or a full-featured CLI.
 
-## Requirements
+## Quick Start (Docker)
 
-- Python 3.13+
-- [uv](https://docs.astral.sh/uv/)
-- `mktorrent` (system package) — required for the `torrent` step; included in the Docker image
-- `ffmpeg` (system package) — required for the `strip_ads` step; included in the Docker image
+```sh
+docker compose up -d
+```
 
-## Setup
+Open `http://localhost:8000` to access the web UI. Place your `feeds.yaml` in a `config/` directory alongside `docker-compose.yaml`.
+
+For a one-off CLI command instead:
+
+```sh
+docker run -v ./config:/config -v ./output:/output ghcr.io/iridium123/podcast-etl:latest \
+  podcast-etl -c /config/feeds.yaml run --all
+```
+
+## Quick Start (Local)
+
+Requires Python 3.13+, [uv](https://docs.astral.sh/uv/), and optionally `mktorrent` and `ffmpeg` for the torrent and ad-stripping steps.
 
 ```sh
 uv sync
-cp feeds.yaml.example feeds.yaml
-# edit feeds.yaml with your feeds
+cp feeds.yaml.example feeds.yaml   # edit with your feeds
+uv run podcast-etl serve            # web UI + poll loop on http://localhost:8000
 ```
 
-## Usage
+## Web UI
+
+The web UI is a browser-based interface for managing feeds and monitoring the pipeline. It runs a built-in poll loop, so no separate `poll` process is needed.
+
+```sh
+uv run podcast-etl serve                 # default port 8000
+uv run podcast-etl serve --port 9000     # custom port
+```
+
+**Dashboard** (`/`) -- summary counts (active feeds, episodes processed/pending), poll status with pause/resume/run-now controls, and a live log tail.
+
+**Feeds** (`/feeds`) -- list all configured feeds, add new ones, and drill into per-feed detail pages with episode step-completion grids and config editing.
+
+**Feed config editing** (`/feeds/{name}/edit`) -- structured form controls for common fields (name, URL, enabled, pipeline steps, title cleaning, category/type IDs) plus a raw YAML editor for advanced overrides (tracker, ad detection, audiobookshelf). Changes are validated and diffed before saving.
+
+**Defaults** (`/defaults`) -- edit global settings that all feeds inherit.
+
+**Resolved config preview** -- each feed detail page shows the final merged config after `deep_merge(defaults, feed)`, color-coded to show which values come from the feed vs. defaults.
+
+All CLI commands still work alongside the web UI and share the same `feeds.yaml`.
+
+## CLI Reference
+
+### Global options
+
+```sh
+uv run podcast-etl -c /path/to/feeds.yaml ...   # custom config path
+uv run podcast-etl -v ...                        # verbose (DEBUG) logging
+uv run podcast-etl --log-level WARNING ...       # set log level
+```
 
 ### Add a feed
 
 ```sh
 uv run podcast-etl add "https://example.com/feed.xml"
-# with an optional short name and custom pipeline steps
 uv run podcast-etl add "https://example.com/feed.xml" --name my-podcast --step download --step tag
 ```
 
@@ -31,122 +69,170 @@ uv run podcast-etl add "https://example.com/feed.xml" --name my-podcast --step d
 
 ```sh
 uv run podcast-etl fetch --all
-# by name or URL
 uv run podcast-etl fetch --feed my-podcast
-uv run podcast-etl fetch --feed "https://example.com/feed.xml"
 ```
-
-Writes `podcast.json` and per-episode JSON files to `output/<podcast-slug>/`.
 
 ### Run the pipeline
 
 ```sh
 uv run podcast-etl run --all
-# by name or URL
 uv run podcast-etl run --feed my-podcast
-# only run a specific step
-uv run podcast-etl run --feed my-podcast --step download
-# only process the last N episodes
-uv run podcast-etl run --feed my-podcast --last 5
-# only process episodes whose title matches a regex
-uv run podcast-etl run --feed my-podcast --filter "Part [0-9]+"
-# only process episodes from a specific date
-uv run podcast-etl run --feed my-podcast --date 2026-03-01
-# episodes in a date range (inclusive)
-uv run podcast-etl run --feed my-podcast --date 2026-03-01..2026-03-07
-# open-ended: everything from a date onward
-uv run podcast-etl run --feed my-podcast --date 2026-03-01..
-# open-started: everything up to and including a date
-uv run podcast-etl run --feed my-podcast --date ..2026-03-07
-# re-process even if already completed
-uv run podcast-etl run --feed my-podcast --overwrite
-# control log verbosity (-v is shorthand for DEBUG)
-uv run podcast-etl -v run --all
-uv run podcast-etl --log-level WARNING run --all
+uv run podcast-etl run --feed my-podcast --step download       # single step
+uv run podcast-etl run --feed my-podcast --last 5              # last N episodes
+uv run podcast-etl run --feed my-podcast --filter "Part [0-9]+"  # title regex
+uv run podcast-etl run --feed my-podcast --date 2026-03-01     # single date
+uv run podcast-etl run --feed my-podcast --date 2026-03-01..2026-03-07  # date range
+uv run podcast-etl run --feed my-podcast --date 2026-03-01..   # from date onward
+uv run podcast-etl run --feed my-podcast --date ..2026-03-07   # up to date
+uv run podcast-etl run --feed my-podcast --overwrite           # re-process completed
 ```
 
-Fetches feeds then runs configured pipeline steps. Episodes that have already completed a step are skipped unless `--overwrite` is passed.
-
-Downloaded audio files are named `YYYY-MM-DD <Episode Title>.mp3` using the episode's release date and a sanitized version of its title. Characters forbidden on Windows/macOS (`/:*?"<>|`) are removed, and `": "` is replaced with `" - "` (e.g. `2024-03-15 Ep 3 - God Picked a Loser.mp3`).
+The `--feed` flag accepts either a feed name or a full URL.
 
 ### Reset a feed
 
 ```sh
-uv run podcast-etl reset --feed my-podcast
-# skip confirmation prompt
 uv run podcast-etl reset --feed my-podcast --yes
-# by URL
-uv run podcast-etl reset --feed "https://example.com/feed.xml" --yes
-# reset all feeds
 uv run podcast-etl reset --all --yes
 ```
 
-Deletes the feed's entire output directory (podcast.json, episode JSON files, and downloaded audio) so it can be reprocessed from scratch. Prompts for confirmation unless `--yes` / `-y` is passed.
+Deletes the feed's output directory so it can be reprocessed from scratch. Prompts for confirmation unless `--yes` is passed.
 
 ### Check status
 
 ```sh
 uv run podcast-etl status
-# by name or URL
 uv run podcast-etl status --feed my-podcast
 ```
 
-Shows per-episode step completion for all feeds (or a specific feed).
-
-### Long-running poll mode
+### Poll mode (without web UI)
 
 ```sh
 uv run podcast-etl poll --interval 3600
 ```
 
-Fetches and processes all feeds on a loop. Shuts down cleanly on SIGTERM/SIGINT.
+Fetches and processes all enabled feeds on a loop. The `serve` command is preferred since it includes the poll loop plus the web UI.
 
-## Web UI
+## Configuration
 
-A browser-based interface for managing feeds and monitoring pipeline status. It runs alongside the integrated poll loop so no separate `poll` process is needed.
+All configuration lives in `feeds.yaml`. The web UI reads and writes this file directly -- there is no database.
 
-### Start the web UI
+The `defaults` block contains shared config inherited by all feeds. Any key in `defaults` can appear in a feed entry to override it via deep merge, so you only need to specify the keys that differ.
 
-```sh
-uv run podcast-etl serve
-# custom port
-uv run podcast-etl serve --port 9000
+```yaml
+poll_interval: 3600
+
+defaults:
+  output_dir: ./output
+  torrent_data_dir: /torrent-data
+  pipeline: [download, tag]
+  blacklist:
+    - "John Doe"
+
+  title_cleaning:
+    strip_date: false
+    reorder_parts: false
+    prepend_episode_number: false
+    sanitize: false
+
+  ad_detection:
+    whisper:
+      model: base
+      language: en
+      # url: http://localhost:8080   # optional: remote whisper server
+    llm:
+      provider: anthropic
+      model: claude-sonnet-4-20250514
+    min_confidence: 0.5
+
+  audiobookshelf:
+    url: https://abs.example.com
+    api_key: your-api-key
+    library_id: lib_abc123
+    dir: /podcasts
+
+  client:
+    url: http://localhost:8080
+    username: admin
+    password: secret
+    save_path: /data
+
+  tracker:
+    url: https://tracker.example.com
+    remember_cookie: "eyJpdi..."
+    announce_url: https://tracker.example.com/announce/your-passkey/announce
+    anonymous: 0
+    personal_release: 0
+    mod_queue_opt_in: 0
+    description_suffix: "Uploaded by MyBot"
+    private: true
+    source: MyTracker
+
+feeds:
+  - url: "https://example.com/feed.xml"
+    name: my-podcast
+    enabled: true
+    last: 5
+    episode_filter: "Part [0-9]+"
+    pipeline: [download, tag, detect_ads, strip_ads, stage, torrent, seed, upload]
+    category_id: 14
+    type_id: 9
+    cover_image: /config/cover.jpg
+    banner_image: /config/banner.jpg
+    tracker:
+      mod_queue_opt_in: 1
+    ad_detection:
+      llm:
+        model: claude-sonnet-4-20250514
+    title_cleaning:
+      strip_date: true
+      reorder_parts: true
+      prepend_episode_number: true
+      sanitize: true
 ```
 
-Open `http://localhost:8000` in your browser.
+Key config behaviors:
 
-### Docker with web UI
+- **`enabled`** defaults to `false`. Only `true` feeds are processed during poll/serve. Explicit `--feed` runs ignore this flag.
+- **`last`** and **`episode_filter`** limit which episodes are processed during poll. They can also appear in `defaults`.
+- **Per-feed overrides** are deep-merged with `defaults`, so `tracker: {mod_queue_opt_in: 1}` only overrides that one key.
 
-Map port 8000 when running the container:
+### Title Cleaning
 
-```sh
-docker run -p 8000:8000 -v ./config:/config -v ./output:/output ghcr.io/iridium123/podcast-etl:latest
-```
+Optional rules applied at feed parse time. All off by default; enable globally or per-feed.
 
-The Docker image defaults to `serve` so the web UI and poll loop start automatically.
+- **`strip_date`** -- removes dates in brackets: `(3/19/26)`, `[2026-03-22]`, `(March 22, 2026)`, etc.
+- **`reorder_parts`** -- moves `(Part N)` after the common series prefix so multi-part same-day episodes sort correctly.
+- **`prepend_episode_number`** -- prepends `itunes:episode` number: `"Rise of the Mongols"` becomes `"123 - Rise of the Mongols"`.
+- **`sanitize`** -- replaces filesystem-invalid characters with `_`, collapses separator sequences to ` - `.
 
-### What the UI provides
+Changing title cleaning rules changes episode slugs and filenames. Use `reset` to start fresh if enabling mid-stream.
 
-- **Config management** — edit feeds and global defaults via structured forms or raw YAML
-- **Status dashboard** — per-feed, per-episode step completion at a glance
-- **Poll controls** — pause, resume, or trigger an immediate poll run from the browser
-- **Log tail** — live log output streamed to the dashboard
+### Tracker Cookie
 
-All CLI commands (`run`, `fetch`, `reset`, `status`, etc.) still work alongside the web UI and share the same `feeds.yaml` config file.
+To get the `remember_cookie` value: log in to the tracker in your browser, open DevTools, go to Application then Cookies, and copy the value of `remember_web_59ba36addc2b2f9401580f014c7f58ea4e30989d`. This works with 2FA-enabled accounts.
+
+## Pipeline Steps
+
+Steps run in the order listed in `pipeline`. Each step's result is stored per-episode, so re-runs skip completed work.
+
+| Step | Requires | Description |
+|------|----------|-------------|
+| `download` | -- | Fetch audio from RSS `audio_url` |
+| `tag` | `download` | Write ID3 metadata (title, artist, date, TRCK track number, APIC album art) |
+| `detect_ads` | `download` | Transcribe via faster-whisper, classify ad segments via LLM |
+| `strip_ads` | `detect_ads` | Remove ad segments via ffmpeg with crossfade |
+| `stage` | `download` | Copy audio to `torrent_data_dir/`; prefers cleaned audio if available |
+| `torrent` | `stage` | Create `.torrent` via `mktorrent` |
+| `seed` | `torrent` | Add torrent to qBittorrent via Web API |
+| `upload` | `torrent` | Upload `.torrent` + metadata to UNIT3D tracker |
+| `audiobookshelf` | `download` | Copy audio to Audiobookshelf library and trigger scan |
 
 ## Docker
 
-A pre-built image is published to `ghcr.io/iridium123/podcast-etl:latest` on every push to `main`. The image includes `mktorrent` and `ffmpeg`, and exposes port `8000` for the web UI.
+A pre-built image is published to `ghcr.io/iridium123/podcast-etl:latest` on every push to `main`. It includes `mktorrent` and `ffmpeg` and defaults to `serve` mode (web UI + poll loop on port 8000).
 
 ### Docker Compose (recommended)
-
-```sh
-docker compose up -d
-```
-
-Place your `feeds.yaml` in a `config/` directory alongside `docker-compose.yaml`. Output lands in `./output`. The container starts the web UI and poll loop automatically; open `http://localhost:8000` to access the dashboard.
-
-To use the `stage`/`torrent`/`seed` steps, mount a shared volume between podcast-etl and your qBittorrent container:
 
 ```yaml
 services:
@@ -158,19 +244,8 @@ services:
       - ./config:/config
       - ./output:/output
       - /path/to/torrent-data:/torrent-data   # shared with qBittorrent
-```
-
-### Manual docker run
-
-```sh
-docker run -p 8000:8000 -v ./config:/config -v ./output:/output ghcr.io/iridium123/podcast-etl:latest
-```
-
-Override the default serve mode to run a one-off command:
-
-```sh
-docker run -v ./config:/config -v ./output:/output ghcr.io/iridium123/podcast-etl:latest \
-  podcast-etl -c /config/feeds.yaml run --all
+    environment:
+      - TZ=America/Los_Angeles
 ```
 
 ### Build locally
@@ -179,86 +254,17 @@ docker run -v ./config:/config -v ./output:/output ghcr.io/iridium123/podcast-et
 docker build -t podcast-etl .
 ```
 
-## Configuration
+### Run tests in Docker
 
-Edit `feeds.yaml` to manage feeds and pipeline settings. See `feeds.yaml.example` for a full example.
-
-The `defaults` block contains shared config inherited by all feeds. Any key in `defaults` can appear in a feed entry to override it — overrides are applied via deep merge, so nested keys like `tracker.mod_queue_opt_in` can be set without repeating the whole block.
-
-```yaml
-poll_interval: 3600
-
-defaults:
-  output_dir: ./output
-  torrent_data_dir: /torrent-data   # staging dir readable by both app and torrent client
-  pipeline: [download, tag]         # default for feeds without their own pipeline
-  blacklist:                        # strings to reject from descriptions (case-insensitive)
-    - "John Doe"                    # any description containing this is blanked to null
-
-  title_cleaning:                   # global title cleaning (default off)
-    strip_date: false               # remove bracketed dates from episode titles
-    reorder_parts: false            # move (Part N) to front of episode title
-    prepend_episode_number: false   # prepend itunes:episode number to title
-    sanitize: false                 # replace invalid filesystem chars, normalize separators
-
-  ad_detection:
-    whisper:
-      model: base                   # faster-whisper model (tiny, base, small, medium, large-v3)
-      language: en
-      # url: http://localhost:8080  # optional: use remote whisper server instead of local
-    llm:
-      provider: anthropic           # uses ANTHROPIC_API_KEY env var by default
-      model: claude-sonnet-4-20250514
-    min_confidence: 0.5
-
-  audiobookshelf:
-    url: https://abs.example.com
-    api_key: your-api-key
-    library_id: lib_abc123          # for triggering library scan
-    dir: /podcasts                  # root dir on shared volume; podcast title used as subdir
-
-  client:
-    url: http://localhost:8080
-    username: admin
-    password: secret
-    save_path: /data                # path to torrent_data_dir as seen by qBittorrent
-
-  tracker:
-    url: https://tracker.example.com
-    remember_cookie: "eyJpdi..."    # from browser; OR use username+password below
-    # username: your-username       # alternative to remember_cookie (no 2FA support)
-    # password: your-password
-    announce_url: https://tracker.example.com/announce/your-passkey/announce
-    anonymous: 0
-    personal_release: 0
-    mod_queue_opt_in: 0
-    description_suffix: "Uploaded by MyBot"  # optional; appended to episode description on tracker
-    private: true                   # optional; sets -p flag in mktorrent (default: true)
-    source: MyTracker               # optional; sets -s flag in mktorrent
-
-feeds:
-  - url: "https://example.com/feed.xml"
-    name: my-podcast
-    enabled: true                 # optional; must be true to run during poll (default: false)
-    last: 5                       # optional; only process N most recent episodes during poll
-    episode_filter: "Part [0-9]+" # optional; regex — only process episodes whose title matches
-    pipeline: [download, tag, detect_ads, strip_ads, stage, torrent, seed, upload]
-    category_id: 14               # required for upload step (see ID tables below)
-    type_id: 9                    # required for upload step (see ID tables below)
-    cover_image: /config/cover.jpg    # optional; uploaded as torrent cover (1:1 aspect ratio, JPEG)
-    banner_image: /config/banner.jpg  # optional; uploaded as torrent banner (16:9 aspect ratio, JPEG)
-    tracker:                          # optional per-feed tracker overrides (deep-merged)
-      mod_queue_opt_in: 1
-      description_suffix: "Per-feed suffix"
-    ad_detection:                     # optional per-feed overrides (deep-merged)
-      llm:
-        model: claude-sonnet-4-20250514
-    title_cleaning:                   # optional per-feed title cleaning
-      strip_date: true                # remove bracketed dates from titles
-      reorder_parts: true             # move (Part N) to front of title
-      prepend_episode_number: true    # prepend itunes:episode number to title
-      sanitize: true                  # replace invalid filesystem chars, normalize separators
+```sh
+docker build --target test -t podcast-etl-test . && docker run --rm podcast-etl-test
 ```
+
+## Adding a Pipeline Step
+
+1. Create `src/podcast_etl/steps/your_step.py` implementing the `Step` protocol (`name: str`, `process(episode, context) -> StepResult`)
+2. Register it in `service.py` with `register_step(YourStep())`
+3. Add `your_step` to the `pipeline` list in `feeds.yaml`
 
 <details>
 <summary>Category IDs</summary>
@@ -317,41 +323,3 @@ feeds:
 | 15 | Video - Premium |
 
 </details>
-
-### Title Cleaning
-
-Optional rules to clean episode titles at feed parse time. All rules are off by default and can be enabled globally in `defaults.title_cleaning` or per-feed in `title_cleaning`. Per-feed values override global values.
-
-**Note:** Enabling or disabling title cleaning rules changes episode slugs and filenames. Step status is preserved via GUID, but enabling a rule mid-stream will cause episodes to be re-processed under the new filename. Use `reset` to start fresh if needed.
-
-**`strip_date`** — Removes dates wrapped in brackets `()`, `[]`, or `{}` from episode titles. Useful when the pipeline already prepends dates to filenames and upload titles. Supported formats: `(3_19_26)`, `(03/22/2026)`, `(2026-03-22)`, `(March 22, 2026)`, etc. Bare dates without brackets are not affected.
-
-**`reorder_parts`** — Reorders part indicators like `(Part 1)`, `(Pt. 2)`, `[Pt 3]` so multi-part episodes released on the same day sort correctly. Uses same-day sibling episodes from the RSS feed to find a common series prefix and inserts the part number after it. For example, `"World War II - D-Day (Part 3)"` becomes `"World War II - Part 3 - D-Day"`. If the common prefix is too short (< 5 chars), the part is prepended instead. Only triggers when multiple same-day episodes have part indicators; solo episodes are left unchanged. Only matches parts inside brackets; bare `Part 1` is not affected.
-
-**`prepend_episode_number`** — Prepends the `itunes:episode` number to the episode title in the format `{number} - {title}`. For example, episode 123 with title `"Rise of the Mongols"` becomes `"123 - Rise of the Mongols"`. Runs after `reorder_parts`, so with parts reordered: `"123 - Part 3 - Rise of the Mongols"`. Only applies when the RSS entry has a numeric `itunes:episode` value; non-numeric values (e.g. `"bonus"`) are ignored.
-
-**`sanitize`** — Replaces characters that are invalid on any of macOS, Windows, or Linux filesystems (`\ / : * ? " < > |` and control characters) with `_`, then collapses any sequence of underscores, whitespace, and dashes into a single ` - `. Cleans up double-dash artifacts from other rules (e.g. `"Show - - Part 3"` → `"Show - Part 3"`) and makes titles like `"Title: Subtitle"` filesystem-safe (`"Title - Subtitle"`). Runs after all other title cleaning rules.
-
-To get the `remember_cookie` value: log in to the tracker in your browser, then open DevTools → Application → Cookies → copy the value of `remember_web_59ba36addc2b2f9401580f014c7f58ea4e30989d`. This works with 2FA-enabled accounts. The cookie is long-lived but will eventually expire, requiring a fresh copy.
-
-## Pipeline Steps
-
-Steps run in the order listed in `pipeline`. Each step requires the previous steps in its chain to have completed.
-
-| Step | Requires | Description |
-|------|----------|-------------|
-| `download` | — | Fetch audio from RSS `audio_url` → `output/<podcast>/audio/` |
-| `tag` | `download` | Write ID3 metadata (title, artist, date, track number) to the downloaded MP3 file; writes track number from `itunes:episode` when available; embeds episode artwork as album art when available (falls back to feed image) |
-| `detect_ads` | `download` | Transcribe audio via local faster-whisper (or remote server), classify ad segments via LLM; saves transcript and reuses on retry |
-| `strip_ads` | `detect_ads`, `download` | Remove detected ad segments from audio via ffmpeg; output in `output/<podcast>/cleaned/` |
-| `stage` | `download` (or `strip_ads`) | Copy audio to `torrent_data_dir/` for seeding; prefers cleaned audio if available |
-| `torrent` | `stage` | Create `.torrent` via `mktorrent`; extract `info_hash` via `torf`; output in `output/<podcast>/torrents/` |
-| `seed` | `torrent`, `stage` | Add torrent to qBittorrent via Web API with the correct save path |
-| `upload` | `torrent` | Upload `.torrent` + metadata to UNIT3D tracker via web form; uses episode artwork as cover when available, falls back to `cover_image` config; supports banner images |
-| `audiobookshelf` | `download` (or `strip_ads`) | Copy audio into `audiobookshelf.dir/<podcast title>/` and trigger library scan; uses `title_override` if set |
-
-## Adding a new pipeline step
-
-1. Create `src/podcast_etl/steps/your_step.py` implementing the `Step` protocol (`name: str`, `process(episode, context) -> StepResult`)
-2. Register it in `cli.py` with `register_step(YourStep())`
-3. Add `your_step` to the `pipeline` list in `feeds.yaml` (globally or per-feed)
