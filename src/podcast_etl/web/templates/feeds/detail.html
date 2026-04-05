@@ -121,9 +121,9 @@
               {% for step in step_names %}
               <td class="py-2 px-1 text-center">
                 {% if ep.statuses[step] == "done" %}
-                  <span class="text-green-400 text-base" title="done">&#10003;</span>
+                  <span class="inline-block w-3 h-3 rounded-full bg-green-500" title="done"></span>
                 {% else %}
-                  <span class="text-gray-500 text-base" title="pending">&#x2013;</span>
+                  <span class="inline-block w-3 h-3 rounded-full bg-gray-700 border border-gray-600" title="pending"></span>
                 {% endif %}
               </td>
               {% endfor %}
