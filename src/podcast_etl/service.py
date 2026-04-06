@@ -108,6 +108,21 @@ def find_feed_config(config: dict, identifier: str) -> dict | None:
     return None
 
 
+def replace_feed(feeds: list[dict], identifier: str, new_feed: dict) -> list[dict]:
+    """Return ``feeds`` with the entry matching ``identifier`` replaced by ``new_feed``.
+
+    Matches by ``name`` or ``url`` field (same semantics as
+    :func:`find_feed_config`). Preserves the original ordering. If no
+    entry matches, returns the list unchanged — callers that need to
+    guarantee the feed exists should pre-check with
+    :func:`find_feed_config`.
+    """
+    return [
+        new_feed if (f.get("name") == identifier or f.get("url") == identifier) else f
+        for f in feeds
+    ]
+
+
 def find_podcast_dir(output_dir: Path, url: str) -> Path | None:
     """Find the podcast output directory matching the given feed URL."""
     if not output_dir.exists() or not url:

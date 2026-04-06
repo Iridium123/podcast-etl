@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import difflib
 import logging
 from pathlib import Path
 
@@ -12,11 +11,13 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from podcast_etl.web import templates
 from podcast_etl.web.form_helpers import (
     check_origin,
+    compute_yaml_diff,
     parse_form_section,
-    pop_pending_change,
+    pop_pending_config_payload,
     pop_pending_delete,
     store_pending_change,
     store_pending_delete,
+    validate_or_400,
 )
 
 logger = logging.getLogger(__name__)
@@ -339,6 +340,7 @@ async def feed_save_preview(request: Request, name: str):
     from podcast_etl.service import (
         find_feed_config,
         load_config,
+        replace_feed,
         validate_config,
     )
 
@@ -373,18 +375,8 @@ async def feed_save_preview(request: Request, name: str):
             updated_feed[preserve_key] = existing_feed[preserve_key]
 
     # Build candidate config for validation
-    new_feeds = []
-    replaced = False
-    for f in config.get("feeds", []):
-        if f.get("name") == name or f.get("url") == name:
-            new_feeds.append(updated_feed)
-            replaced = True
-        else:
-            new_feeds.append(f)
-    if not replaced:
-        new_feeds.append(updated_feed)
     candidate_config = dict(config)
-    candidate_config["feeds"] = new_feeds
+    candidate_config["feeds"] = replace_feed(config.get("feeds", []), name, updated_feed)
 
     try:
         validate_config(candidate_config)
@@ -401,25 +393,15 @@ async def feed_save_preview(request: Request, name: str):
             status_code=200,
         )
 
-    old_yaml = yaml.dump(existing_feed, default_flow_style=False, sort_keys=False)
+    diff_lines = compute_yaml_diff(existing_feed, updated_feed)
     new_yaml = yaml.dump(updated_feed, default_flow_style=False, sort_keys=False)
-
-    diff_lines = list(difflib.unified_diff(
-        old_yaml.splitlines(),
-        new_yaml.splitlines(),
-        fromfile="current",
-        tofile="updated",
-        lineterm="",
-    ))
-
     token = store_pending_change(request, new_yaml)
 
-    feed_display_name = name
     return templates.TemplateResponse(
         request,
         "feeds/confirm.html",
         {
-            "feed_name": feed_display_name,
+            "feed_name": name,
             "diff_lines": diff_lines,
             "token": token,
         },
@@ -436,22 +418,11 @@ async def feed_save_confirm(
     from podcast_etl.service import (
         find_feed_config,
         load_config,
+        replace_feed,
         save_config,
-        validate_config,
     )
 
-    new_config_yaml = pop_pending_change(request, token)
-    if not new_config_yaml:
-        from fastapi import HTTPException
-        raise HTTPException(status_code=400, detail="Invalid or expired change token.")
-
-    try:
-        updated_feed = yaml.safe_load(new_config_yaml)
-        if not isinstance(updated_feed, dict):
-            raise ValueError("Config must be a YAML mapping")
-    except (yaml.YAMLError, ValueError) as exc:
-        from fastapi import HTTPException
-        raise HTTPException(status_code=400, detail=f"Invalid config data: {exc}")
+    updated_feed = pop_pending_config_payload(request, token)
 
     config = load_config(request.app.state.config_path)
     existing_feed = find_feed_config(config, name)
@@ -460,24 +431,9 @@ async def feed_save_confirm(
         from fastapi import HTTPException
         raise HTTPException(status_code=404, detail=f"Feed {name!r} not found.")
 
-    new_feeds = []
-    replaced = False
-    for f in config.get("feeds", []):
-        if f.get("name") == name or f.get("url") == name:
-            new_feeds.append(updated_feed)
-            replaced = True
-        else:
-            new_feeds.append(f)
-    if not replaced:
-        new_feeds.append(updated_feed)
-    config["feeds"] = new_feeds
+    config["feeds"] = replace_feed(config.get("feeds", []), name, updated_feed)
 
-    try:
-        validate_config(config)
-    except SystemExit as exc:
-        from fastapi import HTTPException
-        raise HTTPException(status_code=400, detail=f"Config validation failed: {exc}")
-
+    validate_or_400(config)
     save_config(config, request.app.state.config_path)
 
     redirect_name = updated_feed.get("name") or updated_feed.get("url", name)

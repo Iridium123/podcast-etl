@@ -20,6 +20,7 @@ from podcast_etl.service import (
     get_resolved_config_with_sources,
     load_config,
     merge_config_fields,
+    replace_feed,
     reset_feed_data,
     save_config,
     split_config_fields,
@@ -215,6 +216,59 @@ def test_find_feed_config_empty_feeds():
 
 def test_find_feed_config_no_feeds_key():
     assert find_feed_config({}, "anything") is None
+
+
+# ---------------------------------------------------------------------------
+# replace_feed
+# ---------------------------------------------------------------------------
+
+def test_replace_feed_by_name():
+    feeds = [
+        {"url": "http://a.com/rss", "name": "show-a"},
+        {"url": "http://b.com/rss", "name": "show-b"},
+    ]
+    new_feed = {"url": "http://a.com/rss", "name": "show-a", "last": 5}
+    result = replace_feed(feeds, "show-a", new_feed)
+    assert result[0] == new_feed
+    assert result[1] == {"url": "http://b.com/rss", "name": "show-b"}
+
+
+def test_replace_feed_by_url():
+    feeds = [
+        {"url": "http://a.com/rss", "name": "show-a"},
+        {"url": "http://b.com/rss", "name": "show-b"},
+    ]
+    new_feed = {"url": "http://b.com/rss", "name": "show-b", "enabled": True}
+    result = replace_feed(feeds, "http://b.com/rss", new_feed)
+    assert result[0] == {"url": "http://a.com/rss", "name": "show-a"}
+    assert result[1] == new_feed
+
+
+def test_replace_feed_preserves_order():
+    feeds = [
+        {"url": "http://a.com/rss", "name": "a"},
+        {"url": "http://b.com/rss", "name": "b"},
+        {"url": "http://c.com/rss", "name": "c"},
+    ]
+    result = replace_feed(feeds, "b", {"url": "http://b.com/rss", "name": "b", "last": 1})
+    assert [f["name"] for f in result] == ["a", "b", "c"]
+
+
+def test_replace_feed_no_match_returns_unchanged():
+    feeds = [{"url": "http://a.com/rss", "name": "show-a"}]
+    result = replace_feed(feeds, "nonexistent", {"url": "http://x.com/rss"})
+    assert result == feeds
+
+
+def test_replace_feed_empty_list():
+    assert replace_feed([], "anything", {"url": "http://x.com/rss"}) == []
+
+
+def test_replace_feed_does_not_mutate_input():
+    feeds = [{"url": "http://a.com/rss", "name": "show-a"}]
+    original = [dict(f) for f in feeds]
+    replace_feed(feeds, "show-a", {"url": "http://a.com/rss", "name": "show-a", "last": 10})
+    assert feeds == original
 
 
 # ---------------------------------------------------------------------------

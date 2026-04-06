@@ -8,6 +8,7 @@ CSRF check applied to state-changing POST endpoints.
 """
 from __future__ import annotations
 
+import difflib
 import secrets
 from collections.abc import Sequence
 from typing import Any
@@ -15,6 +16,8 @@ from urllib.parse import urlparse
 
 import yaml
 from fastapi import HTTPException, Request
+
+from podcast_etl.service import validate_config
 
 
 def check_origin(request: Request) -> None:
@@ -224,3 +227,55 @@ def pop_pending_delete(request: Request, token: str) -> str | None:
     """Retrieve and consume a pending feed-delete by token."""
     pending = getattr(request.app.state, "pending_deletes", {})
     return pending.pop(token, None)
+
+
+def compute_yaml_diff(old: dict, new: dict) -> list[str]:
+    """Return unified diff lines between two YAML-serialized dicts.
+
+    Used by the preview handlers to show a before/after diff of config
+    changes on the confirm page. Both inputs are dumped with the same
+    options so only real content changes appear in the diff.
+    """
+    old_yaml = yaml.dump(old, default_flow_style=False, sort_keys=False)
+    new_yaml = yaml.dump(new, default_flow_style=False, sort_keys=False)
+    return list(difflib.unified_diff(
+        old_yaml.splitlines(),
+        new_yaml.splitlines(),
+        fromfile="current",
+        tofile="updated",
+        lineterm="",
+    ))
+
+
+def pop_pending_config_payload(request: Request, token: str) -> dict:
+    """Pop a pending-change token and parse its payload as a YAML mapping.
+
+    Raises ``HTTPException(400)`` when the token is missing or expired,
+    when the payload is not valid YAML, or when the parsed payload is not
+    a mapping. Used by the confirm handlers to consume a previously-stored
+    preview payload before writing it to disk.
+    """
+    new_config_yaml = pop_pending_change(request, token)
+    if not new_config_yaml:
+        raise HTTPException(status_code=400, detail="Invalid or expired change token.")
+    try:
+        payload = yaml.safe_load(new_config_yaml)
+        if not isinstance(payload, dict):
+            raise ValueError("Config must be a YAML mapping")
+    except (yaml.YAMLError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid config data: {exc}")
+    return payload
+
+
+def validate_or_400(config: dict) -> None:
+    """Run :func:`validate_config`; re-raise ``SystemExit`` as ``HTTPException(400)``.
+
+    Used by the confirm handlers, which want a 400 JSON error rather than
+    a form re-render when validation fails (validation on confirm should
+    be rare — it was already checked on preview, so failure here means
+    something changed between preview and confirm).
+    """
+    try:
+        validate_config(config)
+    except SystemExit as exc:
+        raise HTTPException(status_code=400, detail=f"Config validation failed: {exc}")

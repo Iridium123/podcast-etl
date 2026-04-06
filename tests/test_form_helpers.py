@@ -439,3 +439,148 @@ def test_pop_pending_change_invalid_token():
 
     result = pop_pending_change(FakeRequest(), "nonexistent")
     assert result is None
+
+
+# ---------------------------------------------------------------------------
+# compute_yaml_diff
+# ---------------------------------------------------------------------------
+
+def test_compute_yaml_diff_identical_returns_empty():
+    from podcast_etl.web.form_helpers import compute_yaml_diff
+
+    data = {"url": "http://a.com/rss", "name": "show"}
+    assert compute_yaml_diff(data, data) == []
+
+
+def test_compute_yaml_diff_value_change_shows_change():
+    from podcast_etl.web.form_helpers import compute_yaml_diff
+
+    old = {"url": "http://a.com/rss", "last": 5}
+    new = {"url": "http://a.com/rss", "last": 10}
+    diff = compute_yaml_diff(old, new)
+    assert any("-last: 5" in line for line in diff)
+    assert any("+last: 10" in line for line in diff)
+
+
+def test_compute_yaml_diff_added_key():
+    from podcast_etl.web.form_helpers import compute_yaml_diff
+
+    old = {"url": "http://a.com/rss"}
+    new = {"url": "http://a.com/rss", "enabled": True}
+    diff = compute_yaml_diff(old, new)
+    assert any("+enabled: true" in line for line in diff)
+
+
+def test_compute_yaml_diff_labels_are_current_and_updated():
+    from podcast_etl.web.form_helpers import compute_yaml_diff
+
+    diff = compute_yaml_diff({"a": 1}, {"a": 2})
+    header = "\n".join(diff[:2])
+    assert "current" in header
+    assert "updated" in header
+
+
+# ---------------------------------------------------------------------------
+# pop_pending_config_payload
+# ---------------------------------------------------------------------------
+
+def test_pop_pending_config_payload_valid():
+    from fastapi import HTTPException
+
+    from podcast_etl.web.form_helpers import (
+        pop_pending_config_payload,
+        store_pending_change,
+    )
+
+    request = _fake_request()
+    token = store_pending_change(request, "url: http://a.com/rss\nname: show\n")
+    payload = pop_pending_config_payload(request, token)
+    assert payload == {"url": "http://a.com/rss", "name": "show"}
+
+
+def test_pop_pending_config_payload_missing_token_raises_400():
+    from fastapi import HTTPException
+
+    from podcast_etl.web.form_helpers import pop_pending_config_payload
+
+    request = _fake_request()
+    with pytest.raises(HTTPException) as exc_info:
+        pop_pending_config_payload(request, "nonexistent")
+    assert exc_info.value.status_code == 400
+    assert "expired" in exc_info.value.detail.lower()
+
+
+def test_pop_pending_config_payload_non_mapping_raises_400():
+    from fastapi import HTTPException
+
+    from podcast_etl.web.form_helpers import (
+        pop_pending_config_payload,
+        store_pending_change,
+    )
+
+    request = _fake_request()
+    token = store_pending_change(request, "- item1\n- item2\n")
+    with pytest.raises(HTTPException) as exc_info:
+        pop_pending_config_payload(request, token)
+    assert exc_info.value.status_code == 400
+    assert "mapping" in exc_info.value.detail.lower()
+
+
+def test_pop_pending_config_payload_invalid_yaml_raises_400():
+    from fastapi import HTTPException
+
+    from podcast_etl.web.form_helpers import (
+        pop_pending_config_payload,
+        store_pending_change,
+    )
+
+    request = _fake_request()
+    token = store_pending_change(request, "key: [unclosed")
+    with pytest.raises(HTTPException) as exc_info:
+        pop_pending_config_payload(request, token)
+    assert exc_info.value.status_code == 400
+
+
+def test_pop_pending_config_payload_is_single_use():
+    from fastapi import HTTPException
+
+    from podcast_etl.web.form_helpers import (
+        pop_pending_config_payload,
+        store_pending_change,
+    )
+
+    request = _fake_request()
+    token = store_pending_change(request, "url: http://a.com/rss\n")
+    pop_pending_config_payload(request, token)
+    # Second call must fail — token consumed on first pop
+    with pytest.raises(HTTPException):
+        pop_pending_config_payload(request, token)
+
+
+# ---------------------------------------------------------------------------
+# validate_or_400
+# ---------------------------------------------------------------------------
+
+def test_validate_or_400_passes_valid_config():
+    from podcast_etl.web.form_helpers import validate_or_400
+
+    config = {
+        "feeds": [{"url": "http://a.com/rss", "name": "show"}],
+        "defaults": {"output_dir": "./output", "pipeline": ["download"]},
+        "poll_interval": 3600,
+    }
+    # Should not raise
+    validate_or_400(config)
+
+
+def test_validate_or_400_raises_400_on_invalid_config():
+    from fastapi import HTTPException
+
+    from podcast_etl.web.form_helpers import validate_or_400
+
+    # A feed missing a url field fails validate_config
+    config = {"feeds": [{"name": "no-url-feed"}], "defaults": {}, "poll_interval": 3600}
+    with pytest.raises(HTTPException) as exc_info:
+        validate_or_400(config)
+    assert exc_info.value.status_code == 400
+    assert "validation failed" in exc_info.value.detail.lower()
