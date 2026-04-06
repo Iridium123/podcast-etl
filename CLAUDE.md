@@ -116,6 +116,10 @@ The top-level `defaults` block is deep-merged with per-feed overrides via `resol
 ```yaml
 poll_interval: 3600
 
+web:
+  trusted_origins:                          # optional, for reverse-proxy deployments
+    - https://podcast-etl.example.com       # e.g. Cloudflare Tunnel public URL
+
 defaults:
   output_dir: ./output
   torrent_data_dir: /torrent-data
@@ -142,6 +146,8 @@ feeds:
     ad_detection: {llm: {model: ...}}       # deep-merged with defaults.ad_detection
     title_cleaning: {strip_date: true}      # per-feed override
 ```
+
+**Web UI CSRF check (`check_origin` in `web/form_helpers.py`):** State-changing POST endpoints use a FastAPI dependency that accepts requests where the browser's `Origin` matches either the request's `Host` header (default same-origin case) or an entry in `web.trusted_origins`. Requests with no `Origin`/`Referer` header (non-browser) are always allowed. Use `trusted_origins` when the reverse proxy rewrites `Host` — most notably Cloudflare Tunnel with default `httpHostHeader`.
 
 ### Docker
 

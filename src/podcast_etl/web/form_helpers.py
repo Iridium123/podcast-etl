@@ -17,28 +17,52 @@ from urllib.parse import urlparse
 import yaml
 from fastapi import HTTPException, Request
 
-from podcast_etl.service import validate_config
+from podcast_etl.service import load_config, validate_config
 
 
 def check_origin(request: Request) -> None:
     """Reject cross-origin state-changing requests via Origin/Referer check.
 
-    Raises ``HTTPException(400)`` when the request's ``Origin`` (or
-    ``Referer`` when ``Origin`` is absent) points to a host different from
-    the request's ``Host`` header. Requests with neither header are allowed
-    so that non-browser clients (curl, tests, HTTPie) continue to work —
-    browsers always send at least one of the two for cross-origin POSTs.
-
     Used as a FastAPI dependency on state-changing POST endpoints to block
-    CSRF / DNS-rebinding attacks on the localhost web UI.
+    CSRF from malicious pages the user might visit in another browser tab.
+    A request is accepted if any of the following hold:
+
+    1. No ``Origin`` or ``Referer`` header is present — non-browser
+       clients (curl, tests, HTTPie) never send these.
+    2. The ``Origin`` scheme+host matches the request's ``Host`` header —
+       the default same-origin case for direct / LAN / Tailscale
+       deployments where the Host header is preserved end-to-end.
+    3. The ``Origin`` matches an entry in ``web.trusted_origins`` in the
+       config — for deployments behind a reverse proxy that may rewrite
+       the Host header (e.g. Cloudflare Tunnel with default
+       ``httpHostHeader``). Matching is case-insensitive and tolerant of
+       a trailing slash in the config value.
+
+    Otherwise raises ``HTTPException(400)``.
     """
     origin = request.headers.get("origin") or request.headers.get("referer")
     if origin is None:
         return
-    origin_netloc = urlparse(origin).netloc
+
+    parsed = urlparse(origin)
+    if not parsed.netloc:
+        return  # malformed Origin; no host to compare against
+
+    # Same-origin: Origin scheme+host matches the request's Host header.
     host = request.headers.get("host", "")
-    if origin_netloc and origin_netloc.lower() != host.lower():
-        raise HTTPException(status_code=400, detail="Cross-origin request rejected.")
+    if host and parsed.netloc.lower() == host.lower():
+        return
+
+    # Explicit whitelist for reverse-proxy / tunnel deployments where
+    # the Host header reaching the app does not match the public URL.
+    origin_normalized = f"{parsed.scheme}://{parsed.netloc}".lower()
+    config = load_config(request.app.state.config_path)
+    trusted = config.get("web", {}).get("trusted_origins", [])
+    for entry in trusted:
+        if origin_normalized == str(entry).strip().rstrip("/").lower():
+            return
+
+    raise HTTPException(status_code=400, detail="Cross-origin request rejected.")
 
 
 def parse_yaml_base(extra_yaml: str, what: str) -> tuple[dict, str | None]:
@@ -183,12 +207,12 @@ def _store_bounded(store: dict, value: Any) -> str:
     when the store exceeds :data:`MAX_PENDING`. Returns the token.
 
     Relies on dict insertion-order preservation (guaranteed in Python 3.7+).
+    At most one eviction per call since we only ever insert one entry.
     """
     token = secrets.token_urlsafe(16)
     store[token] = value
-    while len(store) > MAX_PENDING:
-        oldest = next(iter(store))
-        del store[oldest]
+    if len(store) > MAX_PENDING:
+        del store[next(iter(store))]
     return token
 
 

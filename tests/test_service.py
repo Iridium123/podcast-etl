@@ -450,6 +450,58 @@ def test_validate_config_passes_valid_title_cleaning():
     validate_config(config)  # should not raise
 
 
+def test_validate_config_passes_valid_trusted_origins():
+    config = {
+        "feeds": [],
+        "defaults": {},
+        "web": {
+            "trusted_origins": [
+                "http://unraid.local:8765",
+                "https://podcast-etl.example.com",
+            ],
+        },
+    }
+    validate_config(config)  # should not raise
+
+
+def test_validate_config_empty_trusted_origins_ok():
+    config = {"feeds": [], "defaults": {}, "web": {"trusted_origins": []}}
+    validate_config(config)  # should not raise
+
+
+def test_validate_config_missing_web_key_ok():
+    config = {"feeds": [], "defaults": {}}
+    validate_config(config)  # should not raise
+
+
+def test_validate_config_rejects_non_mapping_web():
+    config = {"feeds": [], "defaults": {}, "web": "not-a-dict"}
+    with pytest.raises(SystemExit, match="'web' must be a mapping"):
+        validate_config(config)
+
+
+def test_validate_config_rejects_non_list_trusted_origins():
+    config = {"feeds": [], "defaults": {}, "web": {"trusted_origins": "single-string"}}
+    with pytest.raises(SystemExit, match="'web.trusted_origins' must be a list"):
+        validate_config(config)
+
+
+def test_validate_config_rejects_non_string_origin_entry():
+    config = {"feeds": [], "defaults": {}, "web": {"trusted_origins": [123]}}
+    with pytest.raises(SystemExit, match=r"trusted_origins\[0\]"):
+        validate_config(config)
+
+
+def test_validate_config_rejects_origin_without_scheme():
+    config = {
+        "feeds": [],
+        "defaults": {},
+        "web": {"trusted_origins": ["podcast-etl.example.com"]},
+    }
+    with pytest.raises(SystemExit, match="must start with 'http://' or 'https://'"):
+        validate_config(config)
+
+
 # ---------------------------------------------------------------------------
 # Helpers for get_feed_status tests
 # ---------------------------------------------------------------------------
