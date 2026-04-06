@@ -6,6 +6,7 @@ import logging
 logging.disable(logging.ERROR)
 
 import json
+import os
 import re
 import shutil
 import sys
@@ -58,7 +59,10 @@ def load_config(config_path: Path) -> dict:
 
 
 def save_config(config: dict, config_path: Path) -> None:
-    config_path.write_text(yaml.dump(config, default_flow_style=False, sort_keys=False))
+    text = yaml.dump(config, default_flow_style=False, sort_keys=False)
+    tmp = config_path.with_suffix(".tmp")
+    tmp.write_text(text)
+    os.replace(tmp, config_path)
 
 
 def validate_config(config: dict) -> None:
@@ -106,6 +110,65 @@ def find_feed_config(config: dict, identifier: str) -> dict | None:
         if feed.get("url") == identifier:
             return feed
     return None
+
+
+def find_podcast_dir(output_dir: Path, url: str) -> Path | None:
+    """Find the podcast output directory matching the given feed URL."""
+    if not output_dir.exists() or not url:
+        return None
+
+    for podcast_dir in sorted(output_dir.iterdir()):
+        if not podcast_dir.is_dir():
+            continue
+        podcast_json = podcast_dir / "podcast.json"
+        if not podcast_json.exists():
+            continue
+        try:
+            data = json.loads(podcast_json.read_text())
+        except Exception:
+            continue
+        if data.get("url") == url:
+            return podcast_dir.resolve()
+
+    return None
+
+
+def reset_feed_data(output_dir: Path, url: str) -> Path | None:
+    """Delete the podcast output directory matching the given feed URL.
+
+    Returns the deleted directory path, or None if no match was found.
+    """
+    abs_path = find_podcast_dir(output_dir, url)
+    if abs_path is None:
+        logger.info("No podcast directory found on disk for url=%s", url)
+        return None
+
+    logger.info("Deleting podcast directory: %s", abs_path)
+    shutil.rmtree(abs_path)
+    logger.info("Deleted podcast directory: %s", abs_path)
+    return abs_path
+
+
+def delete_feed(config: dict, config_path: Path, identifier: str) -> tuple[str | None, Path | None]:
+    """Remove a feed from config and delete its output directory.
+
+    Returns (url, deleted_dir) on success, or (None, None) if feed not found.
+    """
+    feed = find_feed_config(config, identifier)
+    if feed is None:
+        return None, None
+
+    url = feed.get("url", "")
+    logger.info("Deleting feed %r (url=%s)", identifier, url)
+
+    config["feeds"] = [f for f in config.get("feeds", []) if f.get("url") != url]
+    save_config(config, config_path)
+    logger.info("Removed feed %r from config at %s", identifier, config_path)
+
+    output_dir = get_output_dir(config)
+    deleted_dir = reset_feed_data(output_dir, url)
+
+    return url, deleted_dir
 
 
 def get_pipeline_steps(resolved_config: dict) -> list[str]:
@@ -355,19 +418,17 @@ def reset(ctx: click.Context, feed_identifier: str | None, reset_all: bool, yes:
         sys.exit(1)
 
     target_dirs: list[Path] = []
-    if output_dir.exists():
-        for d in sorted(output_dir.iterdir()):
-            if not d.is_dir() or not (d / "podcast.json").exists():
-                continue
-            if reset_all:
-                target_dirs.append(d)
-            else:
-                data = json.loads((d / "podcast.json").read_text())
-                feed_config = find_feed_config(config, feed_identifier)  # type: ignore[arg-type]
-                resolved_url = feed_config["url"] if feed_config else feed_identifier
-                if data.get("url") == resolved_url:
+    if reset_all:
+        if output_dir.exists():
+            for d in sorted(output_dir.iterdir()):
+                if d.is_dir() and (d / "podcast.json").exists():
                     target_dirs.append(d)
-                    break
+    else:
+        fc = find_feed_config(config, feed_identifier)  # type: ignore[arg-type]
+        resolved_url = fc["url"] if fc else feed_identifier
+        match = find_podcast_dir(output_dir, resolved_url)
+        if match:
+            target_dirs.append(match)
 
     if not target_dirs:
         click.echo(f"No data found for {'all feeds' if reset_all else feed_identifier}")
@@ -380,6 +441,35 @@ def reset(ctx: click.Context, feed_identifier: str | None, reset_all: bool, yes:
     for d in target_dirs:
         shutil.rmtree(d)
         click.echo(f"Deleted {d}")
+
+
+@main.command()
+@click.argument("feed_identifier")
+@click.option("-y", "--yes", is_flag=True, help="Skip confirmation prompt")
+@click.pass_context
+def delete(ctx: click.Context, feed_identifier: str, yes: bool) -> None:
+    """Remove a feed from config and delete all its data."""
+    config = ctx.obj["config"]
+    config_path = ctx.obj["config_path"]
+
+    feed = find_feed_config(config, feed_identifier)
+    if not feed:
+        click.echo(f"Feed not found: {feed_identifier}")
+        sys.exit(1)
+
+    feed_name = feed.get("name") or feed.get("url")
+    if not yes:
+        click.confirm(
+            f"Delete feed {feed_name!r} and all its data? This cannot be undone.",
+            abort=True,
+        )
+
+    url, deleted_dir = delete_feed(config, config_path, feed_identifier)
+    click.echo(f"Removed feed {feed_name!r} from config")
+    if deleted_dir:
+        click.echo(f"Deleted data directory: {deleted_dir}")
+    else:
+        click.echo("No data directory found on disk")
 
 
 @main.command()
