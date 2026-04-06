@@ -24,7 +24,7 @@ Tests live in `tests/` and use pytest:
 - `test_pipeline.py` -- `Pipeline` step execution, skipping already-completed steps, step filters, `deep_merge`
 - `test_feed.py` -- `parse_feed` (audio extraction, slug dedup, status preservation, episode image extraction, episode number parsing, `raw_title` capture)
 - `test_cli.py` -- `parse_date_range`
-- `test_service.py` -- service layer: `load_config`, `save_config`, `validate_config`, `get_output_dir`, `find_feed_config`, `get_pipeline_steps`, `filter_episodes`, `get_feed_status`, `split_config_fields`, `merge_config_fields`, `get_resolved_config_with_sources`
+- `test_service.py` -- service layer: `load_config`, `save_config` (atomic writes), `validate_config`, `get_output_dir`, `find_feed_config`, `find_podcast_dir`, `get_pipeline_steps`, `filter_episodes`, `get_feed_status`, `split_config_fields`, `merge_config_fields`, `get_resolved_config_with_sources`, `reset_feed_data`, `delete_feed`
 - `test_download_step.py` -- `DownloadStep` filename construction, skip-existing, download
 - `test_tag_step.py` -- `TagStep` MP3 tagging, TRCK track number, APIC album art embedding, audio file discovery, error cases
 - `test_qbittorrent_client.py` -- `QBittorrentClient` login, has_torrent, add_torrent
@@ -62,7 +62,7 @@ All three read and write `feeds.yaml` as the single source of truth. Episode sta
 
 ### Service layer (`service.py`)
 
-Orchestration logic shared by CLI and web routes. Registers all built-in pipeline steps at import time. Key functions: `load_config`, `save_config`, `validate_config`, `find_feed_config`, `fetch_feed`, `run_pipeline`, `get_feed_status`, `filter_episodes`. Also provides `split_config_fields`/`merge_config_fields` for the web UI's form/YAML split editing, and `get_resolved_config_with_sources` for the resolved config preview with source attribution.
+Orchestration logic shared by CLI and web routes. Registers all built-in pipeline steps at import time. Key functions: `load_config`, `save_config` (atomic via temp file + rename), `validate_config`, `find_feed_config`, `find_podcast_dir`, `fetch_feed`, `run_pipeline`, `get_feed_status`, `filter_episodes`, `reset_feed_data` (delete a podcast's output directory), `delete_feed` (remove from config + delete data). Also provides `split_config_fields`/`merge_config_fields` for the web UI's form/YAML split editing, and `get_resolved_config_with_sources` for the resolved config preview with source attribution.
 
 ### Web UI (`web/`)
 
@@ -77,7 +77,7 @@ Templates use Tailwind CSS (CDN) and HTMX (CDN) -- no JS build step.
 
 ### CLI (`cli.py`)
 
-Click commands: `add`, `fetch`, `run`, `reset`, `status`, `poll`, `serve`. Calls service layer functions for all business logic.
+Click commands: `add`, `fetch`, `run`, `reset`, `delete`, `status`, `poll`, `serve`. Calls service layer functions for all business logic.
 
 ### Core modules
 

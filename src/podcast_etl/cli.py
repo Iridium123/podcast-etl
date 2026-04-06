@@ -21,6 +21,7 @@ from podcast_etl.service import (
     fetch_feed,
     filter_episodes,
     find_feed_config,
+    find_podcast_dir,
     get_output_dir,
     get_pipeline_steps,
     load_config,
@@ -248,28 +249,19 @@ def reset(ctx: click.Context, feed_identifier: str | None, reset_all: bool, yes:
         click.echo("Specify --feed NAME or --all")
         sys.exit(1)
 
-    # Resolve URL once before scanning
-    resolved_url: str | None = None
-    if not reset_all:
-        fc = find_feed_config(config, feed_identifier)  # type: ignore[arg-type]
-        resolved_url = fc["url"] if fc else feed_identifier
-
     # Find matching directories
     target_dirs: list[Path] = []
-    if output_dir.exists():
-        for d in sorted(output_dir.iterdir()):
-            if not d.is_dir() or not (d / "podcast.json").exists():
-                continue
-            if reset_all:
-                target_dirs.append(d)
-            else:
-                try:
-                    podcast = Podcast.load(d)
-                except Exception:
-                    continue
-                if podcast.url == resolved_url:
+    if reset_all:
+        if output_dir.exists():
+            for d in sorted(output_dir.iterdir()):
+                if d.is_dir() and (d / "podcast.json").exists():
                     target_dirs.append(d)
-                    break
+    else:
+        fc = find_feed_config(config, feed_identifier)  # type: ignore[arg-type]
+        resolved_url = fc["url"] if fc else feed_identifier
+        match = find_podcast_dir(output_dir, resolved_url)
+        if match:
+            target_dirs.append(match)
 
     if not target_dirs:
         click.echo(f"No data found for {'all feeds' if reset_all else feed_identifier}")

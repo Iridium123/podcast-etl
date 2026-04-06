@@ -10,14 +10,17 @@ import yaml
 
 from podcast_etl.models import Episode, Podcast, StepStatus
 from podcast_etl.service import (
+    delete_feed,
     filter_episodes,
     find_feed_config,
+    find_podcast_dir,
     get_feed_status,
     get_output_dir,
     get_pipeline_steps,
     get_resolved_config_with_sources,
     load_config,
     merge_config_fields,
+    reset_feed_data,
     save_config,
     split_config_fields,
     validate_config,
@@ -681,3 +684,77 @@ def test_reset_feed_data_skips_corrupt_podcast_json(tmp_path: Path) -> None:
     assert deleted is not None
     assert not good_dir.exists()
     assert bad_dir.exists()  # corrupt dir untouched
+
+
+# ---------------------------------------------------------------------------
+# delete_feed
+# ---------------------------------------------------------------------------
+
+def test_delete_feed_removes_from_config_and_disk(tmp_path: Path) -> None:
+    cfg_file = tmp_path / "feeds.yaml"
+    output_dir = tmp_path / "output"
+    _make_podcast_dir(output_dir, "my-show", "http://example.com/rss")
+
+    config = {
+        "feeds": [{"url": "http://example.com/rss", "name": "my-show"}],
+        "defaults": {"output_dir": str(output_dir)},
+    }
+    save_config(config, cfg_file)
+
+    url, deleted_dir = delete_feed(config, cfg_file, "my-show")
+    assert url == "http://example.com/rss"
+    assert deleted_dir is not None
+    assert not (output_dir / "my-show").exists()
+    reloaded = load_config(cfg_file)
+    assert reloaded["feeds"] == []
+
+
+def test_delete_feed_not_found_returns_none(tmp_path: Path) -> None:
+    cfg_file = tmp_path / "feeds.yaml"
+    config = {
+        "feeds": [{"url": "http://example.com/rss", "name": "my-show"}],
+        "defaults": {"output_dir": str(tmp_path / "output")},
+    }
+    save_config(config, cfg_file)
+
+    url, deleted_dir = delete_feed(config, cfg_file, "nonexistent")
+    assert url is None
+    assert deleted_dir is None
+
+
+def test_delete_feed_no_data_on_disk(tmp_path: Path) -> None:
+    cfg_file = tmp_path / "feeds.yaml"
+    config = {
+        "feeds": [{"url": "http://example.com/rss", "name": "my-show"}],
+        "defaults": {"output_dir": str(tmp_path / "output")},
+    }
+    save_config(config, cfg_file)
+
+    url, deleted_dir = delete_feed(config, cfg_file, "my-show")
+    assert url == "http://example.com/rss"
+    assert deleted_dir is None
+    reloaded = load_config(cfg_file)
+    assert reloaded["feeds"] == []
+
+
+def test_delete_feed_leaves_other_feeds(tmp_path: Path) -> None:
+    cfg_file = tmp_path / "feeds.yaml"
+    output_dir = tmp_path / "output"
+    _make_podcast_dir(output_dir, "show-a", "http://a.com/rss")
+    _make_podcast_dir(output_dir, "show-b", "http://b.com/rss")
+
+    config = {
+        "feeds": [
+            {"url": "http://a.com/rss", "name": "show-a"},
+            {"url": "http://b.com/rss", "name": "show-b"},
+        ],
+        "defaults": {"output_dir": str(output_dir)},
+    }
+    save_config(config, cfg_file)
+
+    delete_feed(config, cfg_file, "show-a")
+    assert not (output_dir / "show-a").exists()
+    assert (output_dir / "show-b").exists()
+    reloaded = load_config(cfg_file)
+    assert len(reloaded["feeds"]) == 1
+    assert reloaded["feeds"][0]["name"] == "show-b"
