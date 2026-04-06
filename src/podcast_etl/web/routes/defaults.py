@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import difflib
-import secrets
 
 import yaml
 from fastapi import APIRouter, Form, Request
@@ -43,50 +42,34 @@ def _parse_defaults_form(form_data, all_steps: list[str]) -> tuple[dict, int | N
     The full defaults YAML textarea is the base; form fields overlay on top (form fields win).
     Returns (defaults_dict, poll_interval, None) on success, or ({}, None, error_message) on parse failure.
     """
-    poll_interval_raw = str(form_data.get("poll_interval", "")).strip()
+    from podcast_etl.web.form_helpers import (
+        apply_pipeline,
+        apply_text_field,
+        apply_title_cleaning,
+        parse_pipeline_checkboxes,
+        parse_title_cleaning_checkboxes,
+        parse_yaml_base,
+    )
+
+    extra_yaml = str(form_data.get("extra_yaml", ""))
+    base, error = parse_yaml_base(extra_yaml, "Full defaults YAML")
+    if error:
+        return {}, None, error
+
+    # poll_interval is a top-level config key, not inside defaults
     poll_interval: int | None = None
+    poll_interval_raw = str(form_data.get("poll_interval", "")).strip()
     if poll_interval_raw:
         try:
             poll_interval = int(poll_interval_raw)
         except ValueError:
             pass
 
-    output_dir = str(form_data.get("output_dir", "")).strip()
-    torrent_data_dir = str(form_data.get("torrent_data_dir", "")).strip()
-    pipeline = [step for step in all_steps if form_data.get(f"pipeline_{step}") == "on"]
-    title_cleaning = {
-        "strip_date": form_data.get("title_strip_date") == "on",
-        "reorder_parts": form_data.get("title_reorder_parts") == "on",
-        "prepend_episode_number": form_data.get("title_prepend_episode_number") == "on",
-        "sanitize": form_data.get("title_sanitize") == "on",
-    }
-    extra_yaml = str(form_data.get("extra_yaml", ""))
-
-    # Start from the full YAML textarea as base
-    base: dict = {}
-    if extra_yaml.strip():
-        try:
-            parsed = yaml.safe_load(extra_yaml)
-            if parsed is not None:
-                if not isinstance(parsed, dict):
-                    raise ValueError("Full defaults YAML must be a mapping")
-                base = parsed
-        except (yaml.YAMLError, ValueError) as exc:
-            return {}, None, f"Invalid YAML: {exc}"
-
     # Overlay form field values on top (form fields always win)
-    if output_dir:
-        base["output_dir"] = output_dir
-    if torrent_data_dir:
-        base["torrent_data_dir"] = torrent_data_dir
-    if pipeline:
-        base["pipeline"] = pipeline
-    elif "pipeline" in base:
-        del base["pipeline"]
-    if any(title_cleaning.values()):
-        base["title_cleaning"] = title_cleaning
-    elif "title_cleaning" in base:
-        del base["title_cleaning"]
+    apply_text_field(base, "output_dir", str(form_data.get("output_dir", "")))
+    apply_text_field(base, "torrent_data_dir", str(form_data.get("torrent_data_dir", "")))
+    apply_pipeline(base, parse_pipeline_checkboxes(form_data, all_steps))
+    apply_title_cleaning(base, parse_title_cleaning_checkboxes(form_data))
 
     return base, poll_interval, None
 
@@ -224,10 +207,8 @@ async def defaults_save_preview(request: Request):
     }
     new_config_yaml = yaml.dump(new_config_payload, default_flow_style=False, sort_keys=False)
 
-    token = secrets.token_urlsafe(16)
-    if not hasattr(request.app.state, "pending_changes"):
-        request.app.state.pending_changes = {}
-    request.app.state.pending_changes[token] = new_config_yaml
+    from podcast_etl.web.form_helpers import store_pending_change
+    token = store_pending_change(request, new_config_yaml)
 
     return templates.TemplateResponse(
         request,
@@ -251,8 +232,8 @@ async def defaults_save_confirm(
         validate_config,
     )
 
-    pending = getattr(request.app.state, "pending_changes", {})
-    new_config_yaml = pending.pop(token, None)
+    from podcast_etl.web.form_helpers import pop_pending_change
+    new_config_yaml = pop_pending_change(request, token)
     if not new_config_yaml:
         from fastapi import HTTPException
         raise HTTPException(status_code=400, detail="Invalid or expired change token.")

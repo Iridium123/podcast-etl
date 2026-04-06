@@ -319,76 +319,38 @@ def _parse_feed_form(form_data, all_steps: list[str]) -> tuple[dict, str | None]
     The full-feed YAML textarea is the base; form fields overlay on top (form fields win).
     Returns (feed_dict, None) on success, or ({}, error_message) on parse failure.
     """
-    url = str(form_data.get("url", ""))
-    feed_name = str(form_data.get("name", ""))
-    enabled = str(form_data.get("enabled", ""))
-    title_override = str(form_data.get("title_override", ""))
-    last = str(form_data.get("last", ""))
-    episode_filter = str(form_data.get("episode_filter", ""))
-    category_id = str(form_data.get("category_id", ""))
-    type_id = str(form_data.get("type_id", ""))
+    from podcast_etl.web.form_helpers import (
+        apply_int_field,
+        apply_pipeline,
+        apply_text_field,
+        apply_title_cleaning,
+        parse_pipeline_checkboxes,
+        parse_title_cleaning_checkboxes,
+        parse_yaml_base,
+    )
+
     extra_yaml = str(form_data.get("extra_yaml", ""))
-
-    pipeline = [step for step in all_steps if form_data.get(f"pipeline_{step}") == "on"]
-    title_cleaning = {
-        "strip_date": form_data.get("title_strip_date") == "on",
-        "reorder_parts": form_data.get("title_reorder_parts") == "on",
-        "prepend_episode_number": form_data.get("title_prepend_episode_number") == "on",
-        "sanitize": form_data.get("title_sanitize") == "on",
-    }
-
-    # Start from the full YAML textarea as base
-    base: dict = {}
-    if extra_yaml.strip():
-        try:
-            parsed = yaml.safe_load(extra_yaml)
-            if parsed is not None:
-                if not isinstance(parsed, dict):
-                    raise ValueError("Full feed YAML must be a mapping")
-                base = parsed
-        except (yaml.YAMLError, ValueError) as exc:
-            return {}, f"Invalid YAML: {exc}"
+    base, error = parse_yaml_base(extra_yaml, "Full feed YAML")
+    if error:
+        return {}, error
 
     # Overlay form field values on top (form fields always win)
+    url = str(form_data.get("url", "")).strip()
     if url:
         base["url"] = url
+    feed_name = str(form_data.get("name", "")).strip()
     if feed_name:
         base["name"] = feed_name
-    base["enabled"] = enabled == "on"
-    if title_override.strip():
-        base["title_override"] = title_override.strip()
-    elif "title_override" in base:
-        del base["title_override"]
-    if last.strip():
-        try:
-            base["last"] = int(last.strip())
-        except ValueError:
-            pass
-    elif "last" in base:
-        # If form field is cleared, remove it
-        del base["last"]
-    if episode_filter.strip():
-        base["episode_filter"] = episode_filter.strip()
-    elif "episode_filter" in base:
-        del base["episode_filter"]
-    if category_id.strip():
-        try:
-            base["category_id"] = int(category_id.strip())
-        except ValueError:
-            base["category_id"] = category_id.strip()
-    if type_id.strip():
-        try:
-            base["type_id"] = int(type_id.strip())
-        except ValueError:
-            base["type_id"] = type_id.strip()
-    if pipeline:
-        base["pipeline"] = pipeline
-    elif "pipeline" in base:
-        del base["pipeline"]
-    if any(title_cleaning.values()):
-        base["title_cleaning"] = title_cleaning
-    elif "title_cleaning" in base:
-        del base["title_cleaning"]
+    base["enabled"] = form_data.get("enabled") == "on"
+
+    apply_text_field(base, "title_override", str(form_data.get("title_override", "")))
+    apply_int_field(base, "last", str(form_data.get("last", "")))
+    apply_text_field(base, "episode_filter", str(form_data.get("episode_filter", "")))
+    apply_int_field(base, "category_id", str(form_data.get("category_id", "")))
+    apply_int_field(base, "type_id", str(form_data.get("type_id", "")))
+
+    apply_pipeline(base, parse_pipeline_checkboxes(form_data, all_steps))
+    apply_title_cleaning(base, parse_title_cleaning_checkboxes(form_data))
 
     return base, None
 
@@ -558,10 +520,8 @@ async def feed_save_preview(request: Request, name: str):
         lineterm="",
     ))
 
-    token = secrets.token_urlsafe(16)
-    if not hasattr(request.app.state, "pending_changes"):
-        request.app.state.pending_changes = {}
-    request.app.state.pending_changes[token] = new_yaml
+    from podcast_etl.web.form_helpers import store_pending_change
+    token = store_pending_change(request, new_yaml)
 
     feed_display_name = name
     return templates.TemplateResponse(
@@ -589,8 +549,8 @@ async def feed_save_confirm(
         validate_config,
     )
 
-    pending = getattr(request.app.state, "pending_changes", {})
-    new_config_yaml = pending.pop(token, None)
+    from podcast_etl.web.form_helpers import pop_pending_change
+    new_config_yaml = pop_pending_change(request, token)
     if not new_config_yaml:
         from fastapi import HTTPException
         raise HTTPException(status_code=400, detail="Invalid or expired change token.")
