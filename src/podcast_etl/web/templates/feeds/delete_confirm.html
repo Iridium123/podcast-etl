@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}Delete {{ name }} — podcast-etl{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+  <h1 class="text-2xl font-bold">Delete {{ name }}</h1>
+  <a href="/feeds/{{ name }}" class="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white text-sm rounded">Cancel</a>
+</div>
+
+<div class="bg-gray-800 border border-red-700 rounded-lg p-6 mb-6">
+  <h2 class="text-lg font-semibold text-red-400 mb-4">Are you sure you want to delete {{ name }}?</h2>
+  <dl class="space-y-2 text-sm mb-4">
+    <div class="flex gap-2">
+      <dt class="text-gray-400 w-16 shrink-0">Name</dt>
+      <dd class="text-gray-100">{{ feed.name }}</dd>
+    </div>
+    <div class="flex gap-2">
+      <dt class="text-gray-400 w-16 shrink-0">URL</dt>
+      <dd class="text-gray-100 break-all">{{ feed.url }}</dd>
+    </div>
+  </dl>
+  <p class="text-sm text-gray-400">
+    This will remove the feed from your config and delete all associated data (episodes, audio, torrents, etc.)
+  </p>
+</div>
+
+<form method="post" action="/feeds/{{ name }}/delete">
+  <input type="hidden" name="token" value="{{ token }}">
+  <div class="flex items-center gap-3">
+    <button type="submit"
+            class="px-6 py-2 bg-red-700 hover:bg-red-600 text-white text-sm font-medium rounded">
+      Delete
+    </button>
+    <a href="/feeds/{{ name }}"
+       class="px-6 py-2 bg-gray-700 hover:bg-gray-600 text-gray-200 text-sm font-medium rounded">
+      Cancel
+    </a>
+  </div>
+</form>
+{% endblock %}
