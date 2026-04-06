@@ -8,6 +8,7 @@ These helpers keep that logic in one place.
 from __future__ import annotations
 
 import secrets
+from collections.abc import Sequence
 from typing import Any
 
 import yaml
@@ -74,9 +75,9 @@ def parse_form_section(
     all_steps: list[str],
     what: str,
     *,
-    text_fields: list[str] = (),
-    int_fields: list[str] = (),
-    bool_fields: list[str] = (),
+    text_fields: Sequence[str] = (),
+    int_fields: Sequence[str] = (),
+    bool_fields: Sequence[str] = (),
 ) -> tuple[dict, str | None]:
     """Parse a config section from form data.
 

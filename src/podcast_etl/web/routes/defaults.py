@@ -7,6 +7,11 @@ from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from podcast_etl.web import templates
+from podcast_etl.web.form_helpers import (
+    parse_form_section,
+    pop_pending_change,
+    store_pending_change,
+)
 
 router = APIRouter()
 
@@ -42,8 +47,6 @@ def _parse_defaults_form(form_data, all_steps: list[str]) -> tuple[dict, int | N
     The full defaults YAML textarea is the base; form fields overlay on top (form fields win).
     Returns (defaults_dict, poll_interval, None) on success, or ({}, None, error_message) on parse failure.
     """
-    from podcast_etl.web.form_helpers import parse_form_section
-
     base, error = parse_form_section(
         form_data,
         all_steps,
@@ -198,7 +201,6 @@ async def defaults_save_preview(request: Request):
     }
     new_config_yaml = yaml.dump(new_config_payload, default_flow_style=False, sort_keys=False)
 
-    from podcast_etl.web.form_helpers import store_pending_change
     token = store_pending_change(request, new_config_yaml)
 
     return templates.TemplateResponse(
@@ -223,7 +225,6 @@ async def defaults_save_confirm(
         validate_config,
     )
 
-    from podcast_etl.web.form_helpers import pop_pending_change
     new_config_yaml = pop_pending_change(request, token)
     if not new_config_yaml:
         from fastapi import HTTPException

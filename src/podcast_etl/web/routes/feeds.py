@@ -11,6 +11,11 @@ from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from podcast_etl.web import templates
+from podcast_etl.web.form_helpers import (
+    parse_form_section,
+    pop_pending_change,
+    store_pending_change,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -319,8 +324,6 @@ def _parse_feed_form(form_data, all_steps: list[str]) -> tuple[dict, str | None]
     The full-feed YAML textarea is the base; form fields overlay on top (form fields win).
     Returns (feed_dict, None) on success, or ({}, error_message) on parse failure.
     """
-    from podcast_etl.web.form_helpers import parse_form_section
-
     return parse_form_section(
         form_data,
         all_steps,
@@ -496,7 +499,6 @@ async def feed_save_preview(request: Request, name: str):
         lineterm="",
     ))
 
-    from podcast_etl.web.form_helpers import store_pending_change
     token = store_pending_change(request, new_yaml)
 
     feed_display_name = name
@@ -525,7 +527,6 @@ async def feed_save_confirm(
         validate_config,
     )
 
-    from podcast_etl.web.form_helpers import pop_pending_change
     new_config_yaml = pop_pending_change(request, token)
     if not new_config_yaml:
         from fastapi import HTTPException
