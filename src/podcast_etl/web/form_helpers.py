@@ -1,18 +1,41 @@
-"""Shared form-handling helpers for the feeds and defaults edit routes.
+"""Shared request-handling helpers for the feeds and defaults edit routes.
 
 Both the feeds edit form and the defaults edit form use the same pattern:
 a "full YAML" textarea as the base, with structured form fields overlaid
 on top. They also share a token-based confirm flow for save previews.
-These helpers keep that logic in one place.
+These helpers keep that logic in one place, along with the Origin/Referer
+CSRF check applied to state-changing POST endpoints.
 """
 from __future__ import annotations
 
 import secrets
 from collections.abc import Sequence
 from typing import Any
+from urllib.parse import urlparse
 
 import yaml
-from fastapi import Request
+from fastapi import HTTPException, Request
+
+
+def check_origin(request: Request) -> None:
+    """Reject cross-origin state-changing requests via Origin/Referer check.
+
+    Raises ``HTTPException(400)`` when the request's ``Origin`` (or
+    ``Referer`` when ``Origin`` is absent) points to a host different from
+    the request's ``Host`` header. Requests with neither header are allowed
+    so that non-browser clients (curl, tests, HTTPie) continue to work —
+    browsers always send at least one of the two for cross-origin POSTs.
+
+    Used as a FastAPI dependency on state-changing POST endpoints to block
+    CSRF / DNS-rebinding attacks on the localhost web UI.
+    """
+    origin = request.headers.get("origin") or request.headers.get("referer")
+    if origin is None:
+        return
+    origin_netloc = urlparse(origin).netloc
+    host = request.headers.get("host", "")
+    if origin_netloc and origin_netloc.lower() != host.lower():
+        raise HTTPException(status_code=400, detail="Cross-origin request rejected.")
 
 
 def parse_yaml_base(extra_yaml: str, what: str) -> tuple[dict, str | None]:
@@ -44,11 +67,12 @@ def apply_text_field(base: dict, key: str, value: str) -> None:
 
 
 def apply_int_field(base: dict, key: str, value: str) -> None:
-    """Set ``base[key]`` to int(value) if parseable, else leave as-is.
+    """Set ``base[key]`` to int(value). Delete the key when input is empty.
 
-    Empty input deletes the key. Unparseable input keeps the original
-    string (callers may want to preserve user typos rather than silently
-    drop them).
+    Raises ``ValueError`` with the field name when the input is present but
+    not parseable as an integer. Callers are expected to catch this and
+    surface the error to the user rather than letting a bad value land in
+    the YAML config and crash later code far from the form.
     """
     stripped = value.strip()
     if not stripped:
@@ -58,7 +82,7 @@ def apply_int_field(base: dict, key: str, value: str) -> None:
     try:
         base[key] = int(stripped)
     except ValueError:
-        base[key] = stripped
+        raise ValueError(f"{key}: must be a number")
 
 
 def apply_bool_field(base: dict, key: str, value: str) -> None:
@@ -97,7 +121,10 @@ def parse_form_section(
     for field in text_fields:
         apply_text_field(base, field, str(form_data.get(field, "")))
     for field in int_fields:
-        apply_int_field(base, field, str(form_data.get(field, "")))
+        try:
+            apply_int_field(base, field, str(form_data.get(field, "")))
+        except ValueError as exc:
+            return {}, str(exc)
     for field in bool_fields:
         apply_bool_field(base, field, str(form_data.get(field, "")))
 
@@ -138,20 +165,62 @@ def parse_title_cleaning_checkboxes(form_data: Any) -> dict[str, bool]:
     }
 
 
+MAX_PENDING = 32
+"""Maximum number of unconfirmed pending changes/deletes kept in memory.
+
+Prevents unbounded memory growth if a user (or attacker via the origin
+check bypass) submits many previews without confirming. When the store is
+full, the oldest entry is evicted. 32 is more than any legitimate single
+user would have open at once.
+"""
+
+
+def _store_bounded(store: dict, value: Any) -> str:
+    """Insert ``value`` under a new random token, evicting the oldest entry
+    when the store exceeds :data:`MAX_PENDING`. Returns the token.
+
+    Relies on dict insertion-order preservation (guaranteed in Python 3.7+).
+    """
+    token = secrets.token_urlsafe(16)
+    store[token] = value
+    while len(store) > MAX_PENDING:
+        oldest = next(iter(store))
+        del store[oldest]
+    return token
+
+
 def store_pending_change(request: Request, payload: str) -> str:
     """Store a pending change payload keyed by a random token.
 
     Returns the token. Payload lives in ``request.app.state.pending_changes``
-    (a simple in-memory dict) until consumed by ``pop_pending_change``.
+    (a simple in-memory dict) until consumed by :func:`pop_pending_change`.
+    The store is bounded to :data:`MAX_PENDING` entries — the oldest is
+    evicted when the limit is reached.
     """
-    token = secrets.token_urlsafe(16)
     if not hasattr(request.app.state, "pending_changes"):
         request.app.state.pending_changes = {}
-    request.app.state.pending_changes[token] = payload
-    return token
+    return _store_bounded(request.app.state.pending_changes, payload)
 
 
 def pop_pending_change(request: Request, token: str) -> str | None:
     """Retrieve and consume a pending change by token."""
     pending = getattr(request.app.state, "pending_changes", {})
+    return pending.pop(token, None)
+
+
+def store_pending_delete(request: Request, feed_name: str) -> str:
+    """Store a pending feed-delete keyed by a random token.
+
+    Same bounded semantics as :func:`store_pending_change`. Used by the
+    delete confirmation flow so that the POST handler can verify the user
+    just visited the GET confirmation page.
+    """
+    if not hasattr(request.app.state, "pending_deletes"):
+        request.app.state.pending_deletes = {}
+    return _store_bounded(request.app.state.pending_deletes, feed_name)
+
+
+def pop_pending_delete(request: Request, token: str) -> str | None:
+    """Retrieve and consume a pending feed-delete by token."""
+    pending = getattr(request.app.state, "pending_deletes", {})
     return pending.pop(token, None)

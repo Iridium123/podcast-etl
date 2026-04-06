@@ -66,6 +66,80 @@ def test_poll_pause_and_resume(config_path: Path) -> None:
     assert response.status_code == 200
 
 
+def test_poll_pause_rejects_cross_origin(config_path: Path) -> None:
+    """A POST with a cross-origin Origin header must be rejected.
+
+    Without this check, any page the user visits can submit a form to
+    http://localhost:PORT/poll/pause and silently pause the pipeline.
+    """
+    app = create_app(config_path, start_poller=False)
+    client = TestClient(app, raise_server_exceptions=False)
+    response = client.post(
+        "/poll/pause",
+        headers={"origin": "http://evil.example.com", "host": "localhost:8000"},
+    )
+    assert response.status_code == 400
+
+
+def test_poll_pause_accepts_same_origin(config_path: Path) -> None:
+    """A POST with a matching Origin header must be accepted."""
+    app = create_app(config_path, start_poller=False)
+    client = TestClient(app)
+    response = client.post(
+        "/poll/pause",
+        headers={"origin": "http://localhost:8000", "host": "localhost:8000"},
+    )
+    assert response.status_code == 200
+
+
+def test_poll_pause_accepts_no_origin(config_path: Path) -> None:
+    """Non-browser clients (curl, tests) without Origin/Referer must still work."""
+    app = create_app(config_path, start_poller=False)
+    client = TestClient(app)
+    response = client.post("/poll/pause")
+    assert response.status_code == 200
+
+
+def test_feed_run_rejects_cross_origin(tmp_path: Path) -> None:
+    cfg_path = _write_config(tmp_path, {
+        "feeds": [{"url": "http://a.com/rss", "name": "show-a"}],
+        "defaults": {"output_dir": str(tmp_path / "output"), "pipeline": ["download"]},
+    })
+    app = create_app(cfg_path, start_poller=False)
+    client = TestClient(app, raise_server_exceptions=False)
+    response = client.post(
+        "/feeds/show-a/run",
+        headers={"origin": "http://evil.example.com", "host": "localhost:8000"},
+    )
+    assert response.status_code == 400
+
+
+def test_feed_add_rejects_cross_origin(tmp_path: Path) -> None:
+    cfg_path = _write_config(tmp_path, {
+        "feeds": [],
+        "defaults": {"output_dir": str(tmp_path / "output"), "pipeline": ["download"]},
+    })
+    app = create_app(cfg_path, start_poller=False)
+    client = TestClient(app, raise_server_exceptions=False)
+    response = client.post(
+        "/feeds/add",
+        data={"url": "http://new.com/rss", "name": "new"},
+        headers={"origin": "http://evil.example.com", "host": "localhost:8000"},
+    )
+    assert response.status_code == 400
+
+
+def test_referer_used_when_origin_missing(config_path: Path) -> None:
+    """When Origin is absent, fall back to Referer for cross-origin detection."""
+    app = create_app(config_path, start_poller=False)
+    client = TestClient(app, raise_server_exceptions=False)
+    response = client.post(
+        "/poll/pause",
+        headers={"referer": "http://evil.example.com/page", "host": "localhost:8000"},
+    )
+    assert response.status_code == 400
+
+
 def test_log_tail_returns_text(config_path: Path, tmp_path: Path) -> None:
     log_file = tmp_path / "output" / "podcast-etl.log"
     log_file.parent.mkdir(parents=True, exist_ok=True)
@@ -118,42 +192,6 @@ def test_feed_edit_form_loads(tmp_path: Path) -> None:
     assert "show-a" in response.text
 
 
-def test_feed_edit_save_updates_yaml(tmp_path: Path) -> None:
-    cfg_path = _write_config(tmp_path, {
-        "feeds": [{"url": "http://a.com/rss", "name": "show-a", "enabled": True}],
-        "defaults": {"output_dir": str(tmp_path / "output"), "pipeline": ["download"]},
-    })
-    app = create_app(cfg_path, start_poller=False)
-    client = TestClient(app)
-    response = client.post("/feeds/show-a", data={
-        "name": "show-a",
-        "url": "http://a.com/rss",
-        "enabled": "on",
-        "last": "10",
-        "extra_yaml": "",
-    }, follow_redirects=False)
-    assert response.status_code == 303
-    updated = yaml.safe_load(cfg_path.read_text())
-    feed = next(f for f in updated["feeds"] if f["name"] == "show-a")
-    assert feed["last"] == 10
-
-
-def test_feed_edit_invalid_yaml_shows_error(tmp_path: Path) -> None:
-    cfg_path = _write_config(tmp_path, {
-        "feeds": [{"url": "http://a.com/rss", "name": "show-a"}],
-        "defaults": {"output_dir": str(tmp_path / "output"), "pipeline": ["download"]},
-    })
-    app = create_app(cfg_path, start_poller=False)
-    client = TestClient(app)
-    response = client.post("/feeds/show-a", data={
-        "name": "show-a",
-        "url": "http://a.com/rss",
-        "extra_yaml": "invalid: [yaml: {",
-    })
-    assert response.status_code == 200
-    assert "error" in response.text.lower() or "invalid" in response.text.lower()
-
-
 def test_add_feed(tmp_path: Path) -> None:
     cfg_path = _write_config(tmp_path, {
         "feeds": [],
@@ -175,25 +213,6 @@ def test_defaults_page_loads(config_path: Path) -> None:
     client = TestClient(app)
     response = client.get("/defaults")
     assert response.status_code == 200
-
-
-def test_defaults_save(tmp_path: Path) -> None:
-    cfg_path = _write_config(tmp_path, {
-        "feeds": [],
-        "defaults": {"output_dir": "./output", "pipeline": ["download"]},
-        "poll_interval": 3600,
-    })
-    app = create_app(cfg_path, start_poller=False)
-    client = TestClient(app)
-    response = client.post("/defaults", data={
-        "output_dir": "/new/output",
-        "poll_interval": "1800",
-        "extra_yaml": "",
-    }, follow_redirects=False)
-    assert response.status_code == 303
-    updated = yaml.safe_load(cfg_path.read_text())
-    assert updated["defaults"]["output_dir"] == "/new/output"
-    assert updated["poll_interval"] == 1800
 
 
 def test_add_feed_without_name_rejected(tmp_path: Path) -> None:
@@ -358,6 +377,54 @@ def test_defaults_preview_shows_diff_page(tmp_path: Path) -> None:
     saved = yaml.safe_load(cfg_path.read_text())
     assert saved["defaults"]["output_dir"] == "./output"
     assert saved["poll_interval"] == 3600
+
+
+def test_defaults_preview_bad_poll_interval_shows_error(tmp_path: Path) -> None:
+    """A non-numeric poll_interval must surface an error, not silently drop.
+
+    Previously this was swallowed by `except ValueError: pass` and the user
+    saw a success redirect while their input was ignored. The fix surfaces
+    the parse error through the form re-render.
+    """
+    cfg_path = _write_config(tmp_path, {
+        "feeds": [],
+        "defaults": {"output_dir": "./output", "pipeline": ["download"]},
+        "poll_interval": 3600,
+    })
+    app = create_app(cfg_path, start_poller=False)
+    client = TestClient(app)
+    response = client.post("/defaults/preview", data={
+        "output_dir": "./output",
+        "poll_interval": "not-a-number",
+        "extra_yaml": "output_dir: ./output\npipeline:\n- download\n",
+    })
+    assert response.status_code == 200
+    assert "poll_interval" in response.text
+    # Config must not have been modified
+    saved = yaml.safe_load(cfg_path.read_text())
+    assert saved["poll_interval"] == 3600
+
+
+def test_feed_preview_bad_last_shows_error(tmp_path: Path) -> None:
+    """A non-numeric `last` value must surface an error, not land in YAML."""
+    cfg_path = _write_config(tmp_path, {
+        "feeds": [{"url": "http://a.com/rss", "name": "show-a", "enabled": True}],
+        "defaults": {"output_dir": str(tmp_path / "output"), "pipeline": ["download"]},
+    })
+    app = create_app(cfg_path, start_poller=False)
+    client = TestClient(app)
+    response = client.post("/feeds/show-a/preview", data={
+        "name": "show-a",
+        "url": "http://a.com/rss",
+        "last": "not-a-number",
+        "extra_yaml": "",
+    })
+    assert response.status_code == 200
+    assert "last" in response.text
+    # Config must not have been modified
+    saved = yaml.safe_load(cfg_path.read_text())
+    feed = next(f for f in saved["feeds"] if f["name"] == "show-a")
+    assert "last" not in feed
 
 
 def test_defaults_preview_invalid_yaml_shows_error(tmp_path: Path) -> None:

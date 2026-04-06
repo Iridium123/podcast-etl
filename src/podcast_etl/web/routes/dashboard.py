@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse
 
 from podcast_etl.web import templates
+from podcast_etl.web.form_helpers import check_origin
 
 router = APIRouter()
 
@@ -37,7 +38,7 @@ async def dashboard(request: Request):
     )
 
 
-@router.post("/poll/pause")
+@router.post("/poll/pause", dependencies=[Depends(check_origin)])
 async def poll_pause(request: Request):
     poll_control = getattr(request.app.state, "poll_control", None)
     if poll_control is not None:
@@ -49,7 +50,7 @@ async def poll_pause(request: Request):
     )
 
 
-@router.post("/poll/resume")
+@router.post("/poll/resume", dependencies=[Depends(check_origin)])
 async def poll_resume(request: Request):
     poll_control = getattr(request.app.state, "poll_control", None)
     if poll_control is not None:
@@ -61,7 +62,7 @@ async def poll_resume(request: Request):
     )
 
 
-@router.post("/poll/run-now")
+@router.post("/poll/run-now", dependencies=[Depends(check_origin)])
 async def poll_run_now(request: Request):
     poll_control = getattr(request.app.state, "poll_control", None)
     if poll_control is not None:

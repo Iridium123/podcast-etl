@@ -1,6 +1,8 @@
 """Tests for the shared form helpers used by feeds and defaults routes."""
 from __future__ import annotations
 
+import pytest
+
 from podcast_etl.web.form_helpers import (
     apply_bool_field,
     apply_int_field,
@@ -101,10 +103,23 @@ def test_apply_int_field_parses_valid_int():
     assert base == {"last": 10}
 
 
-def test_apply_int_field_preserves_invalid_string():
+def test_apply_int_field_raises_on_invalid_string():
+    """Bad input must raise rather than silently storing the raw string.
+
+    A string in an int field would later crash downstream code (e.g. upload
+    step using category_id, filter_episodes using last) far from the form.
+    """
     base = {}
-    apply_int_field(base, "category_id", "abc")
-    assert base == {"category_id": "abc"}
+    with pytest.raises(ValueError, match="category_id"):
+        apply_int_field(base, "category_id", "abc")
+    assert base == {}
+
+
+def test_apply_int_field_raises_includes_field_name():
+    """The raised error should name the offending field so users can fix it."""
+    base = {}
+    with pytest.raises(ValueError, match="last"):
+        apply_int_field(base, "last", "not-a-number")
 
 
 def test_apply_int_field_deletes_when_cleared():
@@ -220,10 +235,7 @@ def test_parse_title_cleaning_checkboxes_all_off():
 # store_pending_change / pop_pending_change
 # ---------------------------------------------------------------------------
 
-def test_store_and_pop_pending_change():
-    from podcast_etl.web.form_helpers import pop_pending_change, store_pending_change
-
-    # Fake request with app.state
+def _fake_request():
     class FakeState:
         pass
 
@@ -233,7 +245,13 @@ def test_store_and_pop_pending_change():
     class FakeRequest:
         app = FakeApp()
 
-    request = FakeRequest()
+    return FakeRequest()
+
+
+def test_store_and_pop_pending_change():
+    from podcast_etl.web.form_helpers import pop_pending_change, store_pending_change
+
+    request = _fake_request()
     token = store_pending_change(request, "some yaml content")
     assert token
     assert len(token) >= 16
@@ -243,6 +261,56 @@ def test_store_and_pop_pending_change():
 
     # Token is single-use
     assert pop_pending_change(request, token) is None
+
+
+def test_store_pending_change_evicts_oldest_over_max_size():
+    """Unbounded growth would let a never-confirmed preview accumulate forever.
+
+    When the store is full, the oldest entry must be evicted so memory stays
+    bounded. Evicted tokens must no longer be retrievable.
+    """
+    from podcast_etl.web.form_helpers import (
+        MAX_PENDING,
+        pop_pending_change,
+        store_pending_change,
+    )
+
+    request = _fake_request()
+    first_token = store_pending_change(request, "payload-0")
+    for i in range(1, MAX_PENDING + 1):
+        store_pending_change(request, f"payload-{i}")
+
+    # Store should be at max size, not larger
+    assert len(request.app.state.pending_changes) == MAX_PENDING
+    # The first token should have been evicted
+    assert pop_pending_change(request, first_token) is None
+
+
+def test_store_and_pop_pending_delete():
+    from podcast_etl.web.form_helpers import pop_pending_delete, store_pending_delete
+
+    request = _fake_request()
+    token = store_pending_delete(request, "show-a")
+    assert token
+    assert pop_pending_delete(request, token) == "show-a"
+    # Single-use
+    assert pop_pending_delete(request, token) is None
+
+
+def test_store_pending_delete_evicts_oldest_over_max_size():
+    from podcast_etl.web.form_helpers import (
+        MAX_PENDING,
+        pop_pending_delete,
+        store_pending_delete,
+    )
+
+    request = _fake_request()
+    first_token = store_pending_delete(request, "show-0")
+    for i in range(1, MAX_PENDING + 1):
+        store_pending_delete(request, f"show-{i}")
+
+    assert len(request.app.state.pending_deletes) == MAX_PENDING
+    assert pop_pending_delete(request, first_token) is None
 
 
 # ---------------------------------------------------------------------------
@@ -327,6 +395,18 @@ def test_parse_form_section_invalid_yaml():
     assert base == {}
     assert error is not None
     assert "Invalid YAML" in error
+
+
+def test_parse_form_section_bad_int_returns_error():
+    """An unparseable int field should surface as an error to the caller."""
+    form = {"extra_yaml": "", "last": "abc"}
+    base, error = parse_form_section(
+        form, [], "Feed",
+        int_fields=["last"],
+    )
+    assert base == {}
+    assert error is not None
+    assert "last" in error
 
 
 def test_parse_form_section_clears_fields_not_in_form():

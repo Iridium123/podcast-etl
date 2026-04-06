@@ -3,18 +3,20 @@ from __future__ import annotations
 import asyncio
 import difflib
 import logging
-import secrets
 from pathlib import Path
 
 import yaml
-from fastapi import APIRouter, Form, Request
+from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from podcast_etl.web import templates
 from podcast_etl.web.form_helpers import (
+    check_origin,
     parse_form_section,
     pop_pending_change,
+    pop_pending_delete,
     store_pending_change,
+    store_pending_delete,
 )
 
 logger = logging.getLogger(__name__)
@@ -71,7 +73,7 @@ async def feed_add_form(request: Request):
     )
 
 
-@router.post("/add", response_class=HTMLResponse)
+@router.post("/add", response_class=HTMLResponse, dependencies=[Depends(check_origin)])
 async def feed_add(request: Request):
     from podcast_etl.pipeline import STEP_REGISTRY
     from podcast_etl.service import load_config, save_config
@@ -154,10 +156,7 @@ async def feed_delete_confirm(request: Request, name: str):
         from fastapi import HTTPException
         raise HTTPException(status_code=404, detail=f"Feed {name!r} not found.")
 
-    token = secrets.token_urlsafe(16)
-    if not hasattr(request.app.state, "pending_deletes"):
-        request.app.state.pending_deletes = {}
-    request.app.state.pending_deletes[token] = name
+    token = store_pending_delete(request, name)
 
     return templates.TemplateResponse(
         request,
@@ -166,14 +165,13 @@ async def feed_delete_confirm(request: Request, name: str):
     )
 
 
-@router.post("/{name}/delete", response_class=HTMLResponse)
+@router.post("/{name}/delete", response_class=HTMLResponse, dependencies=[Depends(check_origin)])
 async def feed_delete(request: Request, name: str):
     from podcast_etl.service import delete_feed, find_feed_config, load_config
 
     form_data = await request.form()
     token = str(form_data.get("token", ""))
-    pending = getattr(request.app.state, "pending_deletes", {})
-    expected_name = pending.pop(token, None)
+    expected_name = pop_pending_delete(request, token)
     if not expected_name or expected_name != name:
         from fastapi import HTTPException
         raise HTTPException(status_code=400, detail="Invalid or expired delete token.")
@@ -334,92 +332,7 @@ def _parse_feed_form(form_data, all_steps: list[str]) -> tuple[dict, str | None]
     )
 
 
-@router.post("/{name}", response_class=HTMLResponse)
-async def feed_save(
-    request: Request,
-    name: str,
-    feed_name: str = Form("", alias="name"),
-    url: str = Form(""),
-    enabled: str = Form(""),
-    last: str = Form(""),
-    episode_filter: str = Form(""),
-    category_id: str = Form(""),
-    type_id: str = Form(""),
-    extra_yaml: str = Form(""),
-):
-    from podcast_etl.pipeline import STEP_REGISTRY
-    from podcast_etl.service import (
-        find_feed_config,
-        load_config,
-        save_config,
-        validate_config,
-    )
-
-    config = load_config(request.app.state.config_path)
-    existing_feed = find_feed_config(config, name)
-
-    if existing_feed is None:
-        from fastapi import HTTPException
-        raise HTTPException(status_code=404, detail=f"Feed {name!r} not found.")
-
-    form_data = await request.form()
-    all_steps = list(STEP_REGISTRY.keys())
-
-    updated_feed, error = _parse_feed_form(form_data, all_steps)
-    if error:
-        return templates.TemplateResponse(
-            request,
-            "feeds/form.html",
-            {
-                "feed": existing_feed,
-                "full_feed_yaml": extra_yaml,
-                "all_steps": all_steps,
-                "error": error,
-            },
-            status_code=200,
-        )
-
-    # Preserve cover_image / banner_image from existing feed if not in form
-    for preserve_key in ("cover_image", "banner_image"):
-        if preserve_key in existing_feed and preserve_key not in updated_feed:
-            updated_feed[preserve_key] = existing_feed[preserve_key]
-
-    # Replace feed in config
-    new_feeds = []
-    replaced = False
-    for f in config.get("feeds", []):
-        if f.get("name") == name or f.get("url") == name:
-            new_feeds.append(updated_feed)
-            replaced = True
-        else:
-            new_feeds.append(f)
-    if not replaced:
-        new_feeds.append(updated_feed)
-    config["feeds"] = new_feeds
-
-    # Validate
-    try:
-        validate_config(config)
-    except SystemExit as exc:
-        return templates.TemplateResponse(
-            request,
-            "feeds/form.html",
-            {
-                "feed": existing_feed,
-                "full_feed_yaml": extra_yaml,
-                "all_steps": all_steps,
-                "error": str(exc),
-            },
-            status_code=200,
-        )
-
-    save_config(config, request.app.state.config_path)
-
-    redirect_name = updated_feed.get("name") or updated_feed.get("url", name)
-    return RedirectResponse(url=f"/feeds/{redirect_name}", status_code=303)
-
-
-@router.post("/{name}/preview", response_class=HTMLResponse)
+@router.post("/{name}/preview", response_class=HTMLResponse, dependencies=[Depends(check_origin)])
 async def feed_save_preview(request: Request, name: str):
     """Show diff preview before saving. If valid, display confirm page."""
     from podcast_etl.pipeline import STEP_REGISTRY
@@ -513,7 +426,7 @@ async def feed_save_preview(request: Request, name: str):
     )
 
 
-@router.post("/{name}/confirm", response_class=HTMLResponse)
+@router.post("/{name}/confirm", response_class=HTMLResponse, dependencies=[Depends(check_origin)])
 async def feed_save_confirm(
     request: Request,
     name: str,
@@ -571,7 +484,7 @@ async def feed_save_confirm(
     return RedirectResponse(url=f"/feeds/{redirect_name}", status_code=303)
 
 
-@router.post("/{name}/run", response_class=HTMLResponse)
+@router.post("/{name}/run", response_class=HTMLResponse, dependencies=[Depends(check_origin)])
 async def feed_run(request: Request, name: str):
     from podcast_etl.service import fetch_feed, load_config, run_pipeline, get_output_dir, find_feed_config
 

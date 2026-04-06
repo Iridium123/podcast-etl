@@ -3,11 +3,12 @@ from __future__ import annotations
 import difflib
 
 import yaml
-from fastapi import APIRouter, Form, Request
+from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from podcast_etl.web import templates
 from podcast_etl.web.form_helpers import (
+    check_origin,
     parse_form_section,
     pop_pending_change,
     store_pending_change,
@@ -63,71 +64,12 @@ def _parse_defaults_form(form_data, all_steps: list[str]) -> tuple[dict, int | N
         try:
             poll_interval = int(poll_interval_raw)
         except ValueError:
-            pass
+            return {}, None, "poll_interval: must be a number"
 
     return base, poll_interval, None
 
 
-@router.post("/defaults", response_class=HTMLResponse)
-async def defaults_save(request: Request):
-    """Direct save (legacy route — kept for backward compatibility with existing tests)."""
-    from podcast_etl.pipeline import STEP_REGISTRY
-    from podcast_etl.service import (
-        load_config,
-        save_config,
-        validate_config,
-    )
-
-    config = load_config(request.app.state.config_path)
-    existing_defaults = config.get("defaults", {})
-    form_data = await request.form()
-    all_steps = list(STEP_REGISTRY.keys())
-    extra_yaml_raw = str(form_data.get("extra_yaml", ""))
-
-    updated_defaults, poll_interval, error = _parse_defaults_form(form_data, all_steps)
-    if error:
-        return templates.TemplateResponse(
-            request,
-            "defaults/edit.html",
-            {
-                "defaults": existing_defaults,
-                "poll_interval": config.get("poll_interval", 3600),
-                "full_defaults_yaml": extra_yaml_raw,
-                "all_steps": all_steps,
-                "error": error,
-            },
-            status_code=200,
-        )
-
-    # Preserve blacklist from existing defaults if not overridden
-    if "blacklist" in existing_defaults and "blacklist" not in updated_defaults:
-        updated_defaults["blacklist"] = existing_defaults["blacklist"]
-
-    config["defaults"] = updated_defaults
-    if poll_interval is not None:
-        config["poll_interval"] = poll_interval
-
-    try:
-        validate_config(config)
-    except SystemExit as exc:
-        return templates.TemplateResponse(
-            request,
-            "defaults/edit.html",
-            {
-                "defaults": existing_defaults,
-                "poll_interval": config.get("poll_interval", 3600),
-                "full_defaults_yaml": extra_yaml_raw,
-                "all_steps": all_steps,
-                "error": str(exc),
-            },
-            status_code=200,
-        )
-
-    save_config(config, request.app.state.config_path)
-    return RedirectResponse(url="/defaults", status_code=303)
-
-
-@router.post("/defaults/preview", response_class=HTMLResponse)
+@router.post("/defaults/preview", response_class=HTMLResponse, dependencies=[Depends(check_origin)])
 async def defaults_save_preview(request: Request):
     """Show diff preview before saving. If valid, display confirm page."""
     from podcast_etl.pipeline import STEP_REGISTRY
@@ -213,7 +155,7 @@ async def defaults_save_preview(request: Request):
     )
 
 
-@router.post("/defaults/confirm", response_class=HTMLResponse)
+@router.post("/defaults/confirm", response_class=HTMLResponse, dependencies=[Depends(check_origin)])
 async def defaults_save_confirm(
     request: Request,
     token: str = Form(""),

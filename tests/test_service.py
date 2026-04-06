@@ -91,6 +91,64 @@ def test_save_config_is_atomic(tmp_path: Path):
     assert not (tmp_path / "feeds.tmp").exists()
 
 
+def test_save_config_preserves_original_if_replace_fails(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """If os.replace fails mid-write, the original feeds.yaml must be intact.
+
+    This is the whole point of the .tmp + os.replace pattern — interrupting
+    the write (crash, kill -9, disk full at commit time) must never leave
+    feeds.yaml in a corrupted state.
+    """
+    cfg_file = tmp_path / "feeds.yaml"
+    original = {"feeds": [{"url": "http://original.com/rss"}], "poll_interval": 3600}
+    save_config(original, cfg_file)
+    original_text = cfg_file.read_text()
+
+    import podcast_etl.service as service_mod
+
+    def boom(*_args, **_kwargs):
+        raise OSError("simulated crash during replace")
+
+    monkeypatch.setattr(service_mod.os, "replace", boom)
+
+    new_data = {"feeds": [{"url": "http://new.com/rss"}], "poll_interval": 9999}
+    with pytest.raises(OSError, match="simulated crash"):
+        save_config(new_data, cfg_file)
+
+    # Original content must be unchanged
+    assert cfg_file.read_text() == original_text
+    loaded = load_config(cfg_file)
+    assert loaded["feeds"][0]["url"] == "http://original.com/rss"
+    assert loaded["poll_interval"] == 3600
+
+
+def test_save_config_preserves_original_if_write_fails(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """If the tmp file write itself fails, the original must be intact.
+
+    Covers the case where the process crashes before write_text completes —
+    e.g. out-of-disk-space partway through writing. feeds.yaml is never
+    touched (only .tmp is), so it must still be readable as the old config.
+    """
+    cfg_file = tmp_path / "feeds.yaml"
+    original = {"feeds": [{"url": "http://original.com/rss"}], "poll_interval": 3600}
+    save_config(original, cfg_file)
+    original_text = cfg_file.read_text()
+
+    real_write_text = Path.write_text
+
+    def boom(self: Path, *args, **kwargs):
+        if self.suffix == ".tmp":
+            raise OSError("simulated crash during write")
+        return real_write_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "write_text", boom)
+
+    new_data = {"feeds": [{"url": "http://new.com/rss"}]}
+    with pytest.raises(OSError, match="simulated crash"):
+        save_config(new_data, cfg_file)
+
+    assert cfg_file.read_text() == original_text
+
+
 # ---------------------------------------------------------------------------
 # get_output_dir
 # ---------------------------------------------------------------------------
