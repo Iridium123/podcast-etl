@@ -209,29 +209,6 @@ Key config behaviors:
 - **`last`** and **`episode_filter`** limit which episodes are processed during poll. They can also appear in `defaults`.
 - **Per-feed overrides** are deep-merged with `defaults`, so `tracker: {mod_queue_opt_in: 1}` only overrides that one key.
 
-### Web UI CSRF Protection
-
-The web UI rejects state-changing POSTs whose browser-declared `Origin` does not match the request's `Host` header. This blocks CSRF attacks from malicious pages the user might visit in another tab. It's enabled by default with no config needed for direct, LAN, or Tailscale deployments (where the browser's `Origin` and the incoming `Host` match).
-
-For deployments behind a reverse proxy that may rewrite `Host` — most notably Cloudflare Tunnel with the default `httpHostHeader` — add the public URL to `web.trusted_origins`:
-
-```yaml
-web:
-  trusted_origins:
-    - https://podcast-etl.example.com
-```
-
-Multiple entries are allowed. The same deployment can be reached simultaneously through any combination of LAN, Tailscale, and a tunnel — add the public origins that aren't the literal incoming `Host`:
-
-```yaml
-web:
-  trusted_origins:
-    - https://podcast-etl.example.com    # Cloudflare Tunnel
-    # (LAN and Tailscale access work via the default Host check)
-```
-
-Entries must start with `http://` or `https://`. Matching is case-insensitive and tolerant of a trailing slash. Non-browser clients (curl, scripts) that don't send `Origin` or `Referer` are always allowed — this is not an authentication layer.
-
 ### Title Cleaning
 
 Optional rules applied at feed parse time. All off by default; enable globally or per-feed.

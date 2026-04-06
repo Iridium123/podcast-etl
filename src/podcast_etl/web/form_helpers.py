@@ -17,7 +17,7 @@ from urllib.parse import urlparse
 import yaml
 from fastapi import HTTPException, Request
 
-from podcast_etl.service import load_config, validate_config
+from podcast_etl.service import validate_config
 
 
 def check_origin(request: Request) -> None:
@@ -25,44 +25,26 @@ def check_origin(request: Request) -> None:
 
     Used as a FastAPI dependency on state-changing POST endpoints to block
     CSRF from malicious pages the user might visit in another browser tab.
-    A request is accepted if any of the following hold:
+    Accepts requests with no ``Origin``/``Referer`` (non-browser clients)
+    or whose ``Origin`` scheme+host matches the request's ``Host`` header
+    (default same-origin case). Otherwise raises ``HTTPException(400)``.
 
-    1. No ``Origin`` or ``Referer`` header is present — non-browser
-       clients (curl, tests, HTTPie) never send these.
-    2. The ``Origin`` scheme+host matches the request's ``Host`` header —
-       the default same-origin case for direct / LAN / Tailscale
-       deployments where the Host header is preserved end-to-end.
-    3. The ``Origin`` matches an entry in ``web.trusted_origins`` in the
-       config — for deployments behind a reverse proxy that may rewrite
-       the Host header (e.g. Cloudflare Tunnel with default
-       ``httpHostHeader``). Matching is case-insensitive and tolerant of
-       a trailing slash in the config value.
-
-    Otherwise raises ``HTTPException(400)``.
+    For reverse-proxy deployments that rewrite the ``Host`` header (e.g.
+    Cloudflare Tunnel with default ``httpHostHeader``), this default check
+    may reject legitimate requests — handle CSRF at the proxy layer in
+    that case.
     """
     origin = request.headers.get("origin") or request.headers.get("referer")
     if origin is None:
         return
 
-    parsed = urlparse(origin)
-    if not parsed.netloc:
+    origin_netloc = urlparse(origin).netloc
+    if not origin_netloc:
         return  # malformed Origin; no host to compare against
 
-    # Same-origin: Origin scheme+host matches the request's Host header.
     host = request.headers.get("host", "")
-    if host and parsed.netloc.lower() == host.lower():
-        return
-
-    # Explicit whitelist for reverse-proxy / tunnel deployments where
-    # the Host header reaching the app does not match the public URL.
-    origin_normalized = f"{parsed.scheme}://{parsed.netloc}".lower()
-    config = load_config(request.app.state.config_path)
-    trusted = config.get("web", {}).get("trusted_origins", [])
-    for entry in trusted:
-        if origin_normalized == str(entry).strip().rstrip("/").lower():
-            return
-
-    raise HTTPException(status_code=400, detail="Cross-origin request rejected.")
+    if origin_netloc.lower() != host.lower():
+        raise HTTPException(status_code=400, detail="Cross-origin request rejected.")
 
 
 def parse_yaml_base(extra_yaml: str, what: str) -> tuple[dict, str | None]:

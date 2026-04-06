@@ -89,23 +89,6 @@ def validate_config(config: dict) -> None:
         if step_name not in STEP_REGISTRY:
             errors.append(f"defaults.pipeline: unknown step {step_name!r}")
 
-    web = config.get("web", {})
-    if not isinstance(web, dict):
-        errors.append("'web' must be a mapping")
-    else:
-        trusted = web.get("trusted_origins", [])
-        if not isinstance(trusted, list):
-            errors.append("'web.trusted_origins' must be a list")
-        else:
-            for i, entry in enumerate(trusted):
-                if not isinstance(entry, str):
-                    errors.append(f"'web.trusted_origins[{i}]' must be a string")
-                elif not (entry.startswith("http://") or entry.startswith("https://")):
-                    errors.append(
-                        f"'web.trusted_origins[{i}]': {entry!r} must start with "
-                        f"'http://' or 'https://'"
-                    )
-
     if errors:
         raise SystemExit("Config validation failed:\n  " + "\n  ".join(errors))
 
