@@ -319,40 +319,16 @@ def _parse_feed_form(form_data, all_steps: list[str]) -> tuple[dict, str | None]
     The full-feed YAML textarea is the base; form fields overlay on top (form fields win).
     Returns (feed_dict, None) on success, or ({}, error_message) on parse failure.
     """
-    from podcast_etl.web.form_helpers import (
-        apply_int_field,
-        apply_pipeline,
-        apply_text_field,
-        apply_title_cleaning,
-        parse_pipeline_checkboxes,
-        parse_title_cleaning_checkboxes,
-        parse_yaml_base,
+    from podcast_etl.web.form_helpers import parse_form_section
+
+    return parse_form_section(
+        form_data,
+        all_steps,
+        "Full feed YAML",
+        text_fields=["url", "name", "title_override", "episode_filter"],
+        int_fields=["last", "category_id", "type_id"],
+        bool_fields=["enabled"],
     )
-
-    extra_yaml = str(form_data.get("extra_yaml", ""))
-    base, error = parse_yaml_base(extra_yaml, "Full feed YAML")
-    if error:
-        return {}, error
-
-    # Overlay form field values on top (form fields always win)
-    url = str(form_data.get("url", "")).strip()
-    if url:
-        base["url"] = url
-    feed_name = str(form_data.get("name", "")).strip()
-    if feed_name:
-        base["name"] = feed_name
-    base["enabled"] = form_data.get("enabled") == "on"
-
-    apply_text_field(base, "title_override", str(form_data.get("title_override", "")))
-    apply_int_field(base, "last", str(form_data.get("last", "")))
-    apply_text_field(base, "episode_filter", str(form_data.get("episode_filter", "")))
-    apply_int_field(base, "category_id", str(form_data.get("category_id", "")))
-    apply_int_field(base, "type_id", str(form_data.get("type_id", "")))
-
-    apply_pipeline(base, parse_pipeline_checkboxes(form_data, all_steps))
-    apply_title_cleaning(base, parse_title_cleaning_checkboxes(form_data))
-
-    return base, None
 
 
 @router.post("/{name}", response_class=HTMLResponse)

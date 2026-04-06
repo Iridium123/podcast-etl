@@ -60,6 +60,52 @@ def apply_int_field(base: dict, key: str, value: str) -> None:
         base[key] = stripped
 
 
+def apply_bool_field(base: dict, key: str, value: str) -> None:
+    """Set ``base[key]`` to True if value == 'on', else False.
+
+    Always writes the key (unlike text/int, which delete when cleared),
+    since a checkbox always has a definite true/false state.
+    """
+    base[key] = value == "on"
+
+
+def parse_form_section(
+    form_data: Any,
+    all_steps: list[str],
+    what: str,
+    *,
+    text_fields: list[str] = (),
+    int_fields: list[str] = (),
+    bool_fields: list[str] = (),
+) -> tuple[dict, str | None]:
+    """Parse a config section from form data.
+
+    Both the feed edit form and the defaults edit form follow the same
+    pattern: a full-YAML textarea provides the base, structured form
+    fields overlay on top, and pipeline/title_cleaning are handled
+    uniformly. The only thing that differs is which fields each form has.
+
+    Returns ``(merged_dict, None)`` on success or ``({}, error)`` on
+    invalid YAML input.
+    """
+    extra_yaml = str(form_data.get("extra_yaml", ""))
+    base, error = parse_yaml_base(extra_yaml, what)
+    if error:
+        return {}, error
+
+    for field in text_fields:
+        apply_text_field(base, field, str(form_data.get(field, "")))
+    for field in int_fields:
+        apply_int_field(base, field, str(form_data.get(field, "")))
+    for field in bool_fields:
+        apply_bool_field(base, field, str(form_data.get(field, "")))
+
+    apply_pipeline(base, parse_pipeline_checkboxes(form_data, all_steps))
+    apply_title_cleaning(base, parse_title_cleaning_checkboxes(form_data))
+
+    return base, None
+
+
 def apply_pipeline(base: dict, pipeline: list[str]) -> None:
     """Set or clear the pipeline key. Empty list removes the override."""
     if pipeline:

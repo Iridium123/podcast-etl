@@ -2,10 +2,12 @@
 from __future__ import annotations
 
 from podcast_etl.web.form_helpers import (
+    apply_bool_field,
     apply_int_field,
     apply_pipeline,
     apply_text_field,
     apply_title_cleaning,
+    parse_form_section,
     parse_pipeline_checkboxes,
     parse_title_cleaning_checkboxes,
     parse_yaml_base,
@@ -241,6 +243,106 @@ def test_store_and_pop_pending_change():
 
     # Token is single-use
     assert pop_pending_change(request, token) is None
+
+
+# ---------------------------------------------------------------------------
+# apply_bool_field
+# ---------------------------------------------------------------------------
+
+def test_apply_bool_field_checkbox_on():
+    base = {}
+    apply_bool_field(base, "enabled", "on")
+    assert base == {"enabled": True}
+
+
+def test_apply_bool_field_checkbox_off():
+    base = {"enabled": True}
+    apply_bool_field(base, "enabled", "")
+    assert base == {"enabled": False}
+
+
+# ---------------------------------------------------------------------------
+# parse_form_section
+# ---------------------------------------------------------------------------
+
+def test_parse_form_section_empty_form():
+    form = {}
+    base, error = parse_form_section(
+        form, ["download", "tag"], "Feed",
+        text_fields=["url", "name"],
+        int_fields=["last"],
+        bool_fields=["enabled"],
+    )
+    assert error is None
+    # bool fields always set; empty text/int fields leave no key
+    assert base == {"enabled": False}
+
+
+def test_parse_form_section_all_fields():
+    form = {
+        "extra_yaml": "",
+        "url": "http://a.com/rss",
+        "name": "show-a",
+        "last": "5",
+        "enabled": "on",
+        "pipeline_download": "on",
+        "pipeline_tag": "on",
+        "title_strip_date": "on",
+    }
+    base, error = parse_form_section(
+        form, ["download", "tag", "upload"], "Feed",
+        text_fields=["url", "name"],
+        int_fields=["last"],
+        bool_fields=["enabled"],
+    )
+    assert error is None
+    assert base["url"] == "http://a.com/rss"
+    assert base["name"] == "show-a"
+    assert base["last"] == 5
+    assert base["enabled"] is True
+    assert base["pipeline"] == ["download", "tag"]
+    assert base["title_cleaning"]["strip_date"] is True
+
+
+def test_parse_form_section_yaml_base_with_overlay():
+    """Form fields overlay on top of the YAML base."""
+    form = {
+        "extra_yaml": "url: http://old.com/rss\ntracker:\n  mod_queue_opt_in: 1\n",
+        "url": "http://new.com/rss",
+        "name": "show",
+    }
+    base, error = parse_form_section(
+        form, [], "Feed",
+        text_fields=["url", "name"],
+    )
+    assert error is None
+    assert base["url"] == "http://new.com/rss"  # form wins over YAML
+    assert base["name"] == "show"
+    assert base["tracker"] == {"mod_queue_opt_in": 1}  # preserved from YAML
+
+
+def test_parse_form_section_invalid_yaml():
+    form = {"extra_yaml": "key: [unclosed"}
+    base, error = parse_form_section(form, [], "Feed")
+    assert base == {}
+    assert error is not None
+    assert "Invalid YAML" in error
+
+
+def test_parse_form_section_clears_fields_not_in_form():
+    """Form-cleared fields override YAML."""
+    form = {
+        "extra_yaml": "last: 10\nepisode_filter: 'Part'\n",
+        # last and episode_filter both cleared in form
+    }
+    base, error = parse_form_section(
+        form, [], "Feed",
+        text_fields=["episode_filter"],
+        int_fields=["last"],
+    )
+    assert error is None
+    assert "last" not in base
+    assert "episode_filter" not in base
 
 
 def test_pop_pending_change_invalid_token():

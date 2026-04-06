@@ -42,17 +42,14 @@ def _parse_defaults_form(form_data, all_steps: list[str]) -> tuple[dict, int | N
     The full defaults YAML textarea is the base; form fields overlay on top (form fields win).
     Returns (defaults_dict, poll_interval, None) on success, or ({}, None, error_message) on parse failure.
     """
-    from podcast_etl.web.form_helpers import (
-        apply_pipeline,
-        apply_text_field,
-        apply_title_cleaning,
-        parse_pipeline_checkboxes,
-        parse_title_cleaning_checkboxes,
-        parse_yaml_base,
-    )
+    from podcast_etl.web.form_helpers import parse_form_section
 
-    extra_yaml = str(form_data.get("extra_yaml", ""))
-    base, error = parse_yaml_base(extra_yaml, "Full defaults YAML")
+    base, error = parse_form_section(
+        form_data,
+        all_steps,
+        "Full defaults YAML",
+        text_fields=["output_dir", "torrent_data_dir"],
+    )
     if error:
         return {}, None, error
 
@@ -64,12 +61,6 @@ def _parse_defaults_form(form_data, all_steps: list[str]) -> tuple[dict, int | N
             poll_interval = int(poll_interval_raw)
         except ValueError:
             pass
-
-    # Overlay form field values on top (form fields always win)
-    apply_text_field(base, "output_dir", str(form_data.get("output_dir", "")))
-    apply_text_field(base, "torrent_data_dir", str(form_data.get("torrent_data_dir", "")))
-    apply_pipeline(base, parse_pipeline_checkboxes(form_data, all_steps))
-    apply_title_cleaning(base, parse_title_cleaning_checkboxes(form_data))
 
     return base, poll_interval, None
 
