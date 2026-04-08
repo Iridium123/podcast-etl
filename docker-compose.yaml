@@ -6,6 +6,11 @@ services:
     # Unraid: run as nobody:users so output files inherit correct ownership
     # user: "99:100"
     restart: unless-stopped
+    ports:
+      # Web UI has no authentication. Bind to host loopback only by default;
+      # change to "8000:8000" (or put behind a reverse proxy with auth) if you
+      # want LAN access.
+      - "127.0.0.1:8000:8000"
     volumes:
       - ./config:/config
       - ./output:/output

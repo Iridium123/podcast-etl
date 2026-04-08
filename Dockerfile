@@ -40,4 +40,8 @@ ENV HF_HOME="/config/hf-cache"
 COPY --chmod=0755 entrypoint.sh /entrypoint.sh
 ENTRYPOINT ["/entrypoint.sh"]
 EXPOSE 8000
-CMD ["sh", "-c", "podcast-etl -c \"$CONFIG_PATH\" serve"]
+# Bind 0.0.0.0 inside the container so Docker port forwarding can reach the
+# listener. The container has no other users, so this is not the same as
+# binding 0.0.0.0 on a host — restrict exposure at the `ports:` level in your
+# compose file (e.g. `127.0.0.1:8000:8000`) since the web UI has no auth.
+CMD ["sh", "-c", "podcast-etl -c \"$CONFIG_PATH\" serve --host 0.0.0.0"]

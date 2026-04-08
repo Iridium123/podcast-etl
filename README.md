@@ -32,9 +32,17 @@ uv run podcast-etl serve            # web UI + poll loop on http://localhost:800
 The web UI is a browser-based interface for managing feeds and monitoring the pipeline. It runs a built-in poll loop, so no separate `poll` process is needed.
 
 ```sh
-uv run podcast-etl serve                 # default port 8000
+uv run podcast-etl serve                 # default port 8000, binds 127.0.0.1
 uv run podcast-etl serve --port 9000     # custom port
+uv run podcast-etl serve --host 0.0.0.0  # opt in to LAN access (see warning below)
 ```
+
+> **Security:** the web UI has **no authentication**. Anyone who can reach the
+> port can read your `feeds.yaml` (including tracker cookies, qBittorrent
+> password, and API keys), modify config, and trigger pipeline runs. The
+> defaults bind to host loopback only — both the native `serve` command and
+> the recommended Docker compose snippet below. Only expose the UI on a
+> trusted network or behind a reverse proxy that adds authentication.
 
 **Dashboard** (`/`) -- summary counts (active feeds, episodes processed/pending), poll status with pause/resume/run-now controls, and a live log tail.
 
@@ -251,7 +259,9 @@ services:
   podcast-etl:
     image: ghcr.io/iridium123/podcast-etl:latest
     ports:
-      - "8000:8000"
+      # Web UI has no auth — bind to host loopback only. Change to
+      # "8000:8000" (or put behind a reverse proxy with auth) for LAN access.
+      - "127.0.0.1:8000:8000"
     volumes:
       - ./config:/config
       - ./output:/output
