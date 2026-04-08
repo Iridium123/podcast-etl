@@ -9,7 +9,7 @@ from pathlib import Path
 
 import yaml
 
-from podcast_etl.service import filter_episodes, validate_config
+from podcast_etl.service import _coerce_start_date, filter_episodes, validate_config
 from podcast_etl.feed import parse_feed
 from podcast_etl.pipeline import Pipeline, PipelineContext, get_step, resolve_feed_config
 
@@ -80,7 +80,13 @@ def run_poll_loop(config: dict, config_path: Path) -> None:
 
                     last = resolved.get("last")
                     episode_filter = resolved.get("episode_filter")
-                    episodes = filter_episodes(podcast.episodes, last=last, episode_filter=episode_filter)
+                    start_date = _coerce_start_date(resolved.get("start_date"))
+                    episodes = filter_episodes(
+                        podcast.episodes,
+                        last=last,
+                        episode_filter=episode_filter,
+                        start_date=start_date,
+                    )
 
                     feed_step_names = resolved.get("pipeline") or ["download"]
                     steps = [get_step(name) for name in feed_step_names]
@@ -159,7 +165,13 @@ async def async_poll_loop(config: dict, config_path: Path, control: PollControl)
 
                         last = resolved.get("last")
                         episode_filter = resolved.get("episode_filter")
-                        episodes = filter_episodes(podcast.episodes, last=last, episode_filter=episode_filter)
+                        start_date = _coerce_start_date(resolved.get("start_date"))
+                        episodes = filter_episodes(
+                            podcast.episodes,
+                            last=last,
+                            episode_filter=episode_filter,
+                            start_date=start_date,
+                        )
 
                         feed_step_names = resolved.get("pipeline") or ["download"]
                         steps = [get_step(name) for name in feed_step_names]
