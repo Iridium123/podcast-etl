@@ -362,12 +362,12 @@ def get_feed_status(output_dir: Path, config: dict) -> list[dict]:
 KNOWN_FEED_FIELDS = {
     "url", "name", "enabled", "last", "episode_filter",
     "category_id", "type_id", "pipeline", "title_cleaning",
-    "title_override",
+    "title_override", "start_date",
 }
 
 KNOWN_DEFAULTS_FIELDS = {
     "output_dir", "pipeline", "title_cleaning",
-    "blacklist", "torrent_data_dir",
+    "blacklist", "torrent_data_dir", "start_date",
 }
 
 
