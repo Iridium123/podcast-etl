@@ -291,6 +291,38 @@ def test_get_pipeline_steps_empty_pipeline_falls_back():
 
 
 # ---------------------------------------------------------------------------
+# _coerce_start_date
+# ---------------------------------------------------------------------------
+
+def test_coerce_start_date_none_returns_none():
+    from podcast_etl.service import _coerce_start_date
+    assert _coerce_start_date(None) is None
+
+
+def test_coerce_start_date_date_instance_returns_same():
+    from podcast_etl.service import _coerce_start_date
+    d = date(2026, 4, 7)
+    assert _coerce_start_date(d) is d
+
+
+def test_coerce_start_date_iso_string_parses():
+    from podcast_etl.service import _coerce_start_date
+    assert _coerce_start_date("2026-04-07") == date(2026, 4, 7)
+
+
+def test_coerce_start_date_invalid_string_raises():
+    from podcast_etl.service import _coerce_start_date
+    with pytest.raises(ValueError, match="not a valid ISO date"):
+        _coerce_start_date("not-a-date")
+
+
+def test_coerce_start_date_wrong_type_raises():
+    from podcast_etl.service import _coerce_start_date
+    with pytest.raises(TypeError, match="must be a date"):
+        _coerce_start_date(42)
+
+
+# ---------------------------------------------------------------------------
 # filter_episodes
 # ---------------------------------------------------------------------------
 

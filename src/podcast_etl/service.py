@@ -34,6 +34,28 @@ from podcast_etl.steps.upload import UploadStep
 
 logger = logging.getLogger(__name__)
 
+
+def _coerce_start_date(value: object) -> date | None:
+    """Normalize a raw config value into ``date | None``.
+
+    Accepts ``None``, a ``datetime.date`` instance (PyYAML parses bare ISO
+    dates into one), or an ISO-8601 string (e.g. from the web UI). Raises
+    ``ValueError`` on an unparseable string and ``TypeError`` on any other
+    type. This is the single place the rest of the codebase converts raw
+    config values into the typed floor that ``filter_episodes`` expects.
+    """
+    if value is None:
+        return None
+    if isinstance(value, date):
+        return value
+    if isinstance(value, str):
+        try:
+            return date.fromisoformat(value)
+        except ValueError as exc:
+            raise ValueError(f"start_date {value!r} is not a valid ISO date") from exc
+    raise TypeError(f"start_date must be a date or ISO string, got {type(value).__name__}")
+
+
 # Register built-in steps
 register_step(DownloadStep())
 register_step(TagStep())
