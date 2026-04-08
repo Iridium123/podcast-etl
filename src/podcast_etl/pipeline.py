@@ -106,7 +106,7 @@ class Pipeline:
 
         total = len(episodes)
         for i, episode in enumerate(episodes, 1):
-            logger.info("[%d/%d] %s", i, total, episode.title or episode.slug)
+            logger.debug("[%d/%d] %s", i, total, episode.title or episode.slug)
             for step in steps:
                 if overwrite:
                     episode.status.pop(step.name, None)
@@ -114,7 +114,7 @@ class Pipeline:
                     logger.debug("  skip %s", step.name)
                     continue
                 try:
-                    logger.info("  -> %s", step.name)
+                    logger.debug("  -> %s", step.name)
                     result = step.process(episode, self.context)
                     episode.status[step.name] = StepStatus(
                         completed_at=datetime.now().isoformat(),
