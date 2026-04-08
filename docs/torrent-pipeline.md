@@ -172,7 +172,7 @@ services:
       - ./output:/output
       - /path/to/torrent-data:/torrent-data   # shared with qBittorrent container
     environment:
-      - TZ=America/Los_Angeles
+      - TZ=Etc/UTC
 ```
 
 `torrent_data_dir` in `feeds.yaml` → `/torrent-data`. qBittorrent's `save_path` → whatever path qBittorrent sees for the same host directory.

@@ -142,6 +142,25 @@ class TestTorrentStep:
         mock_run.assert_not_called()
         assert result.data["torrent_path"] == str(torrent_file)
 
+    def test_uses_double_dash_separator_before_audio_path(self, tmp_path):
+        """Defense in depth: a leading-dash filename must never be interpreted
+        as an mktorrent option, so the audio path is preceded by a `--` token."""
+        audio = _make_audio_file(tmp_path)
+        context = _make_context(tmp_path)
+        episode = _make_episode(local_path=str(audio))
+
+        mock_result = MagicMock(returncode=0)
+        mock_torrent = MagicMock()
+        mock_torrent.infohash = "abcdef1234567890abcdef1234567890abcdef12"
+
+        with patch("podcast_etl.steps.torrent.subprocess.run", return_value=mock_result) as mock_run, \
+             patch("torf.Torrent.read", return_value=mock_torrent):
+            TorrentStep().process(episode, context)
+
+        cmd = mock_run.call_args[0][0]
+        assert cmd[-1] == str(audio)
+        assert cmd[-2] == "--"
+
     def test_source_flag_included_when_configured(self, tmp_path):
         audio = _make_audio_file(tmp_path)
         context = _make_context(tmp_path, tracker_config={

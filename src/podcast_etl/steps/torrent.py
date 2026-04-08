@@ -70,7 +70,9 @@ def _run_mktorrent(audio_path: Path, torrent_path: Path, announce_url: str, comm
         cmd.append("-p")
     if source:
         cmd.extend(["-s", source])
-    cmd.append(str(audio_path))
+    # `--` terminates option parsing so a leading-dash filename can never be
+    # interpreted as a flag.
+    cmd.extend(["--", str(audio_path)])
 
     logger.info("Creating torrent: %s", torrent_path)
     result = subprocess.run(cmd, capture_output=True, text=True)

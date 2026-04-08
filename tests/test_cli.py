@@ -2,6 +2,7 @@
 import json
 from datetime import date
 from pathlib import Path
+from unittest.mock import patch
 
 import click
 import pytest
@@ -175,3 +176,31 @@ def test_delete_feed_cancelled_leaves_config_and_data(tmp_path: Path):
     assert podcast_dir.exists()
     updated = yaml.safe_load(cfg_path.read_text())
     assert len(updated["feeds"]) == 1
+
+
+# ---------------------------------------------------------------------------
+# serve command
+# ---------------------------------------------------------------------------
+
+def test_serve_default_host_is_loopback(tmp_path: Path):
+    """The web UI has no auth, so `serve` must default to 127.0.0.1.
+
+    Binding 0.0.0.0 by default would expose unauth'd credential read/write
+    to anyone on the network the moment a user runs the bare `serve` command.
+    Users who want LAN access must opt in explicitly with `--host 0.0.0.0`.
+    """
+    cfg_path = _write_cfg(tmp_path, [])
+    runner = CliRunner()
+
+    captured: dict = {}
+
+    def fake_uvicorn_run(app, host, port, log_level):
+        captured["host"] = host
+        captured["port"] = port
+
+    with patch("uvicorn.run", side_effect=fake_uvicorn_run), \
+         patch("podcast_etl.web.create_app", return_value=object()):
+        result = runner.invoke(main, ["-c", str(cfg_path), "serve"])
+
+    assert result.exit_code == 0, result.output
+    assert captured["host"] == "127.0.0.1"

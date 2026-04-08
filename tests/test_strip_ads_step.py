@@ -139,6 +139,16 @@ class TestBuildFfmpegArgs:
         with pytest.raises(ValueError, match="All audio would be removed"):
             _build_ffmpeg_args(Path("in.mp3"), Path("out.mp3"), segments, 120.0)
 
+    def test_resolves_input_and_output_paths_to_absolute(self):
+        """Defense in depth: paths passed to ffmpeg are resolved to absolute form
+        so a leading-dash filename can never be interpreted as an option."""
+        segments = [AdSegment(start=30.0, end=60.0, confidence=0.9, detector="t")]
+        cmd = _build_ffmpeg_args(Path("in.mp3"), Path("out.mp3"), segments, 120.0)
+
+        i_idx = cmd.index("-i") + 1
+        assert Path(cmd[i_idx]).is_absolute(), f"input path not absolute: {cmd[i_idx]!r}"
+        assert Path(cmd[-1]).is_absolute(), f"output path not absolute: {cmd[-1]!r}"
+
     def test_uses_libmp3lame_codec(self):
         segments = [AdSegment(start=0.0, end=30.0, confidence=0.9, detector="t")]
         cmd = _build_ffmpeg_args(Path("in.mp3"), Path("out.mp3"), segments, 120.0)

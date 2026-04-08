@@ -257,7 +257,7 @@ services:
       - ./output:/output
       - /path/to/torrent-data:/torrent-data   # shared with qBittorrent
     environment:
-      - TZ=America/Los_Angeles
+      - TZ=Etc/UTC
 ```
 
 ### Build locally
