@@ -330,6 +330,7 @@ def _parse_feed_form(form_data, all_steps: list[str]) -> tuple[dict, str | None]
         text_fields=["url", "name", "title_override", "episode_filter"],
         int_fields=["last", "category_id", "type_id"],
         bool_fields=["enabled"],
+        date_fields=["start_date"],
     )
 
 

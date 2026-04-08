@@ -53,6 +53,7 @@ def _parse_defaults_form(form_data, all_steps: list[str]) -> tuple[dict, int | N
         all_steps,
         "Full defaults YAML",
         text_fields=["output_dir", "torrent_data_dir"],
+        date_fields=["start_date"],
     )
     if error:
         return {}, None, error
