@@ -107,9 +107,21 @@ def validate_config(config: dict) -> None:
         except TypeError as exc:
             errors.append(f"Feed {feed_label!r}: {exc}")
 
+        if "start_date" in feed:
+            try:
+                _coerce_start_date(feed["start_date"])
+            except (TypeError, ValueError) as exc:
+                errors.append(f"Feed {feed_label!r}: {exc}")
+
     for step_name in defaults.get("pipeline", []):
         if step_name not in STEP_REGISTRY:
             errors.append(f"defaults.pipeline: unknown step {step_name!r}")
+
+    if "start_date" in defaults:
+        try:
+            _coerce_start_date(defaults["start_date"])
+        except (TypeError, ValueError) as exc:
+            errors.append(f"defaults: {exc}")
 
     if errors:
         raise SystemExit("Config validation failed:\n  " + "\n  ".join(errors))

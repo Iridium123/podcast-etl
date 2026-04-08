@@ -541,6 +541,53 @@ def test_validate_config_passes_valid_title_cleaning():
     validate_config(config)  # should not raise
 
 
+def test_validate_config_accepts_start_date_as_date_instance():
+    config = {
+        "feeds": [{"url": "https://example.com/rss", "start_date": date(2026, 4, 7)}],
+    }
+    validate_config(config)  # should not raise
+
+
+def test_validate_config_accepts_start_date_as_iso_string():
+    config = {
+        "feeds": [{"url": "https://example.com/rss", "start_date": "2026-04-07"}],
+    }
+    validate_config(config)  # should not raise
+
+
+def test_validate_config_rejects_start_date_unparseable_string():
+    config = {
+        "feeds": [{"url": "https://example.com/rss", "start_date": "not-a-date"}],
+    }
+    with pytest.raises(SystemExit, match="not a valid ISO date"):
+        validate_config(config)
+
+
+def test_validate_config_rejects_start_date_wrong_type():
+    config = {
+        "feeds": [{"url": "https://example.com/rss", "start_date": 42}],
+    }
+    with pytest.raises(SystemExit, match="start_date must be a date"):
+        validate_config(config)
+
+
+def test_validate_config_accepts_start_date_in_defaults():
+    config = {
+        "feeds": [{"url": "https://example.com/rss"}],
+        "defaults": {"start_date": "2026-04-07"},
+    }
+    validate_config(config)  # should not raise
+
+
+def test_validate_config_rejects_bad_start_date_in_defaults():
+    config = {
+        "feeds": [{"url": "https://example.com/rss"}],
+        "defaults": {"start_date": "garbage"},
+    }
+    with pytest.raises(SystemExit, match="not a valid ISO date"):
+        validate_config(config)
+
+
 # ---------------------------------------------------------------------------
 # Helpers for get_feed_status tests
 # ---------------------------------------------------------------------------
