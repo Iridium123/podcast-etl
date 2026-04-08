@@ -293,7 +293,14 @@ def run_pipeline(
     context = PipelineContext(output_dir=output_dir, podcast=podcast, config=resolved_config, overwrite=overwrite)
     pipeline = Pipeline(steps=steps, context=context)
     ep_filter = episode_filter if episode_filter is not None else resolved_config.get("episode_filter")
-    episodes = filter_episodes(podcast.episodes, last=last, date_range=date_range, episode_filter=ep_filter)
+    start_date = _coerce_start_date(resolved_config.get("start_date"))
+    episodes = filter_episodes(
+        podcast.episodes,
+        last=last,
+        date_range=date_range,
+        episode_filter=ep_filter,
+        start_date=start_date,
+    )
     pipeline.run(episodes, step_filter=step_filter, overwrite=overwrite)
 
 
