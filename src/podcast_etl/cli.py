@@ -196,7 +196,7 @@ def run(ctx: click.Context, feed_url: str | None, run_all: bool, step_filter: st
 
 @main.command()
 @click.option("--port", type=int, default=8000, show_default=True, help="Port to listen on")
-@click.option("--host", default="0.0.0.0", show_default=True, help="Host to bind to")
+@click.option("--host", default="127.0.0.1", show_default=True, help="Host to bind to. The web UI has no authentication, so the default binds to loopback only. Pass --host 0.0.0.0 to expose on the LAN (only do this on a trusted network or behind a reverse proxy).")
 @click.pass_context
 def serve(ctx: click.Context, port: int, host: str) -> None:
     """Start the web UI server with integrated poll loop."""

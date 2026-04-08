@@ -150,13 +150,15 @@ def _build_ffmpeg_args(
 
     filter_complex = ";\n".join(filter_parts)
 
+    # Resolve to absolute paths so a leading-dash filename can never be
+    # mistaken by ffmpeg for an option flag.
     cmd = [
         "ffmpeg", "-y",
-        "-i", str(audio_path),
+        "-i", str(audio_path.resolve()),
         "-filter_complex", filter_complex,
         "-map", "[out]",
         "-c:a", "libmp3lame",
-        str(output_path),
+        str(output_path.resolve()),
     ]
     return cmd
 
