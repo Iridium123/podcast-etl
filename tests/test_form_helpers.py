@@ -135,6 +135,55 @@ def test_apply_int_field_strips_whitespace():
 
 
 # ---------------------------------------------------------------------------
+# apply_date_field
+# ---------------------------------------------------------------------------
+
+def test_apply_date_field_sets_valid_iso():
+    from podcast_etl.web.form_helpers import apply_date_field
+    base = {}
+    apply_date_field(base, "start_date", "2026-04-07")
+    assert base == {"start_date": "2026-04-07"}
+
+
+def test_apply_date_field_strips_whitespace():
+    from podcast_etl.web.form_helpers import apply_date_field
+    base = {}
+    apply_date_field(base, "start_date", "  2026-04-07  ")
+    assert base == {"start_date": "2026-04-07"}
+
+
+def test_apply_date_field_deletes_when_cleared():
+    from podcast_etl.web.form_helpers import apply_date_field
+    base = {"start_date": "2026-04-07"}
+    apply_date_field(base, "start_date", "")
+    assert base == {}
+
+
+def test_apply_date_field_deletes_when_whitespace():
+    from podcast_etl.web.form_helpers import apply_date_field
+    base = {"start_date": "2026-04-07"}
+    apply_date_field(base, "start_date", "   ")
+    assert base == {}
+
+
+def test_apply_date_field_raises_on_invalid_string():
+    """Bad input must surface as a ValueError so the route can render
+    the form error instead of storing garbage in YAML."""
+    from podcast_etl.web.form_helpers import apply_date_field
+    base = {}
+    with pytest.raises(ValueError, match="start_date"):
+        apply_date_field(base, "start_date", "not-a-date")
+    assert base == {}
+
+
+def test_apply_date_field_empty_on_empty_base_noop():
+    from podcast_etl.web.form_helpers import apply_date_field
+    base = {}
+    apply_date_field(base, "start_date", "")
+    assert base == {}
+
+
+# ---------------------------------------------------------------------------
 # apply_pipeline
 # ---------------------------------------------------------------------------
 
@@ -423,6 +472,37 @@ def test_parse_form_section_clears_fields_not_in_form():
     assert error is None
     assert "last" not in base
     assert "episode_filter" not in base
+
+
+def test_parse_form_section_date_field_valid():
+    form = {"extra_yaml": "", "start_date": "2026-04-07"}
+    base, error = parse_form_section(
+        form, [], "Feed",
+        date_fields=["start_date"],
+    )
+    assert error is None
+    assert base == {"start_date": "2026-04-07"}
+
+
+def test_parse_form_section_date_field_empty_clears():
+    form = {"extra_yaml": "start_date: 2026-01-01\n"}
+    base, error = parse_form_section(
+        form, [], "Feed",
+        date_fields=["start_date"],
+    )
+    assert error is None
+    assert "start_date" not in base
+
+
+def test_parse_form_section_bad_date_returns_error():
+    form = {"extra_yaml": "", "start_date": "garbage"}
+    base, error = parse_form_section(
+        form, [], "Feed",
+        date_fields=["start_date"],
+    )
+    assert base == {}
+    assert error is not None
+    assert "start_date" in error
 
 
 def test_pop_pending_change_invalid_token():
