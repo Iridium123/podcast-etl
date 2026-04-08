@@ -215,8 +215,9 @@ def filter_episodes(
     last: int | None = None,
     date_range: tuple[date | None, date | None] | None = None,
     episode_filter: str | None = None,
+    start_date: date | None = None,
 ) -> list[Episode]:
-    """Filter episodes by count, publication date range, and/or title regex."""
+    """Filter episodes by count, publication date range, start-date floor, and/or title regex."""
     if last is not None:
         result = episodes[:last]
     elif date_range is not None:
@@ -237,6 +238,20 @@ def filter_episodes(
             result.append(ep)
     else:
         result = episodes
+    if start_date is not None:
+        floored: list[Episode] = []
+        for ep in result:
+            if ep.published is None:
+                continue
+            try:
+                pub_date = parsedate_to_datetime(ep.published).date()
+            except Exception:
+                logger.warning("Skipping episode %r: unable to parse published date %r", ep.title, ep.published)
+                continue
+            if pub_date < start_date:
+                continue
+            floored.append(ep)
+        result = floored
     if episode_filter is not None:
         pattern = re.compile(episode_filter)
         result = [ep for ep in result if ep.title and pattern.search(ep.title)]

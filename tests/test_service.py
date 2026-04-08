@@ -418,6 +418,65 @@ def test_filter_episodes_regex_skips_none_title():
     assert [e.title for e in result] == ["Match me"]
 
 
+def test_filter_episodes_start_date_floor():
+    result = filter_episodes(_EPISODES, start_date=date(2026, 3, 3))
+    assert [e.title for e in result] == ["Ep 3a", "Ep 3b", "Ep 4"]
+
+
+def test_filter_episodes_start_date_keeps_equal():
+    """Boundary date is included (< not <=)."""
+    result = filter_episodes(_EPISODES, start_date=date(2026, 3, 4))
+    assert [e.title for e in result] == ["Ep 4"]
+
+
+def test_filter_episodes_start_date_skips_no_published():
+    episodes = [
+        _ep("No date"),
+        _ep("Has date", "Wed, 04 Mar 2026 00:00:00 +0000"),
+    ]
+    result = filter_episodes(episodes, start_date=date(2026, 3, 1))
+    assert [e.title for e in result] == ["Has date"]
+
+
+def test_filter_episodes_start_date_skips_unparseable_date():
+    episodes = [
+        _ep("Bad date", "not a real date"),
+        _ep("Good date", "Wed, 04 Mar 2026 00:00:00 +0000"),
+    ]
+    result = filter_episodes(episodes, start_date=date(2026, 3, 1))
+    assert [e.title for e in result] == ["Good date"]
+
+
+def test_filter_episodes_start_date_combined_with_last():
+    """The migration scenario: last N, floored by start_date.
+
+    With last=5 (all 5 episodes) and start_date=2026-03-03, we expect
+    only the 3 episodes at or after that date — last and start_date stack.
+    """
+    result = filter_episodes(_EPISODES, last=5, start_date=date(2026, 3, 3))
+    assert [e.title for e in result] == ["Ep 3a", "Ep 3b", "Ep 4"]
+
+
+def test_filter_episodes_start_date_combined_with_date_range():
+    """start_date intersects with date_range — both apply."""
+    result = filter_episodes(
+        _EPISODES,
+        date_range=(date(2026, 3, 1), date(2026, 3, 4)),
+        start_date=date(2026, 3, 3),
+    )
+    assert [e.title for e in result] == ["Ep 3a", "Ep 3b", "Ep 4"]
+
+
+def test_filter_episodes_start_date_combined_with_episode_filter():
+    """regex still applies on top of start_date."""
+    result = filter_episodes(
+        _EPISODES,
+        start_date=date(2026, 3, 3),
+        episode_filter=r"Ep 3",
+    )
+    assert [e.title for e in result] == ["Ep 3a", "Ep 3b"]
+
+
 # ---------------------------------------------------------------------------
 # validate_config
 # ---------------------------------------------------------------------------
