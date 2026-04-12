@@ -185,6 +185,7 @@ feeds:
     name: my-podcast
     enabled: true
     last: 5
+    start_date: 2026-04-07
     episode_filter: "Part [0-9]+"
     pipeline: [download, tag, detect_ads, strip_ads, stage, torrent, seed, upload]
     category_id: 14
@@ -206,7 +207,7 @@ feeds:
 Key config behaviors:
 
 - **`enabled`** defaults to `false`. Only `true` feeds are processed during poll/serve. Explicit `--feed` runs ignore this flag.
-- **`last`** and **`episode_filter`** limit which episodes are processed during poll. They can also appear in `defaults`.
+- **`last`**, **`start_date`**, and **`episode_filter`** limit which episodes are processed during poll. `last` and `start_date` stack — e.g. `last: 10` + `start_date: 2026-04-07` means "the 10 newest episodes, minus any published before 2026-04-07." Useful when migrating a feed to a new host: you keep the working set small with `last`, but the start date prevents re-downloading older episodes. All three can also appear in `defaults`.
 - **Per-feed overrides** are deep-merged with `defaults`, so `tracker: {mod_queue_opt_in: 1}` only overrides that one key.
 
 ### Title Cleaning
