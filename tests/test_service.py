@@ -322,6 +322,15 @@ def test_coerce_start_date_wrong_type_raises():
         _coerce_start_date(42)
 
 
+def test_coerce_start_date_datetime_returns_date():
+    from datetime import datetime
+    from podcast_etl.service import _coerce_start_date
+    dt = datetime(2026, 4, 7, 12, 0, 0)
+    result = _coerce_start_date(dt)
+    assert result == date(2026, 4, 7)
+    assert type(result) is date
+
+
 # ---------------------------------------------------------------------------
 # filter_episodes
 # ---------------------------------------------------------------------------
@@ -586,6 +595,14 @@ def test_validate_config_rejects_bad_start_date_in_defaults():
     }
     with pytest.raises(SystemExit, match="not a valid ISO date"):
         validate_config(config)
+
+
+def test_validate_config_accepts_start_date_as_datetime():
+    from datetime import datetime
+    config = {
+        "feeds": [{"url": "https://example.com/rss", "start_date": datetime(2026, 4, 7, 12, 0)}],
+    }
+    validate_config(config)  # should not raise
 
 
 # ---------------------------------------------------------------------------

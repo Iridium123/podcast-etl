@@ -5,7 +5,7 @@ import logging
 import os
 import re
 import shutil
-from datetime import date
+from datetime import date, datetime
 from email.utils import parsedate_to_datetime
 from pathlib import Path
 
@@ -46,6 +46,8 @@ def _coerce_start_date(value: object) -> date | None:
     """
     if value is None:
         return None
+    if isinstance(value, datetime):
+        return value.date()
     if isinstance(value, date):
         return value
     if isinstance(value, str):
