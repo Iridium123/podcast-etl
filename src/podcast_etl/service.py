@@ -5,7 +5,7 @@ import logging
 import os
 import re
 import shutil
-from datetime import date
+from datetime import date, datetime
 from email.utils import parsedate_to_datetime
 from pathlib import Path
 
@@ -33,6 +33,30 @@ from podcast_etl.steps.torrent import TorrentStep
 from podcast_etl.steps.upload import UploadStep
 
 logger = logging.getLogger(__name__)
+
+
+def _coerce_start_date(value: object) -> date | None:
+    """Normalize a raw config value into ``date | None``.
+
+    Accepts ``None``, a ``datetime.date`` instance (PyYAML parses bare ISO
+    dates into one), or an ISO-8601 string (e.g. from the web UI). Raises
+    ``ValueError`` on an unparseable string and ``TypeError`` on any other
+    type. This is the single place the rest of the codebase converts raw
+    config values into the typed floor that ``filter_episodes`` expects.
+    """
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    if isinstance(value, str):
+        try:
+            return date.fromisoformat(value)
+        except ValueError as exc:
+            raise ValueError(f"start_date {value!r} is not a valid ISO date") from exc
+    raise TypeError(f"start_date must be a date or ISO string, got {type(value).__name__}")
+
 
 # Register built-in steps
 register_step(DownloadStep())
@@ -85,9 +109,21 @@ def validate_config(config: dict) -> None:
         except TypeError as exc:
             errors.append(f"Feed {feed_label!r}: {exc}")
 
+        if "start_date" in feed:
+            try:
+                _coerce_start_date(feed["start_date"])
+            except (TypeError, ValueError) as exc:
+                errors.append(f"Feed {feed_label!r}: {exc}")
+
     for step_name in defaults.get("pipeline", []):
         if step_name not in STEP_REGISTRY:
             errors.append(f"defaults.pipeline: unknown step {step_name!r}")
+
+    if "start_date" in defaults:
+        try:
+            _coerce_start_date(defaults["start_date"])
+        except (TypeError, ValueError) as exc:
+            errors.append(f"defaults: {exc}")
 
     if errors:
         raise SystemExit("Config validation failed:\n  " + "\n  ".join(errors))
@@ -193,8 +229,9 @@ def filter_episodes(
     last: int | None = None,
     date_range: tuple[date | None, date | None] | None = None,
     episode_filter: str | None = None,
+    start_date: date | None = None,
 ) -> list[Episode]:
-    """Filter episodes by count, publication date range, and/or title regex."""
+    """Filter episodes by count, publication date range, start-date floor, and/or title regex."""
     if last is not None:
         result = episodes[:last]
     elif date_range is not None:
@@ -215,6 +252,20 @@ def filter_episodes(
             result.append(ep)
     else:
         result = episodes
+    if start_date is not None:
+        floored: list[Episode] = []
+        for ep in result:
+            if ep.published is None:
+                continue
+            try:
+                pub_date = parsedate_to_datetime(ep.published).date()
+            except Exception:
+                logger.warning("Skipping episode %r: unable to parse published date %r", ep.title, ep.published)
+                continue
+            if pub_date < start_date:
+                continue
+            floored.append(ep)
+        result = floored
     if episode_filter is not None:
         pattern = re.compile(episode_filter)
         result = [ep for ep in result if ep.title and pattern.search(ep.title)]
@@ -244,7 +295,14 @@ def run_pipeline(
     context = PipelineContext(output_dir=output_dir, podcast=podcast, config=resolved_config, overwrite=overwrite)
     pipeline = Pipeline(steps=steps, context=context)
     ep_filter = episode_filter if episode_filter is not None else resolved_config.get("episode_filter")
-    episodes = filter_episodes(podcast.episodes, last=last, date_range=date_range, episode_filter=ep_filter)
+    start_date = _coerce_start_date(resolved_config.get("start_date"))
+    episodes = filter_episodes(
+        podcast.episodes,
+        last=last,
+        date_range=date_range,
+        episode_filter=ep_filter,
+        start_date=start_date,
+    )
     pipeline.run(episodes, step_filter=step_filter, overwrite=overwrite)
 
 
@@ -306,12 +364,12 @@ def get_feed_status(output_dir: Path, config: dict) -> list[dict]:
 KNOWN_FEED_FIELDS = {
     "url", "name", "enabled", "last", "episode_filter",
     "category_id", "type_id", "pipeline", "title_cleaning",
-    "title_override",
+    "title_override", "start_date",
 }
 
 KNOWN_DEFAULTS_FIELDS = {
     "output_dir", "pipeline", "title_cleaning",
-    "blacklist", "torrent_data_dir",
+    "blacklist", "torrent_data_dir", "start_date",
 }
 
 

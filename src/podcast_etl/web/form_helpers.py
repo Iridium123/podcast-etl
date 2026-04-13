@@ -11,6 +11,7 @@ from __future__ import annotations
 import difflib
 import secrets
 from collections.abc import Sequence
+from datetime import date
 from typing import Any
 from urllib.parse import urlparse
 
@@ -94,6 +95,30 @@ def apply_int_field(base: dict, key: str, value: str) -> None:
         raise ValueError(f"{key}: must be a number")
 
 
+def apply_date_field(base: dict, key: str, value: str) -> None:
+    """Set ``base[key]`` to a validated ISO date string, or delete when cleared.
+
+    The value is parsed with ``date.fromisoformat`` to reject malformed input
+    at the form boundary (rather than letting a bad string land in YAML and
+    crash ``filter_episodes`` later). On success the parsed date is stored
+    as an ISO string so the YAML output stays stable regardless of whether
+    the source was a web form or a hand-edited quoted string.
+
+    Raises ``ValueError`` with the field name when the input is present but
+    not a valid ISO date.
+    """
+    stripped = value.strip()
+    if not stripped:
+        if key in base:
+            del base[key]
+        return
+    try:
+        parsed = date.fromisoformat(stripped)
+    except ValueError:
+        raise ValueError(f"{key}: must be a valid ISO date (YYYY-MM-DD)")
+    base[key] = parsed.isoformat()
+
+
 def apply_bool_field(base: dict, key: str, value: str) -> None:
     """Set ``base[key]`` to True if value == 'on', else False.
 
@@ -111,6 +136,7 @@ def parse_form_section(
     text_fields: Sequence[str] = (),
     int_fields: Sequence[str] = (),
     bool_fields: Sequence[str] = (),
+    date_fields: Sequence[str] = (),
 ) -> tuple[dict, str | None]:
     """Parse a config section from form data.
 
@@ -120,7 +146,7 @@ def parse_form_section(
     uniformly. The only thing that differs is which fields each form has.
 
     Returns ``(merged_dict, None)`` on success or ``({}, error)`` on
-    invalid YAML input.
+    invalid YAML or a bad typed field.
     """
     extra_yaml = str(form_data.get("extra_yaml", ""))
     base, error = parse_yaml_base(extra_yaml, what)
@@ -136,6 +162,11 @@ def parse_form_section(
             return {}, str(exc)
     for field in bool_fields:
         apply_bool_field(base, field, str(form_data.get(field, "")))
+    for field in date_fields:
+        try:
+            apply_date_field(base, field, str(form_data.get(field, "")))
+        except ValueError as exc:
+            return {}, str(exc)
 
     apply_pipeline(base, parse_pipeline_checkboxes(form_data, all_steps))
     apply_title_cleaning(base, parse_title_cleaning_checkboxes(form_data))

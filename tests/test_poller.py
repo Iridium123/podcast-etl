@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from datetime import date
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 import pytest
 
@@ -132,3 +133,45 @@ class TestPollerEpisodeFilter:
         config["defaults"]["episode_filter"] = r"Episode 3"
         _, run_calls = _run_one_cycle(config, tmp_path, episodes=episodes)
         assert len(run_calls[0]) == 1
+
+
+class TestPollerStartDate:
+    def test_start_date_string_reaches_filter_episodes(self, tmp_path: Path) -> None:
+        """start_date ISO string in feed config is coerced to date and passed to filter_episodes."""
+        episodes = _make_episodes(3)
+        config = _make_config({"url": "http://a.com/rss", "enabled": True, "start_date": "2026-04-01"})
+
+        filter_calls: list[dict] = []
+
+        def fake_filter_episodes(eps, **kwargs):
+            filter_calls.append(kwargs)
+            return list(eps)
+
+        config_path = tmp_path / "feeds.yaml"
+        config_path.write_text("")
+
+        def fake_parse_feed(url, *, output_dir, blacklist=None, title_cleaning=None):
+            podcast = MagicMock()
+            podcast.episodes = episodes
+            podcast.title = "Test"
+            return podcast
+
+        mock_pipeline_cls = MagicMock()
+        mock_pipeline_instance = MagicMock()
+        mock_pipeline_cls.return_value = mock_pipeline_instance
+
+        with (
+            patch("podcast_etl.poller.parse_feed", side_effect=fake_parse_feed),
+            patch("podcast_etl.poller.get_step", return_value=MagicMock()),
+            patch("podcast_etl.poller.Pipeline", mock_pipeline_cls),
+            patch("podcast_etl.poller.filter_episodes", side_effect=fake_filter_episodes),
+            patch("podcast_etl.poller.signal.signal"),
+            patch("podcast_etl.poller.time.sleep", side_effect=KeyboardInterrupt),
+        ):
+            try:
+                run_poll_loop(config, config_path)
+            except KeyboardInterrupt:
+                pass
+
+        assert len(filter_calls) == 1
+        assert filter_calls[0]["start_date"] == date(2026, 4, 1)

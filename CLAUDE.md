@@ -24,7 +24,7 @@ Tests live in `tests/` and use pytest:
 - `test_pipeline.py` -- `Pipeline` step execution, skipping already-completed steps, step filters, `deep_merge`
 - `test_feed.py` -- `parse_feed` (audio extraction, slug dedup, status preservation, episode image extraction, episode number parsing, `raw_title` capture)
 - `test_cli.py` -- `parse_date_range`, `reset` command (single feed, --all, cancel, nonexistent, argument validation), `delete` command (config removal, on-disk cleanup, missing-feed exit, cancel)
-- `test_service.py` -- service layer: `load_config`, `save_config` (atomic writes), `validate_config`, `get_output_dir`, `find_feed_config`, `find_podcast_dir`, `get_pipeline_steps`, `filter_episodes`, `get_feed_status`, `split_config_fields`, `merge_config_fields`, `get_resolved_config_with_sources`, `reset_feed_data`, `delete_feed`
+- `test_service.py` -- service layer: `load_config`, `save_config` (atomic writes), `validate_config` (incl. start_date), `get_output_dir`, `find_feed_config`, `find_podcast_dir`, `get_pipeline_steps`, `filter_episodes` (incl. start_date floor), `_coerce_start_date`, `get_feed_status`, `split_config_fields`, `merge_config_fields`, `get_resolved_config_with_sources`, `reset_feed_data`, `delete_feed`
 - `test_download_step.py` -- `DownloadStep` filename construction, skip-existing, download
 - `test_tag_step.py` -- `TagStep` MP3 tagging, TRCK track number, APIC album art embedding, audio file discovery, error cases
 - `test_qbittorrent_client.py` -- `QBittorrentClient` login, has_torrent, add_torrent
@@ -111,7 +111,7 @@ Each step implements the `Step` protocol (`name: str`, `process(episode, context
 
 ### Config format
 
-The top-level `defaults` block is deep-merged with per-feed overrides via `resolve_feed_config`. Each feed entry supports `name` (short identifier), `enabled` (boolean, default `false`), `last`, `episode_filter`, and any key from `defaults` as an override.
+The top-level `defaults` block is deep-merged with per-feed overrides via `resolve_feed_config`. Each feed entry supports `name` (short identifier), `enabled` (boolean, default `false`), `last`, `start_date` (ISO date floor; stacks with `last`), `episode_filter`, and any key from `defaults` as an override.
 
 ```yaml
 poll_interval: 3600
@@ -132,6 +132,7 @@ feeds:
     name: my-podcast
     enabled: true
     last: 5
+    start_date: 2026-04-07
     episode_filter: "Part [0-9]+"
     pipeline: [download, tag, detect_ads, strip_ads, stage, torrent, seed, upload]
     category_id: 14

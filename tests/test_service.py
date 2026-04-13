@@ -291,6 +291,47 @@ def test_get_pipeline_steps_empty_pipeline_falls_back():
 
 
 # ---------------------------------------------------------------------------
+# _coerce_start_date
+# ---------------------------------------------------------------------------
+
+def test_coerce_start_date_none_returns_none():
+    from podcast_etl.service import _coerce_start_date
+    assert _coerce_start_date(None) is None
+
+
+def test_coerce_start_date_date_instance_returns_same():
+    from podcast_etl.service import _coerce_start_date
+    d = date(2026, 4, 7)
+    assert _coerce_start_date(d) is d
+
+
+def test_coerce_start_date_iso_string_parses():
+    from podcast_etl.service import _coerce_start_date
+    assert _coerce_start_date("2026-04-07") == date(2026, 4, 7)
+
+
+def test_coerce_start_date_invalid_string_raises():
+    from podcast_etl.service import _coerce_start_date
+    with pytest.raises(ValueError, match="not a valid ISO date"):
+        _coerce_start_date("not-a-date")
+
+
+def test_coerce_start_date_wrong_type_raises():
+    from podcast_etl.service import _coerce_start_date
+    with pytest.raises(TypeError, match="must be a date"):
+        _coerce_start_date(42)
+
+
+def test_coerce_start_date_datetime_returns_date():
+    from datetime import datetime
+    from podcast_etl.service import _coerce_start_date
+    dt = datetime(2026, 4, 7, 12, 0, 0)
+    result = _coerce_start_date(dt)
+    assert result == date(2026, 4, 7)
+    assert type(result) is date
+
+
+# ---------------------------------------------------------------------------
 # filter_episodes
 # ---------------------------------------------------------------------------
 
@@ -386,6 +427,65 @@ def test_filter_episodes_regex_skips_none_title():
     assert [e.title for e in result] == ["Match me"]
 
 
+def test_filter_episodes_start_date_floor():
+    result = filter_episodes(_EPISODES, start_date=date(2026, 3, 3))
+    assert [e.title for e in result] == ["Ep 3a", "Ep 3b", "Ep 4"]
+
+
+def test_filter_episodes_start_date_keeps_equal():
+    """Boundary date is included (< not <=)."""
+    result = filter_episodes(_EPISODES, start_date=date(2026, 3, 4))
+    assert [e.title for e in result] == ["Ep 4"]
+
+
+def test_filter_episodes_start_date_skips_no_published():
+    episodes = [
+        _ep("No date"),
+        _ep("Has date", "Wed, 04 Mar 2026 00:00:00 +0000"),
+    ]
+    result = filter_episodes(episodes, start_date=date(2026, 3, 1))
+    assert [e.title for e in result] == ["Has date"]
+
+
+def test_filter_episodes_start_date_skips_unparseable_date():
+    episodes = [
+        _ep("Bad date", "not a real date"),
+        _ep("Good date", "Wed, 04 Mar 2026 00:00:00 +0000"),
+    ]
+    result = filter_episodes(episodes, start_date=date(2026, 3, 1))
+    assert [e.title for e in result] == ["Good date"]
+
+
+def test_filter_episodes_start_date_combined_with_last():
+    """The migration scenario: last N, floored by start_date.
+
+    With last=5 (all 5 episodes) and start_date=2026-03-03, we expect
+    only the 3 episodes at or after that date — last and start_date stack.
+    """
+    result = filter_episodes(_EPISODES, last=5, start_date=date(2026, 3, 3))
+    assert [e.title for e in result] == ["Ep 3a", "Ep 3b", "Ep 4"]
+
+
+def test_filter_episodes_start_date_combined_with_date_range():
+    """start_date intersects with date_range — both apply."""
+    result = filter_episodes(
+        _EPISODES,
+        date_range=(date(2026, 3, 1), date(2026, 3, 4)),
+        start_date=date(2026, 3, 3),
+    )
+    assert [e.title for e in result] == ["Ep 3a", "Ep 3b", "Ep 4"]
+
+
+def test_filter_episodes_start_date_combined_with_episode_filter():
+    """regex still applies on top of start_date."""
+    result = filter_episodes(
+        _EPISODES,
+        start_date=date(2026, 3, 3),
+        episode_filter=r"Ep 3",
+    )
+    assert [e.title for e in result] == ["Ep 3a", "Ep 3b"]
+
+
 # ---------------------------------------------------------------------------
 # validate_config
 # ---------------------------------------------------------------------------
@@ -446,6 +546,61 @@ def test_validate_config_passes_valid_title_cleaning():
     config = {
         "feeds": [{"url": "https://example.com/rss", "title_cleaning": {"strip_date": True}}],
         "defaults": {"title_cleaning": {"reorder_parts": True}},
+    }
+    validate_config(config)  # should not raise
+
+
+def test_validate_config_accepts_start_date_as_date_instance():
+    config = {
+        "feeds": [{"url": "https://example.com/rss", "start_date": date(2026, 4, 7)}],
+    }
+    validate_config(config)  # should not raise
+
+
+def test_validate_config_accepts_start_date_as_iso_string():
+    config = {
+        "feeds": [{"url": "https://example.com/rss", "start_date": "2026-04-07"}],
+    }
+    validate_config(config)  # should not raise
+
+
+def test_validate_config_rejects_start_date_unparseable_string():
+    config = {
+        "feeds": [{"url": "https://example.com/rss", "start_date": "not-a-date"}],
+    }
+    with pytest.raises(SystemExit, match="not a valid ISO date"):
+        validate_config(config)
+
+
+def test_validate_config_rejects_start_date_wrong_type():
+    config = {
+        "feeds": [{"url": "https://example.com/rss", "start_date": 42}],
+    }
+    with pytest.raises(SystemExit, match="start_date must be a date"):
+        validate_config(config)
+
+
+def test_validate_config_accepts_start_date_in_defaults():
+    config = {
+        "feeds": [{"url": "https://example.com/rss"}],
+        "defaults": {"start_date": "2026-04-07"},
+    }
+    validate_config(config)  # should not raise
+
+
+def test_validate_config_rejects_bad_start_date_in_defaults():
+    config = {
+        "feeds": [{"url": "https://example.com/rss"}],
+        "defaults": {"start_date": "garbage"},
+    }
+    with pytest.raises(SystemExit, match="not a valid ISO date"):
+        validate_config(config)
+
+
+def test_validate_config_accepts_start_date_as_datetime():
+    from datetime import datetime
+    config = {
+        "feeds": [{"url": "https://example.com/rss", "start_date": datetime(2026, 4, 7, 12, 0)}],
     }
     validate_config(config)  # should not raise
 

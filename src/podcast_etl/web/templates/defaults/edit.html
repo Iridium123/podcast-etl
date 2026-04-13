@@ -43,6 +43,13 @@
                class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-gray-100 text-sm focus:outline-none focus:border-blue-500">
       </div>
 
+      <div>
+        <label class="block text-sm text-gray-400 mb-1" for="start_date">Start date</label>
+        <input id="start_date" name="start_date" type="date"
+               value="{% if defaults.get('start_date') %}{{ defaults['start_date'] if defaults['start_date'] is string else defaults['start_date'].isoformat() }}{% endif %}"
+               class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-gray-100 text-sm focus:outline-none focus:border-blue-500">
+      </div>
+
     </div>
   </div>
 
