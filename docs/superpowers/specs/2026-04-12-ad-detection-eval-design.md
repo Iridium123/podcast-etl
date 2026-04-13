@@ -6,7 +6,7 @@ The LLM-based ad detection pipeline produces imprecise segment boundaries — ty
 
 ## Goals
 
-- Build a test set of 20-50 annotated episodes across multiple podcasts
+- Build a test set of 20-50 human annotated episodes across multiple podcasts plus potentially more labeled with more expensive models or methods. 
 - Compare ad detection quality across different whisper configs, LLM models, and prompt variants in a single run
 - Measure segment detection accuracy (precision/recall) with emphasis on avoiding false positives (content incorrectly removed)
 - Measure boundary precision in both seconds and word-level accuracy
