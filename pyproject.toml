@@ -23,7 +23,7 @@ dependencies = [
 podcast-etl = "podcast_etl.cli:main"
 
 [dependency-groups]
-dev = ["pytest>=8.0", "pytest-asyncio>=0.25"]
+dev = ["pytest>=9.0.3", "pytest-asyncio>=0.25"]
 
 [tool.pytest.ini_options]
 markers = ["integration: tests requiring Docker (mktorrent, ffmpeg, network)"]
