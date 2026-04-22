@@ -3,14 +3,17 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
+import yaml
 
 from podcast_etl.web.log_stream import (
     read_new_lines,
     read_tail_lines,
     tail_log_events,
 )
+from podcast_etl.web.routes.dashboard import log_stream
 
 
 def test_returns_empty_when_file_missing(tmp_path: Path) -> None:
@@ -146,3 +149,49 @@ async def test_tail_log_events_html_escapes_line_content(tmp_path: Path) -> None
     body = events[0]
     assert "<script>" not in body
     assert "&lt;script&gt;" in body
+
+
+@pytest.mark.asyncio
+async def test_log_stream_endpoint_returns_event_stream_response(tmp_path: Path) -> None:
+    """Verify the /log-stream handler returns a StreamingResponse with the
+    correct media_type and proxy-friendly headers, and that its body iterator
+    yields SSE events when log content arrives.
+
+    The handler is called directly because httpx.ASGITransport buffers the
+    full response body before returning, which makes it unsuitable for testing
+    long-lived streaming endpoints — it deadlocks on tail_log_events' poll loop.
+    """
+    output_dir = tmp_path / "output"
+    output_dir.mkdir()
+    log_file = output_dir / "podcast-etl.log"
+    log_file.write_text("")
+    cfg = {
+        "feeds": [],
+        "defaults": {"output_dir": str(output_dir), "pipeline": ["download"]},
+        "poll_interval": 3600,
+    }
+    config_path = tmp_path / "feeds.yaml"
+    config_path.write_text(yaml.dump(cfg))
+
+    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(config_path=config_path)))
+    response = await log_stream(request)
+
+    assert response.media_type == "text/event-stream"
+    assert response.headers["x-accel-buffering"] == "no"
+    assert response.headers["cache-control"] == "no-cache"
+
+    chunks: list[str] = []
+
+    async def collect_one() -> None:
+        async for chunk in response.body_iterator:
+            chunks.append(chunk.decode() if isinstance(chunk, bytes) else chunk)
+            return
+
+    async def producer() -> None:
+        # Wait for the generator to capture its starting offset, then append.
+        await asyncio.sleep(0.05)
+        log_file.write_text("hello\n")
+
+    await asyncio.wait_for(asyncio.gather(collect_one(), producer()), timeout=3.0)
+    assert chunks[0].startswith("data: ")
+    assert "hello" in chunks[0]
