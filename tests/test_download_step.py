@@ -1,5 +1,4 @@
 """Tests for DownloadStep: filename generation and audio downloading."""
-from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -40,15 +39,16 @@ def _make_context(tmp_path: Path) -> PipelineContext:
     return PipelineContext(output_dir=tmp_path, podcast=podcast)
 
 
-def _mock_httpx_stream(chunks: list[bytes]):
+def _mock_requests_get(chunks: list[bytes]):
     """Return a context manager that yields a mock response streaming the given chunks."""
     mock_response = MagicMock()
     mock_response.raise_for_status = MagicMock()
-    mock_response.iter_bytes = MagicMock(return_value=iter(chunks))
+    mock_response.iter_content = MagicMock(return_value=iter(chunks))
+    mock_response.__enter__ = MagicMock(return_value=mock_response)
+    mock_response.__exit__ = MagicMock(return_value=None)
 
-    @contextmanager
     def _cm(*args, **kwargs):
-        yield mock_response
+        return mock_response
 
     return _cm
 
@@ -94,7 +94,7 @@ def test_process_extracts_mp3_extension_from_url(tmp_path: Path):
     ctx = _make_context(tmp_path)
     ep = _make_episode(audio_url="https://example.com/episode.mp3")
 
-    with patch("podcast_etl.steps.download.httpx.stream", _mock_httpx_stream([b"audio data"])):
+    with patch("podcast_etl.steps.download.requests.get", _mock_requests_get([b"audio data"])):
         result = DownloadStep().process(ep, ctx)
 
     assert result.data["path"].endswith(".mp3")
@@ -104,7 +104,7 @@ def test_process_strips_query_string_before_extracting_extension(tmp_path: Path)
     ctx = _make_context(tmp_path)
     ep = _make_episode(audio_url="https://example.com/episode.mp3?token=abc&t=123")
 
-    with patch("podcast_etl.steps.download.httpx.stream", _mock_httpx_stream([b"audio data"])):
+    with patch("podcast_etl.steps.download.requests.get", _mock_requests_get([b"audio data"])):
         result = DownloadStep().process(ep, ctx)
 
     assert result.data["path"].endswith(".mp3")
@@ -114,7 +114,7 @@ def test_process_defaults_to_mp3_when_url_has_no_extension(tmp_path: Path):
     ctx = _make_context(tmp_path)
     ep = _make_episode(audio_url="https://example.com/stream/episode")
 
-    with patch("podcast_etl.steps.download.httpx.stream", _mock_httpx_stream([b"audio data"])):
+    with patch("podcast_etl.steps.download.requests.get", _mock_requests_get([b"audio data"])):
         result = DownloadStep().process(ep, ctx)
 
     assert result.data["path"].endswith(".mp3")
@@ -134,7 +134,7 @@ def test_process_skips_download_if_file_already_exists(tmp_path: Path):
     existing_file = audio_dir / "Test Podcast - 2024-01-01 - Episode 1.mp3"
     existing_file.write_bytes(b"existing audio content")
 
-    with patch("podcast_etl.steps.download.httpx.stream") as mock_stream:
+    with patch("podcast_etl.steps.download.requests.get") as mock_stream:
         result = DownloadStep().process(ep, ctx)
         mock_stream.assert_not_called()
 
@@ -150,7 +150,7 @@ def test_process_downloads_and_saves_file(tmp_path: Path):
     ep = _make_episode(audio_url="https://example.com/ep.mp3", published="Mon, 01 Jan 2024 00:00:00 +0000")
     audio_content = b"fake audio bytes"
 
-    with patch("podcast_etl.steps.download.httpx.stream", _mock_httpx_stream([audio_content])):
+    with patch("podcast_etl.steps.download.requests.get", _mock_requests_get([audio_content])):
         result = DownloadStep().process(ep, ctx)
 
     assert result.data["size_bytes"] == len(audio_content)
@@ -163,7 +163,7 @@ def test_process_creates_audio_directory(tmp_path: Path):
     ctx = _make_context(tmp_path)
     ep = _make_episode(audio_url="https://example.com/ep.mp3")
 
-    with patch("podcast_etl.steps.download.httpx.stream", _mock_httpx_stream([b"data"])):
+    with patch("podcast_etl.steps.download.requests.get", _mock_requests_get([b"data"])):
         DownloadStep().process(ep, ctx)
 
     assert (ctx.podcast_dir / "audio").is_dir()
@@ -173,7 +173,7 @@ def test_process_result_path_is_relative_to_podcast_dir(tmp_path: Path):
     ctx = _make_context(tmp_path)
     ep = _make_episode(audio_url="https://example.com/ep.mp3")
 
-    with patch("podcast_etl.steps.download.httpx.stream", _mock_httpx_stream([b"data"])):
+    with patch("podcast_etl.steps.download.requests.get", _mock_requests_get([b"data"])):
         result = DownloadStep().process(ep, ctx)
 
     assert result.data["path"].startswith("audio/")
@@ -197,11 +197,12 @@ def test_process_propagates_http_error(tmp_path: Path):
 
     mock_response = MagicMock()
     mock_response.raise_for_status.side_effect = Exception("404 Not Found")
+    mock_response.__enter__ = MagicMock(return_value=mock_response)
+    mock_response.__exit__ = MagicMock(return_value=None)
 
-    @contextmanager
     def _bad_stream(*args, **kwargs):
-        yield mock_response
+        return mock_response
 
-    with patch("podcast_etl.steps.download.httpx.stream", _bad_stream):
+    with patch("podcast_etl.steps.download.requests.get", _bad_stream):
         with pytest.raises(Exception, match="404 Not Found"):
             DownloadStep().process(ep, ctx)
