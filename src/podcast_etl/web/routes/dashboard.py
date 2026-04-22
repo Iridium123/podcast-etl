@@ -1,14 +1,15 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import StreamingResponse
 
 from podcast_etl.web import templates
 from podcast_etl.web.form_helpers import check_origin
+from podcast_etl.web.log_stream import read_tail_lines, tail_log_events
 
 router = APIRouter()
+
+INITIAL_LOG_LINES = 100
 
 
 @router.get("/")
@@ -24,6 +25,10 @@ async def dashboard(request: Request):
     total_pending = sum(f["pending_count"] for f in feed_status)
 
     poll_control = getattr(request.app.state, "poll_control", None)
+    # Discard the offset: the SSE generator picks its own start at connect time.
+    # Lines written between this render and the SSE connect (sub-100ms gap) are
+    # missed in the live tail; a refresh shows them in the historical batch.
+    lines, _ = read_tail_lines(output_dir / "podcast-etl.log", INITIAL_LOG_LINES)
 
     return templates.TemplateResponse(
         request,
@@ -34,6 +39,7 @@ async def dashboard(request: Request):
             "total_completed": total_completed,
             "total_pending": total_pending,
             "poll_control": poll_control,
+            "lines": lines,
         },
     )
 
@@ -74,21 +80,16 @@ async def poll_run_now(request: Request):
     )
 
 
-@router.get("/log-tail", response_class=HTMLResponse)
-async def log_tail(request: Request):
+@router.get("/log-stream")
+async def log_stream(request: Request) -> StreamingResponse:
     from podcast_etl.service import load_config, get_output_dir
 
     config = load_config(request.app.state.config_path)
-    output_dir = get_output_dir(config)
-    log_file = output_dir / "podcast-etl.log"
+    log_file = get_output_dir(config) / "podcast-etl.log"
 
-    lines: list[str] = []
-    if log_file.exists():
-        text = log_file.read_text(errors="replace")
-        lines = text.splitlines()[-100:]
-
-    return templates.TemplateResponse(
-        request,
-        "fragments/log_tail.html",
-        {"lines": lines},
+    return StreamingResponse(
+        tail_log_events(log_file),
+        media_type="text/event-stream",
+        # Disable proxy buffering (nginx) so events flush immediately.
+        headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache"},
     )
