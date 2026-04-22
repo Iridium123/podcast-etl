@@ -50,22 +50,35 @@
   <div class="font-semibold text-gray-200 mb-3">Log</div>
   <div
     id="log-tail"
-    hx-get="/log-tail"
-    hx-trigger="every 2s"
+    hx-ext="sse"
+    sse-connect="/log-stream"
+    sse-swap="message"
+    hx-swap="beforeend"
     class="overflow-y-auto max-h-96 space-y-0.5"
   >
     {% include "fragments/log_tail.html" %}
   </div>
 </div>
 <script>
-  // Scroll log to bottom on load and after each HTMX swap
-  function scrollLog() {
-    var el = document.getElementById('log-tail');
-    if (el) el.scrollTop = el.scrollHeight;
-  }
-  scrollLog();
-  document.body.addEventListener('htmx:afterSwap', function(e) {
-    if (e.detail.target.id === 'log-tail') scrollLog();
-  });
+  // Auto-scroll only when the user is already pinned near the bottom, so
+  // scrolling up to read or copy text isn't yanked back by incoming lines.
+  (function() {
+    var logEl = document.getElementById('log-tail');
+    if (!logEl) return;
+    var stickToBottom = true;
+    var nearBottom = function() {
+      return logEl.scrollTop + logEl.clientHeight >= logEl.scrollHeight - 10;
+    };
+    var pin = function() { logEl.scrollTop = logEl.scrollHeight; };
+    pin();
+    // CDN CSS may apply after DOMContentLoaded; re-pin once fonts/layout settle.
+    window.addEventListener('load', pin);
+    logEl.addEventListener('scroll', function() { stickToBottom = nearBottom(); });
+    // MutationObserver fires for any child insertion, regardless of whether
+    // htmx-ext-sse emits htmx:afterSwap for the swap.
+    new MutationObserver(function() {
+      if (stickToBottom) pin();
+    }).observe(logEl, { childList: true });
+  })();
 </script>
 {% endblock %}

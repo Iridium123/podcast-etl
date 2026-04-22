@@ -160,14 +160,15 @@ def test_empty_host_header_strict_rejects(tmp_path: Path) -> None:
     assert response.status_code == 400
 
 
-def test_log_tail_returns_text(config_path: Path, tmp_path: Path) -> None:
+def test_dashboard_renders_recent_log_lines(config_path: Path, tmp_path: Path) -> None:
     log_file = tmp_path / "output" / "podcast-etl.log"
     log_file.parent.mkdir(parents=True, exist_ok=True)
     log_file.write_text("12:00:00 INFO: test log line\n")
     app = create_app(config_path, start_poller=False)
     client = TestClient(app)
-    response = client.get("/log-tail")
+    response = client.get("/")
     assert response.status_code == 200
+    assert "test log line" in response.text
 
 
 def test_feeds_list_page(config_with_feeds: Path) -> None:

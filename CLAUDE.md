@@ -42,6 +42,7 @@ Tests live in `tests/` and use pytest:
 - `test_poller.py` -- `run_poll_loop` enabled/disabled feed filtering, `episode_filter` from feed/defaults config
 - `test_async_poller.py` -- `async_poll_loop`, `PollControl` shutdown/pause/run-now
 - `test_web.py` -- web UI routes: smoke test, dashboard, feeds CRUD, defaults editing, config form submission
+- `test_log_stream.py` -- `read_new_lines` (offset tracking, partial trailing line, truncation, missing file), `read_tail_lines` (initial dashboard population), `tail_log_events` (async SSE generator emitting HTML-escaped, div-wrapped events for new lines)
 - `test_audiobookshelf_step.py` -- `AudiobookshelfStep` copy and scan trigger, audio resolution, config merging, error cases
 - `test_integration.py` -- end-to-end: parse real RSS feed, download episode, tag MP3, stage file (marked `integration`)
 - `test_integration_torrent.py` -- stage + torrent steps with real disk I/O and mktorrent binary (marked `integration`)
@@ -69,7 +70,7 @@ Orchestration logic shared by CLI and web routes. Registers all built-in pipelin
 FastAPI app factory in `web/__init__.py`. The `create_app(config_path)` function sets up routes and starts an async poll loop (`async_poll_loop`) as a lifespan background task, controlled via a `PollControl` dataclass (pause/resume/run-now/shutdown).
 
 Routes:
-- `web/routes/dashboard.py` -- dashboard page (`GET /`), poll controls (`POST /poll/{pause,resume,run-now}`), log tail (`GET /log-tail`)
+- `web/routes/dashboard.py` -- dashboard page (`GET /`, renders the last 100 log lines inline), poll controls (`POST /poll/{pause,resume,run-now}`), log SSE stream (`GET /log-stream`, served via `web/log_stream.py` which tails the file by byte offset and emits each new line as a `text/event-stream` event)
 - `web/routes/feeds.py` -- feed list, detail, add, edit, delete, run, save with diff preview and confirmation
 - `web/routes/defaults.py` -- global defaults editing with diff preview and confirmation
 
