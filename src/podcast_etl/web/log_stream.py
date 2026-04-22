@@ -2,9 +2,10 @@
 from __future__ import annotations
 
 import asyncio
-from html import escape
 from pathlib import Path
 from typing import AsyncIterator
+
+from markupsafe import escape
 
 # Markup must match templates/fragments/log_tail.html so streamed lines look
 # identical to the server-rendered initial batch.
@@ -43,12 +44,14 @@ def read_new_lines(path: Path, offset: int) -> tuple[list[str], int]:
 def read_tail_lines(path: Path, n: int) -> tuple[list[str], int]:
     """Read the last ``n`` lines from ``path`` for initial dashboard render.
 
-    Returns ``(lines, offset_at_eof)``. Missing file yields ``([], 0)``.
+    Returns ``(lines, offset_at_eof)``. Missing file yields ``([], 0)``. The
+    offset reflects exactly the bytes read (not a separate ``stat()``), so
+    callers that resume tailing from it never overshoot.
     """
     if not path.exists():
         return [], 0
-    text = path.read_text(errors="replace")
-    return text.splitlines()[-n:], path.stat().st_size
+    data = path.read_bytes()
+    return data.decode("utf-8", errors="replace").splitlines()[-n:], len(data)
 
 
 async def tail_log_events(
@@ -65,5 +68,7 @@ async def tail_log_events(
     while True:
         lines, offset = read_new_lines(path, offset)
         for line in lines:
+            # markupsafe.escape matches Jinja2 autoescape byte-for-byte so
+            # streamed lines render identically to the inline fragment.
             yield f"data: {LINE_TEMPLATE.format(escape(line))}\n\n"
         await asyncio.sleep(poll_interval)
