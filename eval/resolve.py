@@ -38,7 +38,11 @@ def resolve_episode(ref: EpisodeRef, output_dir: Path) -> ResolvedEpisode:
     download_status = episode.status.get("download")
     if not download_status:
         raise FileNotFoundError(f"Episode {ref.episode_json} has no download status")
-    relative_path = download_status.result.get("path", "")
+    relative_path = download_status.result.get("path")
+    if not relative_path:
+        raise FileNotFoundError(
+            f"Episode {ref.episode_json} download status has no 'path'"
+        )
     audio_path = podcast_dir / relative_path
     if not audio_path.exists():
         raise FileNotFoundError(f"Audio file not found: {audio_path}")

@@ -133,3 +133,52 @@ class TestResolveEpisode:
 
         assert resolved.episode.title == "Episode One"
         assert resolved.episode.guid == "guid-1"
+
+    def test_raises_when_no_download_status(self, tmp_path):
+        podcast_dir = tmp_path / "my-podcast"
+        episode_json = "2024-01-15-ep-one-a1b2c3d4.json"
+        _write_podcast(podcast_dir)
+        # Episode JSON with no download status at all
+        episodes_dir = podcast_dir / "episodes"
+        episodes_dir.mkdir(parents=True, exist_ok=True)
+        (episodes_dir / episode_json).write_text(json.dumps({
+            "title": "Episode One",
+            "guid": "guid-1",
+            "published": "2024-01-15",
+            "audio_url": None,
+            "duration": None,
+            "description": None,
+            "slug": "episode-one",
+            "status": {},
+        }, indent=2))
+
+        ref = EpisodeRef(podcast_slug="my-podcast", episode_json=episode_json)
+        with pytest.raises(FileNotFoundError, match="has no download status"):
+            resolve_episode(ref, tmp_path)
+
+    def test_raises_when_download_status_missing_path(self, tmp_path):
+        podcast_dir = tmp_path / "my-podcast"
+        episode_json = "2024-01-15-ep-one-a1b2c3d4.json"
+        _write_podcast(podcast_dir)
+        # download status exists but result has no 'path' key
+        episodes_dir = podcast_dir / "episodes"
+        episodes_dir.mkdir(parents=True, exist_ok=True)
+        (episodes_dir / episode_json).write_text(json.dumps({
+            "title": "Episode One",
+            "guid": "guid-1",
+            "published": "2024-01-15",
+            "audio_url": None,
+            "duration": None,
+            "description": None,
+            "slug": "episode-one",
+            "status": {
+                "download": {
+                    "completed_at": "2024-01-15T10:00:00",
+                    "result": {},
+                },
+            },
+        }, indent=2))
+
+        ref = EpisodeRef(podcast_slug="my-podcast", episode_json=episode_json)
+        with pytest.raises(FileNotFoundError, match="has no 'path'"):
+            resolve_episode(ref, tmp_path)
