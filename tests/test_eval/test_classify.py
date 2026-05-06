@@ -37,6 +37,7 @@ class TestClassifyWithPrompt:
         call_kwargs = mock_client.messages.create.call_args.kwargs
         sent_prompt = call_kwargs["messages"][0]["content"]
         assert sent_prompt.startswith("Find the ads.")
+        assert "You are an ad-segment detector" not in sent_prompt  # default prompt must not leak in
         assert "[0.0s - 10.0s]" in sent_prompt  # transcript appended
 
         assert len(result) == 1
