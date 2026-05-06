@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -92,6 +92,11 @@ def run_eval(
     results_dir: Path,
 ) -> dict[str, AggregateScore]:
     """Run the eval matrix and return aggregate scores per config."""
+    names = [c.name for c in configs]
+    duplicates = {n for n in names if names.count(n) > 1}
+    if duplicates:
+        raise ValueError(f"Duplicate config names: {sorted(duplicates)}")
+
     annotations = _load_annotations(annotations_dir)
     if not annotations:
         logger.warning("No annotations found in %s", annotations_dir)
@@ -128,7 +133,14 @@ def run_eval(
 
             if cache_key not in transcript_cache:
                 ad_config = {"whisper": group[0].whisper}
-                transcript_cache[cache_key] = transcribe(resolved.audio_path, ad_config)
+                try:
+                    transcript_cache[cache_key] = transcribe(resolved.audio_path, ad_config)
+                except Exception as e:
+                    logger.warning(
+                        "Transcription failed for %s with whisper config %s: %s",
+                        ref_key, whisper_key, e,
+                    )
+                    continue
 
             transcript = transcript_cache[cache_key]
 
@@ -139,7 +151,14 @@ def run_eval(
                     "llm": config.llm,
                     "min_confidence": config.min_confidence,
                 }
-                predicted = classify_with_prompt(transcript, prompt_text, ad_config)
+                try:
+                    predicted = classify_with_prompt(transcript, prompt_text, ad_config)
+                except Exception as e:
+                    logger.warning(
+                        "Classification failed for %s with config %s: %s",
+                        ref_key, config.name, e,
+                    )
+                    continue
                 episode_score = score_episode(predicted, gold)
                 config_scores[config.name].append(episode_score)
 
@@ -156,16 +175,7 @@ def run_eval(
         result_data = {
             "config": config_name,
             "timestamp": timestamp,
-            "total_tp": agg.total_tp,
-            "total_fp": agg.total_fp,
-            "total_fn": agg.total_fn,
-            "precision": agg.precision,
-            "recall": agg.recall,
-            "f1": agg.f1,
-            "start_error_median": agg.start_error_median,
-            "end_error_median": agg.end_error_median,
-            "total_content_lost": agg.total_content_lost,
-            "total_ads_missed": agg.total_ads_missed,
+            **asdict(agg),
         }
         result_path.write_text(json.dumps(result_data, indent=2) + "\n")
 

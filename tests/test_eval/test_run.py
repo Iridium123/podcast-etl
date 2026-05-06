@@ -144,3 +144,70 @@ class TestRunEval:
         assert results["test"].total_tp == 1
         assert results["test"].total_fp == 0
         assert results["test"].total_fn == 0
+
+    def test_reuses_transcript_for_configs_with_same_whisper(self, tmp_path):
+        """Two configs sharing whisper settings should call transcribe only once per episode."""
+        ann_dir, output_dir = _setup_annotation(tmp_path)
+
+        prompts_dir = tmp_path / "prompts"
+        prompts_dir.mkdir()
+        (prompts_dir / "p1.txt").write_text("Find ads.\n\nTranscript:\n")
+        (prompts_dir / "p2.txt").write_text("Identify ads.\n\nTranscript:\n")
+
+        transcript_segments = [
+            {"start": 0.0, "end": 30.0, "text": "Ad"},
+            {"start": 30.0, "end": 120.0, "text": "Content"},
+        ]
+        predicted_ads = [
+            AdSegment(start=0.0, end=30.0, confidence=0.9, detector="transcription", label="Ad"),
+        ]
+
+        # Two configs with identical whisper settings, different prompts
+        configs = [
+            EvalConfig(name="a", whisper={"model": "base", "language": "en"},
+                       llm={"provider": "anthropic", "model": "test"},
+                       prompt="p1", min_confidence=0.5),
+            EvalConfig(name="b", whisper={"model": "base", "language": "en"},
+                       llm={"provider": "anthropic", "model": "test"},
+                       prompt="p2", min_confidence=0.5),
+        ]
+
+        with patch("eval.run.transcribe", return_value=transcript_segments) as mock_transcribe:
+            with patch("eval.run.classify_with_prompt", return_value=predicted_ads):
+                results = run_eval(
+                    configs=configs,
+                    annotations_dir=ann_dir,
+                    output_dir=output_dir,
+                    prompts_dir=prompts_dir,
+                    results_dir=tmp_path / "results",
+                )
+
+        # transcribe should be called exactly once (same whisper config, single episode)
+        assert mock_transcribe.call_count == 1
+        # Both configs should have results
+        assert "a" in results
+        assert "b" in results
+        assert results["a"].total_tp == 1
+        assert results["b"].total_tp == 1
+
+    def test_raises_on_duplicate_config_names(self, tmp_path):
+        """Duplicate config names must raise — silently collapsing scores would produce wrong results."""
+        ann_dir, output_dir = _setup_annotation(tmp_path)
+
+        prompts_dir = tmp_path / "prompts"
+        prompts_dir.mkdir()
+        (prompts_dir / "default.txt").write_text("Find ads.\n\nTranscript:\n")
+
+        configs = [
+            EvalConfig(name="dup", whisper={"model": "base"}, llm={}, prompt="default", min_confidence=0.5),
+            EvalConfig(name="dup", whisper={"model": "large"}, llm={}, prompt="default", min_confidence=0.5),
+        ]
+
+        with pytest.raises(ValueError, match="Duplicate config names"):
+            run_eval(
+                configs=configs,
+                annotations_dir=ann_dir,
+                output_dir=output_dir,
+                prompts_dir=prompts_dir,
+                results_dir=tmp_path / "results",
+            )
