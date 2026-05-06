@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Any, Callable
+from dataclasses import dataclass
+from typing import Callable
 
 from podcast_etl.detectors import AdSegment
 
@@ -228,8 +228,8 @@ def format_report(results: dict[str, AggregateScore]) -> str:
     lines = [header, "-" * len(header)]
 
     for name, agg in results.items():
-        start_med = f"{agg.start_error_median:+.1f}s"
-        end_med = f"{agg.end_error_median:+.1f}s"
+        start_med = f"{agg.start_error_median:.1f}s"
+        end_med = f"{agg.end_error_median:.1f}s"
         lines.append(
             f"{name:<30} {agg.precision:>6.2f} {agg.recall:>6.2f} {agg.f1:>6.2f} "
             f"{start_med:>11} {end_med:>11} {agg.total_content_lost:>12.1f}s {agg.total_ads_missed:>10.1f}s"

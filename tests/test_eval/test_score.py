@@ -234,3 +234,20 @@ class TestFormatReport:
     def test_handles_empty_results(self):
         report = format_report({})
         assert "Config" in report  # header still present
+
+    def test_does_not_show_plus_sign_for_magnitudes(self):
+        results = {
+            "config-a": AggregateScore(
+                total_tp=1, total_fp=0, total_fn=0,
+                precision=1.0, recall=1.0, f1=1.0,
+                start_error_mean=0.0, start_error_median=2.5, start_error_p95=0.0,
+                end_error_mean=0.0, end_error_median=1.7, end_error_p95=0.0,
+                total_content_lost=0.0, total_ads_missed=0.0,
+            ),
+        }
+        report = format_report(results)
+        # Median values are absolute magnitudes (always >= 0), should not have a + sign
+        assert "+2.5s" not in report
+        assert "+1.7s" not in report
+        assert "2.5s" in report
+        assert "1.7s" in report
