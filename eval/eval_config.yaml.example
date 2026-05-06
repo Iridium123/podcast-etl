@@ -3,6 +3,13 @@
 
 output_dir: ./output
 
+# Only score annotations whose `annotator` field is in this list. Default
+# ["human"] prevents accidentally evaluating a model against its own
+# bootstrapped predictions. Use an empty list ([]) to accept all annotators,
+# or include specific model names to evaluate against high-quality model
+# annotations (e.g. ["human", "claude-opus-4-7"]).
+allowed_annotators: ["human"]
+
 configs:
   - name: haiku-sentence-level
     whisper:

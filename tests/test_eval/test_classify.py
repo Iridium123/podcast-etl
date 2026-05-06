@@ -33,12 +33,20 @@ class TestClassifyWithPrompt:
         with patch.dict("sys.modules", {"anthropic": mock_anthropic}):
             result = classify_with_prompt(SAMPLE_TRANSCRIPT, CUSTOM_PROMPT, config)
 
-        # Verify the prompt sent starts with our custom prompt, not the default
         call_kwargs = mock_client.messages.create.call_args.kwargs
-        sent_prompt = call_kwargs["messages"][0]["content"]
-        assert sent_prompt.startswith("Find the ads.")
-        assert "You are an ad-segment detector" not in sent_prompt  # default prompt must not leak in
-        assert "[0.0s - 10.0s]" in sent_prompt  # transcript appended
+
+        # Prompt is in the system parameter as a cacheable text block.
+        system_blocks = call_kwargs["system"]
+        assert len(system_blocks) == 1
+        assert system_blocks[0]["type"] == "text"
+        assert system_blocks[0]["text"].startswith("Find the ads.")
+        assert "You are an ad-segment detector" not in system_blocks[0]["text"]  # default prompt must not leak
+        assert system_blocks[0]["cache_control"] == {"type": "ephemeral"}
+
+        # Transcript is in the user message, not the system block.
+        user_content = call_kwargs["messages"][0]["content"]
+        assert "[0.0s - 10.0s]" in user_content
+        assert "Find the ads." not in user_content  # prompt should be in system, not user
 
         assert len(result) == 1
         assert result[0].start == 0.0

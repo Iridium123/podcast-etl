@@ -184,7 +184,9 @@ Standalone evaluation system for measuring ad detection quality against human-an
 
 Annotation files live in `eval/annotations/` (version controlled). Prompts live in `eval/prompts/<name>.txt`. Per-run results land in `eval/results/<timestamp>-<config>.json` (gitignored). Eval transcripts are cached in-memory per run; persistent disk caching in `eval/transcripts/` is reserved for future use.
 
-The runner imports `transcribe` from production at module level so tests can patch `eval.run.transcribe` directly. Configs sharing identical whisper settings reuse a single transcript per episode.
+The runner imports `transcribe` from production at module level so tests can patch `eval.run.transcribe` directly. Configs sharing identical whisper settings reuse a single transcript per episode. `classify_with_prompt` puts the prompt in Anthropic's `system` parameter with `cache_control: ephemeral` so the prompt input cost is paid once per (config, cache window) instead of once per episode.
+
+Annotation filtering: `RunConfig.allowed_annotators` (YAML field `allowed_annotators`) controls which annotations are scored. Default `["human"]` skips model-bootstrapped annotations (preventing circular eval). `[]` accepts all annotators.
 
 ### Gotchas
 

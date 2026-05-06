@@ -35,6 +35,10 @@ class EvalConfig:
 class RunConfig:
     output_dir: str
     configs: list[EvalConfig]
+    # Annotation filter: only score annotations whose annotator is in this list.
+    # Empty list or None means accept all annotators. Default ["human"] guards against
+    # accidentally evaluating a model against its own bootstrapped predictions.
+    allowed_annotators: list[str] | None = None
 
 
 def load_run_config(path: Path) -> RunConfig:
@@ -50,7 +54,12 @@ def load_run_config(path: Path) -> RunConfig:
         )
         for c in data.get("configs", [])
     ]
-    return RunConfig(output_dir=data.get("output_dir", "./output"), configs=configs)
+    allowed = data.get("allowed_annotators", ["human"])
+    return RunConfig(
+        output_dir=data.get("output_dir", "./output"),
+        configs=configs,
+        allowed_annotators=allowed,
+    )
 
 
 def load_prompt(name: str, prompts_dir: Path) -> str:
@@ -90,8 +99,16 @@ def run_eval(
     output_dir: Path,
     prompts_dir: Path,
     results_dir: Path,
+    allowed_annotators: list[str] | None = None,
 ) -> dict[str, AggregateScore]:
-    """Run the eval matrix and return aggregate scores per config."""
+    """Run the eval matrix and return aggregate scores per config.
+
+    `allowed_annotators` filters which annotations are scored. Default
+    (None) accepts only `human`-annotated entries — this prevents
+    accidentally evaluating a model against its own bootstrapped
+    predictions. Pass an empty list to accept all annotators, or a list
+    of specific annotator strings (e.g. ["human", "claude-opus-4-7"]).
+    """
     names = [c.name for c in configs]
     duplicates = {n for n in names if names.count(n) > 1}
     if duplicates:
@@ -101,6 +118,24 @@ def run_eval(
     if not annotations:
         logger.warning("No annotations found in %s", annotations_dir)
         return {}
+
+    if allowed_annotators is None:
+        allowed_annotators = ["human"]
+    if allowed_annotators:
+        allowed_set = set(allowed_annotators)
+        kept = [a for a in annotations if a.annotator in allowed_set]
+        skipped = len(annotations) - len(kept)
+        if skipped:
+            skipped_annotators = sorted({a.annotator for a in annotations if a.annotator not in allowed_set})
+            logger.warning(
+                "Skipping %d annotation(s) whose annotator is not in %s (skipped annotators: %s). "
+                "Set allowed_annotators=[] in eval_config.yaml to include all.",
+                skipped, sorted(allowed_set), skipped_annotators,
+            )
+        annotations = kept
+        if not annotations:
+            logger.warning("No annotations remained after annotator filter")
+            return {c.name: aggregate_scores([]) for c in configs}
 
     # Load prompts
     prompt_cache: dict[str, str] = {}
@@ -169,7 +204,7 @@ def run_eval(
 
     # Save results
     results_dir.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.now().strftime("%Y-%m-%dT%H-%M")
+    timestamp = datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
     for config_name, agg in results.items():
         result_path = results_dir / f"{timestamp}-{config_name}.json"
         result_data = {
@@ -203,6 +238,7 @@ def main() -> None:
         output_dir=output_dir,
         prompts_dir=eval_dir / "prompts",
         results_dir=eval_dir / "results",
+        allowed_annotators=run_config.allowed_annotators,
     )
 
     print(format_report(results))

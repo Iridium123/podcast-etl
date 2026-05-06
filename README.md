@@ -329,7 +329,7 @@ Each annotation references an episode by `(podcast_slug, episode_json_filename)`
 2. Open the JSON file in an editor, correct timestamps, change `annotator` to `human`.
 3. Validate the annotation set: errors are reported per file (`eval/validate.py`).
 4. Review an annotation alongside its transcript: lines inside ad segments are highlighted (`eval/review.py`).
-5. Configure an `eval_config.yaml` with one or more (whisper, llm, prompt) configurations to compare.
+5. Configure an `eval_config.yaml` with one or more (whisper, llm, prompt) configurations to compare. The top-level `allowed_annotators` field controls which annotations are scored; default `["human"]` prevents accidentally evaluating a model against its own bootstrapped predictions. Set to `[]` to score against all annotations.
 6. Run the eval: `uv run python eval/run.py`. Results land in `eval/results/<timestamp>-<config>.json` and a comparison table is printed to stdout.
 
 ### Scoring

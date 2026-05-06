@@ -106,6 +106,38 @@ configs:
         assert run_config.output_dir == "./output"
         assert len(run_config.configs) == 1
         assert run_config.configs[0].name == "test-config"
+        # Default when allowed_annotators is not in the YAML
+        assert run_config.allowed_annotators == ["human"]
+
+    def test_loads_allowed_annotators(self, tmp_path):
+        config_path = tmp_path / "eval_config.yaml"
+        config_path.write_text("""
+output_dir: ./output
+allowed_annotators: ["human", "claude-opus-4-7"]
+configs:
+  - name: c
+    whisper: {model: base}
+    llm: {model: x}
+    prompt: default
+    min_confidence: 0.5
+""")
+        run_config = load_run_config(config_path)
+        assert run_config.allowed_annotators == ["human", "claude-opus-4-7"]
+
+    def test_loads_empty_allowed_annotators(self, tmp_path):
+        config_path = tmp_path / "eval_config.yaml"
+        config_path.write_text("""
+output_dir: ./output
+allowed_annotators: []
+configs:
+  - name: c
+    whisper: {model: base}
+    llm: {model: x}
+    prompt: default
+    min_confidence: 0.5
+""")
+        run_config = load_run_config(config_path)
+        assert run_config.allowed_annotators == []
 
 
 class TestRunEval:
@@ -211,3 +243,120 @@ class TestRunEval:
                 prompts_dir=prompts_dir,
                 results_dir=tmp_path / "results",
             )
+
+    def test_skips_non_human_annotations_by_default(self, tmp_path):
+        """Default `allowed_annotators` filters out model-bootstrapped annotations
+        so a model is never evaluated against its own predictions."""
+        ann_dir, output_dir = _setup_annotation(tmp_path)
+
+        # Replace the human annotation with a model-annotated one (same episode)
+        ann = Annotation(
+            episode_ref=EpisodeRef(podcast_slug="my-podcast", episode_json="ep.json"),
+            audio_duration=120.0,
+            segments=[{"start": 0.0, "end": 30.0, "label": "Pre-roll", "notes": ""}],
+            annotator="claude-sonnet-4-20250514",
+            created_at="2026-04-12T10:00:00",
+        )
+        ann.save(ann_dir / "ep-ann.json")
+
+        prompts_dir = tmp_path / "prompts"
+        prompts_dir.mkdir()
+        (prompts_dir / "default.txt").write_text("Find ads.\n\nTranscript:\n")
+
+        configs = [
+            EvalConfig(name="t", whisper={"model": "base"}, llm={"provider": "anthropic", "model": "x"},
+                       prompt="default", min_confidence=0.5),
+        ]
+
+        with patch("eval.run.transcribe") as mock_transcribe:
+            with patch("eval.run.classify_with_prompt") as mock_classify:
+                results = run_eval(
+                    configs=configs,
+                    annotations_dir=ann_dir,
+                    output_dir=output_dir,
+                    prompts_dir=prompts_dir,
+                    results_dir=tmp_path / "results",
+                )
+
+        # No annotation passed the filter, no calls were made, episode_count is zero
+        assert mock_transcribe.call_count == 0
+        assert mock_classify.call_count == 0
+        assert results["t"].episode_count == 0
+
+    def test_allowed_annotators_explicit_list(self, tmp_path):
+        """Explicit allowed_annotators list lets through matching annotators."""
+        ann_dir, output_dir = _setup_annotation(tmp_path)
+
+        ann = Annotation(
+            episode_ref=EpisodeRef(podcast_slug="my-podcast", episode_json="ep.json"),
+            audio_duration=120.0,
+            segments=[{"start": 0.0, "end": 30.0, "label": "Pre-roll", "notes": ""}],
+            annotator="claude-opus-4-7",
+            created_at="2026-04-12T10:00:00",
+        )
+        ann.save(ann_dir / "ep-ann.json")
+
+        prompts_dir = tmp_path / "prompts"
+        prompts_dir.mkdir()
+        (prompts_dir / "default.txt").write_text("Find ads.\n\nTranscript:\n")
+
+        predicted_ads = [
+            AdSegment(start=0.0, end=30.0, confidence=0.9, detector="transcription", label="Ad"),
+        ]
+        configs = [
+            EvalConfig(name="t", whisper={"model": "base"}, llm={"provider": "anthropic", "model": "x"},
+                       prompt="default", min_confidence=0.5),
+        ]
+
+        with patch("eval.run.transcribe", return_value=[]):
+            with patch("eval.run.classify_with_prompt", return_value=predicted_ads):
+                results = run_eval(
+                    configs=configs,
+                    annotations_dir=ann_dir,
+                    output_dir=output_dir,
+                    prompts_dir=prompts_dir,
+                    results_dir=tmp_path / "results",
+                    allowed_annotators=["claude-opus-4-7"],
+                )
+
+        assert results["t"].episode_count == 1
+
+    def test_empty_allowed_annotators_accepts_all(self, tmp_path):
+        """Passing an empty list disables the annotator filter (legacy behavior)."""
+        ann_dir, output_dir = _setup_annotation(tmp_path)
+
+        # Add a model-annotated entry next to the existing human one
+        ann = Annotation(
+            episode_ref=EpisodeRef(podcast_slug="my-podcast", episode_json="ep.json"),
+            audio_duration=120.0,
+            segments=[{"start": 0.0, "end": 30.0, "label": "Pre-roll", "notes": ""}],
+            annotator="some-model",
+            created_at="2026-04-12T10:00:00",
+        )
+        ann.save(ann_dir / "ep-model.json")
+
+        prompts_dir = tmp_path / "prompts"
+        prompts_dir.mkdir()
+        (prompts_dir / "default.txt").write_text("Find ads.\n\nTranscript:\n")
+
+        predicted_ads = [
+            AdSegment(start=0.0, end=30.0, confidence=0.9, detector="transcription", label="Ad"),
+        ]
+        configs = [
+            EvalConfig(name="t", whisper={"model": "base"}, llm={"provider": "anthropic", "model": "x"},
+                       prompt="default", min_confidence=0.5),
+        ]
+
+        with patch("eval.run.transcribe", return_value=[]):
+            with patch("eval.run.classify_with_prompt", return_value=predicted_ads):
+                results = run_eval(
+                    configs=configs,
+                    annotations_dir=ann_dir,
+                    output_dir=output_dir,
+                    prompts_dir=prompts_dir,
+                    results_dir=tmp_path / "results",
+                    allowed_annotators=[],
+                )
+
+        # Both the human and the model annotation should be scored
+        assert results["t"].episode_count == 2

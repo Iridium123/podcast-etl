@@ -15,8 +15,10 @@ def classify_with_prompt(
 ) -> list[AdSegment]:
     """Classify transcript segments using a custom prompt.
 
-    Like AnthropicProvider.classify_ads but with a caller-supplied prompt
-    instead of the hardcoded _CLASSIFY_PROMPT.
+    The prompt is sent in the `system` parameter with ephemeral cache_control
+    so it can be reused across episodes for the same eval config without
+    re-paying the prompt input cost. The per-episode transcript goes in the
+    user message.
     """
     import anthropic
 
@@ -27,13 +29,17 @@ def classify_with_prompt(
 
     client = anthropic.Anthropic(api_key=api_key)
 
-    formatted = _format_transcript(transcript)
-    full_prompt = prompt_text + formatted
+    formatted_transcript = _format_transcript(transcript)
 
     message = client.messages.create(
         model=model,
         max_tokens=4096,
-        messages=[{"role": "user", "content": full_prompt}],
+        system=[{
+            "type": "text",
+            "text": prompt_text,
+            "cache_control": {"type": "ephemeral"},
+        }],
+        messages=[{"role": "user", "content": formatted_transcript}],
     )
 
     if not message.content or not hasattr(message.content[0], "text"):
