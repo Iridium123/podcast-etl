@@ -1,8 +1,5 @@
 """Tests for eval annotation data model."""
 
-import json
-from datetime import datetime
-
 import pytest
 
 from eval.models import Annotation, EpisodeRef
@@ -40,6 +37,7 @@ class TestAnnotation:
         ann = self._sample_annotation()
         data = ann.to_dict()
         restored = Annotation.from_dict(data)
+        assert restored == ann
         assert restored.episode_ref.podcast_slug == "my-podcast"
         assert restored.audio_duration == 3600.0
         assert len(restored.segments) == 2
