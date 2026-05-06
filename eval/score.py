@@ -161,6 +161,7 @@ class AggregateScore:
     end_error_p95: float
     total_content_lost: float
     total_ads_missed: float
+    episode_count: int = 0
 
 
 def _median(values: list[float]) -> float:
@@ -215,6 +216,7 @@ def aggregate_scores(scores: list[EpisodeScore]) -> AggregateScore:
         end_error_p95=_percentile(abs_end, 95),
         total_content_lost=sum(s.content_lost_seconds for s in scores),
         total_ads_missed=sum(s.ads_missed_seconds for s in scores),
+        episode_count=len(scores),
     )
 
 
@@ -228,6 +230,9 @@ def format_report(results: dict[str, AggregateScore]) -> str:
     lines = [header, "-" * len(header)]
 
     for name, agg in results.items():
+        if agg.episode_count == 0:
+            lines.append(f"{name:<30} (no episodes scored — check warnings above)")
+            continue
         start_med = f"{agg.start_error_median:.1f}s"
         end_med = f"{agg.end_error_median:.1f}s"
         lines.append(

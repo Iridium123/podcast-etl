@@ -25,3 +25,7 @@ Planned improvements to the LLM-based ad detection and stripping pipeline.
 7. **Scoring with configurable tolerance** — When comparing predicted vs. gold-standard boundaries, use a configurable window (e.g., 1s, 2s, 5s) for fuzzy matching rather than requiring exact alignment.
 
 8. **Asymmetric scoring** — Penalize false positives (content incorrectly removed) more heavily than false negatives (ads left in). Removing real podcast content is worse than leaving an ad.
+
+9. **Reuse existing production transcripts in eval** — The `run_eval` runner currently always re-transcribes audio for each whisper config, even when an existing transcript is on disk in the production output directory under `<podcast_dir>/transcripts/`. `resolve_episode` already exposes `transcript_path`; the runner should consume it when the whisper config matches what produced the on-disk transcript. Reduces eval cost on episodes that have already been through the production `detect_ads` step.
+
+10. **Persistent eval transcript cache** — Beyond reusing production transcripts, eval-only whisper configs (e.g., `word_timestamps=true` when production isn't using it) should cache to `eval/transcripts/<podcast-slug>/<whisper-hash>/<episode>.json` so subsequent eval runs against the same configurations don't re-pay the transcription cost.

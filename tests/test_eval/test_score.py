@@ -190,12 +190,14 @@ class TestAggregateScores:
         assert agg.recall == pytest.approx(3 / 4)
         assert agg.total_content_lost == pytest.approx(10.0)
         assert agg.total_ads_missed == pytest.approx(30.0)
+        assert agg.episode_count == 2
 
     def test_empty_scores(self):
         agg = aggregate_scores([])
         assert agg.total_tp == 0
         assert agg.precision == 1.0  # no predictions = vacuously precise
         assert agg.start_error_mean == 0.0
+        assert agg.episode_count == 0
 
     def test_boundary_errors_use_absolute_values(self):
         scores = [
@@ -209,6 +211,7 @@ class TestAggregateScores:
         assert agg.start_error_mean == pytest.approx(3.0)
         assert agg.start_error_median == pytest.approx(3.0)
         assert agg.end_error_mean == pytest.approx(1.0)
+        assert agg.episode_count == 1
 
 
 # ---------------------------------------------------------------------------
@@ -224,6 +227,7 @@ class TestFormatReport:
                 start_error_mean=1.5, start_error_median=1.2, start_error_p95=3.0,
                 end_error_mean=0.8, end_error_median=0.6, end_error_p95=2.0,
                 total_content_lost=12.5, total_ads_missed=30.0,
+                episode_count=10,
             ),
         }
         report = format_report(results)
@@ -243,6 +247,7 @@ class TestFormatReport:
                 start_error_mean=0.0, start_error_median=2.5, start_error_p95=0.0,
                 end_error_mean=0.0, end_error_median=1.7, end_error_p95=0.0,
                 total_content_lost=0.0, total_ads_missed=0.0,
+                episode_count=1,
             ),
         }
         report = format_report(results)
@@ -251,3 +256,20 @@ class TestFormatReport:
         assert "+1.7s" not in report
         assert "2.5s" in report
         assert "1.7s" in report
+
+    def test_zero_episode_count_does_not_show_perfect_score(self):
+        results = {
+            "no-data-config": AggregateScore(
+                total_tp=0, total_fp=0, total_fn=0,
+                precision=1.0, recall=1.0, f1=1.0,
+                start_error_mean=0.0, start_error_median=0.0, start_error_p95=0.0,
+                end_error_mean=0.0, end_error_median=0.0, end_error_p95=0.0,
+                total_content_lost=0.0, total_ads_missed=0.0,
+                episode_count=0,
+            ),
+        }
+        report = format_report(results)
+        assert "no-data-config" in report
+        # Should not display the misleading perfect score
+        assert "1.00" not in report
+        assert "no episodes scored" in report
