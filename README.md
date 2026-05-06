@@ -307,6 +307,42 @@ docker build --target test -t podcast-etl-test . && docker run --rm podcast-etl-
 2. Register it in `service.py` with `register_step(YourStep())`
 3. Add `your_step` to the `pipeline` list in `feeds.yaml`
 
+## Ad Detection Evaluation
+
+A standalone harness in `eval/` measures ad detection quality against human-annotated gold-standard episodes. It is decoupled from the main pipeline — it imports `podcast_etl` for episode resolution and transcription but does not modify it.
+
+### Layout
+
+- `eval/annotations/` — version-controlled JSON files with gold-standard ad segments
+- `eval/prompts/` — named LLM prompt variants (`default.txt` mirrors the production prompt)
+- `eval/results/` — per-run scoring output (gitignored)
+- `eval/transcripts/` — eval-specific transcript cache (gitignored)
+- `eval/eval_config.yaml.example` — copy to `eval_config.yaml` and customize
+
+### Annotation format
+
+Each annotation references an episode by `(podcast_slug, episode_json_filename)` and lists ad segments with start/end times, label, and free-form notes. The `annotator` field records who labeled it (model name when bootstrapped, `human` after correction). See `eval/eval_config.yaml.example` for a sample.
+
+### Workflow
+
+1. Bootstrap annotations from existing `detect_ads` step results, or create blank annotations for un-processed episodes (`eval/annotate.py`).
+2. Open the JSON file in an editor, correct timestamps, change `annotator` to `human`.
+3. Validate the annotation set: errors are reported per file (`eval/validate.py`).
+4. Review an annotation alongside its transcript: lines inside ad segments are highlighted (`eval/review.py`).
+5. Configure an `eval_config.yaml` with one or more (whisper, llm, prompt) configurations to compare.
+6. Run the eval: `uv run python eval/run.py`. Results land in `eval/results/<timestamp>-<config>.json` and a comparison table is printed to stdout.
+
+### Scoring
+
+A predicted segment matches a gold segment when their overlap exceeds 50% of the gold segment's duration (the matcher is pluggable). Each per-config aggregate reports:
+
+- Precision, recall, F1 on segment detection
+- Mean / median / p95 absolute boundary error for start and end
+- Total content incorrectly removed (false-positive duration)
+- Total ad duration missed (false-negative duration)
+
+Configurations sharing identical whisper settings reuse a single transcript per episode, so adding more LLM/prompt variants does not multiply transcription cost.
+
 <details>
 <summary>Category IDs</summary>
 

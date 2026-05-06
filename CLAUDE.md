@@ -13,6 +13,7 @@ uv run podcast-etl -v run --all              # run pipeline (verbose)
 uv run podcast-etl --log-level WARNING run --all
 uv run pytest tests/ -v                      # unit tests only
 uv run pytest tests/ -v -m ''               # all tests (including integration)
+uv run python eval/run.py                    # run ad-detection eval matrix (reads eval/eval_config.yaml)
 docker build --target test -t podcast-etl-test . && docker run --rm podcast-etl-test
 ```
 
@@ -48,6 +49,17 @@ Tests live in `tests/` and use pytest:
 - `test_audiobookshelf_step.py` -- `AudiobookshelfStep` copy and scan trigger, audio resolution, config merging, error cases
 - `test_integration.py` -- end-to-end: parse real RSS feed, download episode, tag MP3, stage file (marked `integration`)
 - `test_integration_torrent.py` -- stage + torrent steps with real disk I/O and mktorrent binary (marked `integration`)
+
+Eval harness tests live in `tests/test_eval/`:
+
+- `test_eval_models.py` -- `EpisodeRef`, `Annotation` dataclasses (load/save, segments_as_ad_segments, roundtrip equality)
+- `test_resolve.py` -- `resolve_episode` (audio/transcript path derivation, error branches: missing podcast/episode/audio/download-status/path)
+- `test_score.py` -- `overlap_fraction_matcher`, `match_segments` (greedy assignment), `score_episode`, `aggregate_scores` (precision/recall/F1, mean/median/p95 of absolute boundary errors), `format_report`
+- `test_classify.py` -- `classify_with_prompt` (custom prompt sent, default prompt absent, min_confidence filter, configured model)
+- `test_annotate.py` -- `bootstrap_from_episode` (from detect_ads status), `create_blank` (empty annotation skeleton)
+- `test_validate.py` -- `validate_annotation`, `validate_annotations` (start>=end, exceeds duration, overlap, negative, missing fields)
+- `test_review.py` -- `format_review` (transcript with ad-segment highlighting via U+258C left half block)
+- `test_run.py` -- `run_eval` (whisper transcript reuse across configs, duplicate-name guard, YAML loading, prompt loading)
 
 **After making changes**, run tests and check whether new behaviour should be tested. Always update `README.md` and `CLAUDE.md` to reflect any changes to CLI commands, pipeline steps, architecture, or configuration.
 
@@ -157,8 +169,27 @@ The final image installs `mktorrent` and `ffmpeg` via `apt-get` and exposes port
 2. Register it in `service.py`: `register_step(YourStep())`
 3. Add `your_step` to `pipeline` list in `feeds.yaml`
 
+### Ad detection eval harness (`eval/`)
+
+Standalone evaluation system for measuring ad detection quality against human-annotated gold-standard episodes. Decoupled from the main pipeline — imports `podcast_etl` for episode resolution and transcription but does not modify it. Compares model/prompt/whisper combinations in a single run.
+
+- `eval/models.py` -- `EpisodeRef`, `Annotation` dataclasses
+- `eval/resolve.py` -- `resolve_episode(ref, output_dir)` finds audio/transcript paths on disk
+- `eval/score.py` -- segment matching (`overlap_fraction_matcher`, pluggable), `score_episode`, `aggregate_scores`, `format_report`
+- `eval/classify.py` -- `classify_with_prompt` adapter (custom prompt instead of hardcoded `_CLASSIFY_PROMPT`)
+- `eval/annotate.py` -- `bootstrap_from_episode` (from detect_ads status), `create_blank`
+- `eval/validate.py` -- annotation consistency checks (start<end, no overlap, in audio range)
+- `eval/review.py` -- transcript display with ad-segment highlights for annotation review
+- `eval/run.py` -- runner: load YAML, group configs by whisper hash for transcript reuse, run matrix, save results
+
+Annotation files live in `eval/annotations/` (version controlled). Prompts live in `eval/prompts/<name>.txt`. Per-run results land in `eval/results/<timestamp>-<config>.json` (gitignored). Eval transcripts are cached in-memory per run; persistent disk caching in `eval/transcripts/` is reserved for future use.
+
+The runner imports `transcribe` from production at module level so tests can patch `eval.run.transcribe` directly. Configs sharing identical whisper settings reuse a single transcript per episode.
+
 ### Gotchas
 
 **Logging disable hack:** `cli.py` disables all logging at module import (`logging.disable(logging.ERROR)`) before dependencies load, to suppress pyenv hashlib blake2 errors. It re-enables logging in `setup_logging()`. Any code that runs before `setup_logging()` will not produce log output.
 
 **Web UI form/YAML split:** The sets `KNOWN_FEED_FIELDS` and `KNOWN_DEFAULTS_FIELDS` in `service.py` control which config keys get structured form controls vs. raw YAML editing. Promoting a field means adding it to the set and writing the template markup.
+
+**Eval pythonpath:** The `eval/` package lives at the project root, not under `src/`. `pyproject.toml` adds `pythonpath = ["."]` to `[tool.pytest.ini_options]` so `from eval.<module> import ...` works in pytest. The `eval` name shadows a Python builtin but only matters for `import eval` (which we never do); `from eval.X import Y` is unambiguous.

@@ -1,0 +1,26 @@
+# Eval run configuration
+# Copy to eval_config.yaml and customize for your setup.
+
+output_dir: ./output
+
+configs:
+  - name: haiku-sentence-level
+    whisper:
+      model: base
+      language: en
+    llm:
+      provider: anthropic
+      model: claude-haiku-4-5-20251001
+    prompt: default
+    min_confidence: 0.5
+
+  - name: sonnet-word-level
+    whisper:
+      model: base
+      language: en
+      word_timestamps: true
+    llm:
+      provider: anthropic
+      model: claude-sonnet-4-20250514
+    prompt: default
+    min_confidence: 0.5
