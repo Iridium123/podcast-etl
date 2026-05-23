@@ -11,6 +11,9 @@ if TYPE_CHECKING:
     from anthropic import Anthropic
 
 
+### Copied from podcast_etl.detectors.transcription to avoid coupling the eval
+### harness to private functions in production code. Keep in sync if the
+### production versions change shape.
 def _format_transcript(segments: list[dict[str, Any]]) -> str:
     lines = []
     for seg in segments:

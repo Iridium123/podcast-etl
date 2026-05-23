@@ -153,7 +153,8 @@ def run_eval(
     # Construct a single Anthropic client and share it across all classify calls.
     # Lazy import so test runs that mock anthropic via sys.modules still work.
     import anthropic
-    anthropic_client = anthropic.Anthropic()
+    api_key = next((c.llm.get("api_key") for c in configs if c.llm.get("api_key")), None)
+    anthropic_client = anthropic.Anthropic(api_key=api_key)
 
     # Transcribe once per whisper config per episode
     # Key: (whisper_key, episode_ref_key) -> transcript segments
