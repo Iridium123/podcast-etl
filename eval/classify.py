@@ -2,16 +2,51 @@
 
 from __future__ import annotations
 
-from typing import Any
+import json
+from typing import Any, TYPE_CHECKING
 
 from podcast_etl.detectors import AdSegment
-from podcast_etl.detectors.transcription import _format_transcript, _parse_llm_response
+
+if TYPE_CHECKING:
+    from anthropic import Anthropic
+
+
+def _format_transcript(segments: list[dict[str, Any]]) -> str:
+    lines = []
+    for seg in segments:
+        start = seg.get("start", 0.0)
+        end = seg.get("end", 0.0)
+        text = seg.get("text", "").strip()
+        lines.append(f"[{start:.1f}s - {end:.1f}s] {text}")
+    return "\n".join(lines)
+
+
+def _parse_llm_response(response_text: str) -> list[AdSegment]:
+    text = response_text.strip()
+    if text.startswith("```"):
+        text = "\n".join(text.split("\n")[1:])
+        text = text.rsplit("```", 1)[0]
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"LLM returned invalid JSON: {response_text!r}") from exc
+    return [
+        AdSegment(
+            start=float(seg["start"]),
+            end=float(seg["end"]),
+            confidence=float(seg.get("confidence", 0.8)),
+            detector="transcription",
+            label=seg.get("label", ""),
+        )
+        for seg in data.get("segments", [])
+    ]
 
 
 def classify_with_prompt(
     transcript: list[dict[str, Any]],
     prompt_text: str,
     config: dict[str, Any],
+    client: Anthropic | None = None,
 ) -> list[AdSegment]:
     """Classify transcript segments using a custom prompt.
 
@@ -19,15 +54,17 @@ def classify_with_prompt(
     so it can be reused across episodes for the same eval config without
     re-paying the prompt input cost. The per-episode transcript goes in the
     user message.
-    """
-    import anthropic
 
+    Pass `client` to reuse a single `anthropic.Anthropic` instance across
+    calls (avoids reconstructing connection pools on every episode).
+    """
     llm_config = config.get("llm", {})
-    api_key = llm_config.get("api_key") or None
     model = llm_config.get("model", "claude-haiku-4-5-20251001")
     min_confidence = config.get("min_confidence", 0.5)
 
-    client = anthropic.Anthropic(api_key=api_key)
+    if client is None:
+        import anthropic
+        client = anthropic.Anthropic(api_key=llm_config.get("api_key") or None)
 
     formatted_transcript = _format_transcript(transcript)
 

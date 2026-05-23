@@ -136,6 +136,10 @@ def run_eval(
         if not annotations:
             logger.warning("No annotations remained after annotator filter")
             return {c.name: aggregate_scores([]) for c in configs}
+    else:
+        logger.info(
+            "allowed_annotators=[] — accepting all annotators as gold (default 'human'-only filter bypassed)",
+        )
 
     # Load prompts
     prompt_cache: dict[str, str] = {}
@@ -145,6 +149,11 @@ def run_eval(
 
     # Group configs by whisper settings for transcript reuse
     whisper_groups = group_configs_by_whisper(configs)
+
+    # Construct a single Anthropic client and share it across all classify calls.
+    # Lazy import so test runs that mock anthropic via sys.modules still work.
+    import anthropic
+    anthropic_client = anthropic.Anthropic()
 
     # Transcribe once per whisper config per episode
     # Key: (whisper_key, episode_ref_key) -> transcript segments
@@ -187,7 +196,7 @@ def run_eval(
                     "min_confidence": config.min_confidence,
                 }
                 try:
-                    predicted = classify_with_prompt(transcript, prompt_text, ad_config)
+                    predicted = classify_with_prompt(transcript, prompt_text, ad_config, client=anthropic_client)
                 except Exception as e:
                     logger.warning(
                         "Classification failed for %s with config %s: %s",
