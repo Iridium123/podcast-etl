@@ -29,7 +29,7 @@ Tests live in `tests/` and use pytest:
 - `test_tag_step.py` -- `TagStep` MP3 tagging, TRCK track number, APIC album art embedding, audio file discovery, error cases
 - `test_qbittorrent_client.py` -- `QBittorrentClient` login, has_torrent, add_torrent
 - `test_unit3d_tracker.py` -- `ModifiedUnit3dTracker` upload, field construction, image handling, cover override precedence
-- `test_transcription_detector.py` -- `TranscriptionDetector` whisper API, local transcription, `AnthropicProvider` LLM calls, `merge_segments`, `_parse_llm_response`
+- `test_transcription_detector.py` -- `TranscriptionDetector` whisper API, local transcription, `AnthropicProvider` LLM calls, `resolve_overlaps` (overlap/near-adjacent snapping, containment drop, buffer), `_parse_llm_response`
 - `test_detect_ads_step.py` -- `DetectAdsStep` orchestration, config merging, transcript saving/reuse, segment merging
 - `test_strip_ads_step.py` -- `StripAdsStep` ffmpeg args, idempotency, no-ads passthrough
 - `test_stage_step.py` -- `StageStep` copy, idempotency, client_path rebasing, strip_ads fallback
@@ -108,7 +108,7 @@ Each step implements the `Step` protocol (`name: str`, `process(episode, context
 
 - `clients/qbittorrent.py` -- `QBittorrentClient` implementing `TorrentClient` protocol; session-based auth
 - `trackers/unit3d.py` -- `ModifiedUnit3dTracker` implementing `Tracker` protocol; multipart upload to UNIT3D REST API
-- `detectors/` -- `AdSegment` dataclass, `Detector`/`LLMProvider` protocols, `merge_segments` utility. `TranscriptionDetector` handles whisper + LLM classification; `AnthropicProvider` for Claude API.
+- `detectors/` -- `AdSegment` dataclass, `Detector`/`LLMProvider` protocols, `resolve_overlaps` utility (greedy earliest-start-wins: snaps overlapping/near-adjacent segments — gap ≤ `ADJACENCY_BUFFER_SECONDS`, default 5s — to a contiguous, non-overlapping sequence while keeping each segment distinct; drops fully-contained segments). `TranscriptionDetector` handles whisper + LLM classification; `AnthropicProvider` for Claude API.
 
 ### Config format
 

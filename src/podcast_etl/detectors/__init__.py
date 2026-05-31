@@ -1,8 +1,15 @@
 from __future__ import annotations
 
+import dataclasses
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
+
+# Two segments separated by no more than this gap are treated as adjacent: the
+# gap is closed by snapping the later segment's start back to the running
+# frontier, so a few seconds of content between two ads doesn't survive as a
+# sliver. Overlaps are always closed regardless of this value.
+ADJACENCY_BUFFER_SECONDS = 5.0
 
 
 @dataclass
@@ -45,27 +52,39 @@ class Detector(Protocol):
     def detect(self, audio_path: Path, config: dict[str, Any]) -> list[AdSegment]: ...
 
 
-def merge_segments(segments: list[AdSegment]) -> list[AdSegment]:
-    """Merge overlapping or adjacent ad segments, keeping the highest confidence."""
+def resolve_overlaps(
+    segments: list[AdSegment], buffer: float = ADJACENCY_BUFFER_SECONDS,
+) -> list[AdSegment]:
+    """Resolve overlapping/near-adjacent ad segments into a clean, non-overlapping
+    sequence while keeping each segment distinct.
+
+    Greedy, earliest-start-wins. Segments are sorted by start and walked while
+    tracking the *frontier* — the furthest end kept so far:
+
+    - A segment whose end is at or before the frontier is fully covered by an
+      earlier segment and is dropped.
+    - A segment that overlaps the frontier, or starts within ``buffer`` seconds
+      of it, has its start snapped to the frontier — closing the overlap or gap
+      so the result is contiguous. It keeps its own end, label, confidence,
+      detector (and any other fields).
+    - A segment that starts more than ``buffer`` seconds after the frontier
+      keeps its real start, preserving the gap.
+
+    Unlike a fusing merge, each input ad remains its own output segment, so
+    per-segment metadata (distinct labels, confidences) is never collapsed.
+    """
     if not segments:
         return []
 
-    sorted_segs = sorted(segments, key=lambda s: s.start)
-    merged: list[AdSegment] = [sorted_segs[0]]
+    ordered = sorted(segments, key=lambda s: s.start)
+    resolved: list[AdSegment] = [ordered[0]]
+    frontier = ordered[0].end
 
-    for seg in sorted_segs[1:]:
-        prev = merged[-1]
-        if seg.start <= prev.end:
-            # Overlapping — extend and keep the higher confidence
-            labels = [prev.label, seg.label]
-            merged[-1] = AdSegment(
-                start=prev.start,
-                end=max(prev.end, seg.end),
-                confidence=max(prev.confidence, seg.confidence),
-                detector=prev.detector if prev.confidence >= seg.confidence else seg.detector,
-                label="; ".join(lbl for lbl in labels if lbl),
-            )
-        else:
-            merged.append(seg)
+    for seg in ordered[1:]:
+        if seg.end <= frontier:
+            continue  # fully covered by an earlier segment
+        start = frontier if seg.start <= frontier + buffer else seg.start
+        resolved.append(dataclasses.replace(seg, start=start))
+        frontier = seg.end
 
-    return merged
+    return resolved
