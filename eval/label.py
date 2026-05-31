@@ -195,7 +195,7 @@ def label_episode(
     classifies with the LLM, builds a :class:`~podcast_etl.labels.Labels` with
     full provenance, and saves it to::
 
-        <dataset_root>/<ref.podcast_slug>/labels/<audio_stem>.json
+        <dataset_root>/<ref.podcast_slug>/labels/<episode_json_stem>.json
 
     Args:
         ref: Episode reference.
@@ -230,8 +230,9 @@ def label_episode(
     audio_duration = _get_audio_duration(resolved.audio_path)
     provenance = _build_provenance(ad_config)
 
-    # Use the audio stem as the label file stem, mirroring detect_ads.
-    stem = resolved.audio_path.stem
+    # Derive the label file stem from the episode_json in the ref so the
+    # filename is consistent and ref-derivable without resolving audio.
+    stem = ref.episode_json.removesuffix(".json")
     labels = Labels(
         episode_ref=ref,
         audio_duration=round(audio_duration, 2),

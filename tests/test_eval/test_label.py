@@ -331,6 +331,8 @@ class TestLabelEpisode:
         return output_dir, dataset_root, ref
 
     def test_writes_labels_file_at_correct_path(self, tmp_path):
+        # episode_json="ep.json", audio stem="episode" — the label file must
+        # be named from episode_json ("ep"), not from the audio stem ("episode").
         output_dir, dataset_root, ref = self._setup(tmp_path)
 
         with patch("eval.label.transcribe", return_value=TRANSCRIPT), \
@@ -340,9 +342,14 @@ class TestLabelEpisode:
              patch("eval.label._get_audio_duration", return_value=3600.0):
             path = label_episode(ref, AD_CONFIG, output_dir, dataset_root)
 
-        expected = dataset_root / "my-podcast" / "labels" / "episode.json"
+        # Stem must come from episode_json ("ep"), not from the audio path ("episode").
+        expected = dataset_root / "my-podcast" / "labels" / "ep.json"
         assert path == expected
         assert path.exists()
+        # Regression guard: filename is derived from episode_json, not audio stem.
+        assert path.name == "ep.json", (
+            "label file stem must be derived from EpisodeRef.episode_json, not the audio path"
+        )
 
     def test_written_labels_roundtrip(self, tmp_path):
         output_dir, dataset_root, ref = self._setup(tmp_path)
