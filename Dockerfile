@@ -32,6 +32,8 @@ FROM base AS test
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/
 RUN uv pip install "pytest>=8.0" "pytest-asyncio>=0.25"
 COPY tests/ tests/
+# Migration script is not shipped in the final image, but its test needs it.
+COPY scripts/ scripts/
 CMD ["pytest", "tests/", "-v", "-m", ""]
 
 FROM base
