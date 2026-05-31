@@ -6,7 +6,7 @@ Planned improvements to the LLM-based ad detection and stripping pipeline.
 
 1. **Word-level timestamps from whisper** — Enable `word_timestamps=True` for local faster-whisper and `timestamp_granularities[]=word` for the remote API. Currently using sentence-level segments, which limits boundary precision to wherever whisper decided to chunk.
 
-2. ~~**Transcript versioning** — Don't silently overwrite transcripts when whisper config changes (model, language, word_timestamps).~~ **Done.** `detect_ads` records the normalized whisper config that produced each transcript; on subsequent runs it compares the recorded config to the current one and re-transcribes on mismatch instead of silently reusing stale data.
+2. **Transcript versioning** — Don't silently overwrite transcripts when whisper config changes (model, language, word_timestamps). `detect_ads` records the normalized whisper config that produced each transcript (used for eval transcript reuse), but production transcript reuse is currently *unconditional* — an existing transcript is reused regardless of whisper config; use `--overwrite` to force re-transcription. Comparing recorded vs. current config and auto-re-transcribing on mismatch is not yet implemented.
 
 ## LLM classification
 

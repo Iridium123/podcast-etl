@@ -20,12 +20,16 @@ configs:
       model: claude-haiku-4-5-20251001
     prompt: default
 
-  - name: sonnet-word-level
+  # Uses haiku (not sonnet-4-6) so this example doesn't score a model against
+  # its own bootstrapped annotations — the three shipped annotation files are
+  # annotated by claude-sonnet-4-6. To evaluate sonnet-4-6 itself, add a sonnet
+  # config here AND set allowed_annotators: ["human"] above (see note there).
+  - name: haiku-word-level
     whisper:
       model: base
       language: en
       word_timestamps: true
     llm:
       provider: anthropic
-      model: claude-sonnet-4-20250514
+      model: claude-haiku-4-5-20251001
     prompt: default
