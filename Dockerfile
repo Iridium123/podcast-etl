@@ -34,6 +34,11 @@ FROM base AS test
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/
 RUN uv pip install "pytest>=8.0" "pytest-asyncio>=0.25"
+# pyproject.toml carries the pytest config (notably pythonpath=["."]) and eval/
+# is the root-level eval package the eval tests import — both are needed for
+# `pytest tests/` to collect tests/test_eval/.
+COPY pyproject.toml ./
+COPY eval/ eval/
 COPY tests/ tests/
 CMD ["pytest", "tests/", "-v", "-m", ""]
 
