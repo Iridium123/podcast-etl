@@ -117,7 +117,7 @@ configs:
         assert len(run_config.configs) == 1
         assert run_config.configs[0].name == "test-config"
         # Default when allowed_annotators is not in the YAML
-        assert run_config.allowed_annotators == ["human"]
+        assert run_config.allowed_annotators == ["human", "claude-sonnet-4-6"]
 
     def test_loads_allowed_annotators(self, tmp_path):
         config_path = tmp_path / "eval_config.yaml"

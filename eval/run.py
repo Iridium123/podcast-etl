@@ -35,8 +35,10 @@ class RunConfig:
     output_dir: str
     configs: list[EvalConfig]
     # Annotation filter: only score annotations whose annotator is in this list.
-    # Empty list or None means accept all annotators. Default ["human"] guards against
-    # accidentally evaluating a model against its own bootstrapped predictions.
+    # Empty list means accept all annotators. Default ["human", "claude-sonnet-4-6"]
+    # accepts both hand-corrected gold and sonnet-bootstrapped annotations as gold;
+    # note this means evaluating sonnet-4-6 against sonnet-4-6 annotations is circular
+    # and should be avoided (use ["human"] explicitly in that case).
     allowed_annotators: list[str] | None = None
 
 
@@ -52,7 +54,7 @@ def load_run_config(path: Path) -> RunConfig:
         )
         for c in data.get("configs", [])
     ]
-    allowed = data.get("allowed_annotators", ["human"])
+    allowed = data.get("allowed_annotators", ["human", "claude-sonnet-4-6"])
     return RunConfig(
         output_dir=data.get("output_dir", "./output"),
         configs=configs,
@@ -132,10 +134,10 @@ def run_eval(
     """Run the eval matrix and return aggregate scores per config.
 
     `allowed_annotators` filters which annotations are scored. Default
-    (None) accepts only `human`-annotated entries — this prevents
-    accidentally evaluating a model against its own bootstrapped
-    predictions. Pass an empty list to accept all annotators, or a list
-    of specific annotator strings (e.g. ["human", "claude-opus-4-7"]).
+    (None) accepts `human` and `claude-sonnet-4-6` annotators — the latter
+    treats sonnet-bootstrapped annotations as soft gold standards. Pass
+    `["human"]` explicitly when evaluating sonnet-4-6 itself to avoid
+    circular evaluation. Pass an empty list to accept all annotators.
     """
     names = [c.name for c in configs]
     duplicates = {n for n in names if names.count(n) > 1}
@@ -148,7 +150,7 @@ def run_eval(
         return {}
 
     if allowed_annotators is None:
-        allowed_annotators = ["human"]
+        allowed_annotators = ["human", "claude-sonnet-4-6"]
     if allowed_annotators:
         allowed_set = set(allowed_annotators)
         kept = [a for a in annotations if a.annotator in allowed_set]

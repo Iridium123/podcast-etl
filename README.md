@@ -342,7 +342,7 @@ Typical flow:
 3. Open each annotation, correct timestamps by ear, set `annotator: human`.
 4. Validate: `podcast-etl eval validate eval/annotations/`.
 5. (Optional) Review with transcript highlights: `podcast-etl eval review <ann>.json`.
-6. Configure `eval_config.yaml` with one or more (whisper, llm, prompt) configurations to compare. The top-level `allowed_annotators` field controls which annotations are scored; default `["human"]` prevents accidentally evaluating a model against its own bootstrapped predictions. Set to `[]` to score against all annotations.
+6. Configure `eval_config.yaml` with one or more (whisper, llm, prompt) configurations to compare. The top-level `allowed_annotators` field controls which annotations are scored; default `["human", "claude-sonnet-4-6"]` accepts both hand-corrected gold and sonnet-bootstrapped annotations. Override to `["human"]` explicitly when evaluating sonnet-4-6 itself (circular) or `[]` to score against all annotations.
 7. Run: `podcast-etl eval run`. Results land in `eval/results/<timestamp>-<config>.json` and a comparison table is printed to stdout.
 
 The underlying scripts (`eval/run.py`, etc.) still work as direct Python invocations — the CLI is just a thin wrapper.
