@@ -9,9 +9,12 @@ need not share filenames.
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 from podcast_etl.labels import EpisodeRef, Labels
+
+logger = logging.getLogger(__name__)
 
 DATASETS_DIR = Path("eval/datasets")
 
@@ -34,7 +37,13 @@ def load_dataset(root: Path) -> dict[str, Labels]:
     dataset: dict[str, Labels] = {}
     for path in sorted(root.glob("*/labels/*.json")):
         labels = Labels.load(path)
-        dataset[ref_key(labels.episode_ref)] = labels
+        key = ref_key(labels.episode_ref)
+        if key in dataset:
+            # Can't happen in production layout (one episode -> one stem), but a
+            # hand-built dataset with two files for the same episode_ref would
+            # silently lose one — surface it rather than dropping data quietly.
+            logger.warning("Duplicate episode_ref %s in dataset %s; %s overrides earlier file", key, root, path)
+        dataset[key] = labels
     return dataset
 
 

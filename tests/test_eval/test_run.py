@@ -248,6 +248,29 @@ class TestRunEval:
         # results file written
         assert (results_dir / "2026-05-31T00-00-00-haiku.json").exists()
 
+    def test_skips_labeling_annotator_excluded_gold(self, tmp_path):
+        # Gold annotated by a model, but the run only counts human gold: nothing
+        # should be labeled (labeling is billable) and nothing scored.
+        _setup_episode(tmp_path, recorded_whisper={"model": "base", "language": "en"},
+                       transcript=[{"start": 0.0, "end": 30.0, "text": "ad"}])
+        gold_dir = _gold_labels(tmp_path, annotator="claude-sonnet-4-6")
+        configs = [EvalConfig(name="haiku", whisper={"model": "base", "language": "en"},
+                              llm={"model": "m"}, prompt="default")]
+        prompts_dir = tmp_path / "prompts"
+        prompts_dir.mkdir()
+        (prompts_dir / "default.txt").write_text("classify")
+
+        with patch("eval.run.classify_to_segments") as mock_classify, \
+             patch("eval.run.build_llm_client", return_value=None):
+            results = run_eval(
+                configs=configs, output_dir=tmp_path, gold_dir=gold_dir,
+                datasets_dir=tmp_path / "ds", prompts_dir=prompts_dir,
+                results_dir=tmp_path / "r", allowed_annotators=["human"], timestamp="t",
+            )
+
+        mock_classify.assert_not_called()
+        assert results["haiku"].episode_count == 0
+
     def test_duplicate_config_names_raise(self, tmp_path):
         gold_dir = _gold_labels(tmp_path)
         configs = [

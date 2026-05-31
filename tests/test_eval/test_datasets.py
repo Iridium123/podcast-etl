@@ -69,6 +69,15 @@ class TestLoadDataset:
     def test_empty_dataset_returns_empty_dict(self, tmp_path):
         assert load_dataset(tmp_path) == {}
 
+    def test_duplicate_ref_warns(self, tmp_path, caplog):
+        # Two files, same episode_ref under different filenames -> warn, last wins
+        _write(tmp_path, _labels("pod", "ep.json"), "audio-a")
+        _write(tmp_path, _labels("pod", "ep.json"), "audio-b")
+        with caplog.at_level("WARNING"):
+            dataset = load_dataset(tmp_path)
+        assert list(dataset) == ["pod/ep.json"]
+        assert any("Duplicate episode_ref" in r.message for r in caplog.records)
+
     def test_missing_root_raises(self, tmp_path):
         with pytest.raises(FileNotFoundError):
             load_dataset(tmp_path / "does-not-exist")

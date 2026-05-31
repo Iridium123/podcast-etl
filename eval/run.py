@@ -112,6 +112,12 @@ def _reuse_production_transcript(
     if not detect_status:
         return None
     recorded = detect_status.result.get("whisper")
+    # Note: production records only {model, language} (its detect_ads never sets
+    # url/word_timestamps), while normalize_whisper_config can include url. So a
+    # local eval config {model, language} will match a transcript that production
+    # produced via a *remote* whisper server of the same model — same model name,
+    # possibly different backend. Treated as equivalent (reuse); a genuine model
+    # or language difference still mismatches and re-transcribes.
     if recorded is None or recorded != normalize_whisper_config(whisper):
         return None
     return json.loads(resolved.transcript_path.read_text())
@@ -139,6 +145,9 @@ def label_dataset(
     """
     if transcript_cache is None:
         transcript_cache = {}
+    # Create the dataset root up front so an all-skipped/empty run still yields a
+    # valid (empty) dataset directory that score_datasets can load without error.
+    dataset_dir.mkdir(parents=True, exist_ok=True)
     written: list[Path] = []
     for ref in refs:
         try:
@@ -252,8 +261,18 @@ def run_eval(
     if duplicates:
         raise ValueError(f"Duplicate config names: {duplicates}")
 
+    # Only label the gold episodes that will actually be scored — labeling runs
+    # the (billable) classifier, and score_datasets applies the same annotator
+    # filter, so labeling annotator-excluded gold would be pure wasted spend.
+    if allowed_annotators is None:
+        allowed_annotators = ["human"]
     gold = load_dataset(gold_dir)
-    refs = [labels.episode_ref for labels in gold.values()]
+    if allowed_annotators:
+        allowed = set(allowed_annotators)
+        gold_labels = [l for l in gold.values() if l.provenance.annotator in allowed]
+    else:
+        gold_labels = list(gold.values())
+    refs = [labels.episode_ref for labels in gold_labels]
 
     prompt_cache: dict[str, str] = {}
     for config in configs:
@@ -261,6 +280,9 @@ def run_eval(
             prompt_cache[config.prompt] = (prompts_dir / f"{config.prompt}.txt").read_text()
 
     if client is None:
+        # One shared client for prompt-cache reuse across configs. api_key is
+        # taken from the first config that sets one (rarely per-config; the SDK
+        # otherwise falls back to the ANTHROPIC_API_KEY env var).
         api_key = next((c.llm.get("api_key") for c in configs if c.llm.get("api_key")), None)
         client = build_llm_client({"provider": "anthropic", "api_key": api_key})
 
