@@ -12,11 +12,16 @@ from eval.models import Annotation, EpisodeRef
 def bootstrap_from_episode(
     episode: Episode,
     ref: EpisodeRef,
-    annotator: str,
+    annotator: str | None = None,
 ) -> Annotation:
     """Create an annotation pre-populated from an episode's detect_ads results.
 
     The resulting annotation can be saved to disk and then manually corrected.
+
+    If `annotator` is None, defaults to the model name recorded in the
+    detect_ads result (e.g. "claude-haiku-4-5-20251001"). Raises if no model
+    was recorded and no explicit annotator is given — the annotator tag is
+    load-bearing for the eval's gold-standard filter.
     """
     detect_status = episode.status.get("detect_ads")
     if not detect_status:
@@ -25,6 +30,15 @@ def bootstrap_from_episode(
     result = detect_status.result
     raw_segments = result.get("segments", [])
     audio_duration = result.get("audio_duration", 0.0)
+
+    if annotator is None:
+        recorded_model = result.get("llm", {}).get("model")
+        if not recorded_model:
+            raise ValueError(
+                f"Episode {episode.slug} detect_ads result has no recorded llm.model — "
+                "pass annotator= explicitly (older results predate provenance tracking)"
+            )
+        annotator = recorded_model
 
     segments = [
         {

@@ -74,6 +74,22 @@ class TestBootstrapFromEpisode:
             assert "notes" in seg
             assert seg["notes"] == ""
 
+    def test_defaults_annotator_from_recorded_llm_model(self):
+        ep = _episode_with_ads()
+        # Record the model that produced the result
+        ep.status["detect_ads"].result["llm"] = {
+            "provider": "anthropic", "model": "claude-haiku-4-5-20251001",
+        }
+        ref = EpisodeRef(podcast_slug="p", episode_json="ep.json")
+        ann = bootstrap_from_episode(ep, ref)
+        assert ann.annotator == "claude-haiku-4-5-20251001"
+
+    def test_raises_when_annotator_omitted_and_no_recorded_model(self):
+        ep = _episode_with_ads()  # legacy result, no llm field
+        ref = EpisodeRef(podcast_slug="p", episode_json="ep.json")
+        with pytest.raises(ValueError, match="no recorded llm.model"):
+            bootstrap_from_episode(ep, ref)
+
 
 class TestCreateBlank:
     def test_creates_blank_annotation(self):

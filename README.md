@@ -325,12 +325,27 @@ Each annotation references an episode by `(podcast_slug, episode_json_filename)`
 
 ### Workflow
 
-1. Bootstrap annotations from existing `detect_ads` step results, or create blank annotations for un-processed episodes (`eval/annotate.py`).
-2. Open the JSON file in an editor, correct timestamps, change `annotator` to `human`.
-3. Validate the annotation set: errors are reported per file (`eval/validate.py`).
-4. Review an annotation alongside its transcript: lines inside ad segments are highlighted (`eval/review.py`).
-5. Configure an `eval_config.yaml` with one or more (whisper, llm, prompt) configurations to compare. The top-level `allowed_annotators` field controls which annotations are scored; default `["human"]` prevents accidentally evaluating a model against its own bootstrapped predictions. Set to `[]` to score against all annotations.
-6. Run the eval: `uv run python eval/run.py`. Results land in `eval/results/<timestamp>-<config>.json` and a comparison table is printed to stdout.
+The harness ships a `podcast-etl eval` CLI subcommand group that wraps the underlying scripts:
+
+```sh
+uv run podcast-etl eval annotate <podcast-slug> <episode-json>   # bootstrap (defaults annotator to recorded llm.model)
+uv run podcast-etl eval annotate <podcast-slug> <episode-json> --blank    # empty skeleton for manual labeling
+uv run podcast-etl eval validate eval/annotations/               # validate one file or a directory
+uv run podcast-etl eval review eval/annotations/<file>.json      # show transcript with ad highlights
+uv run podcast-etl eval run                                      # run the matrix; reads eval/eval_config.yaml
+```
+
+Typical flow:
+
+1. Run the production pipeline through `detect_ads` for the episodes you want to annotate. The `detect_ads` result records the whisper config and LLM model used, so the eval can later (a) skip re-transcribing when its whisper config matches production, and (b) default the bootstrap annotator to the recorded model name.
+2. Bootstrap annotations: `podcast-etl eval annotate <slug> <episode.json>`.
+3. Open each annotation, correct timestamps by ear, set `annotator: human`.
+4. Validate: `podcast-etl eval validate eval/annotations/`.
+5. (Optional) Review with transcript highlights: `podcast-etl eval review <ann>.json`.
+6. Configure `eval_config.yaml` with one or more (whisper, llm, prompt) configurations to compare. The top-level `allowed_annotators` field controls which annotations are scored; default `["human"]` prevents accidentally evaluating a model against its own bootstrapped predictions. Set to `[]` to score against all annotations.
+7. Run: `podcast-etl eval run`. Results land in `eval/results/<timestamp>-<config>.json` and a comparison table is printed to stdout.
+
+The underlying scripts (`eval/run.py`, etc.) still work as direct Python invocations — the CLI is just a thin wrapper.
 
 ### Scoring
 
@@ -341,7 +356,7 @@ A predicted segment matches a gold segment when their overlap exceeds 50% of the
 - Total content incorrectly removed (false-positive duration)
 - Total ad duration missed (false-negative duration)
 
-Configurations sharing identical whisper settings reuse a single transcript per episode, so adding more LLM/prompt variants does not multiply transcription cost.
+Configurations sharing identical whisper settings reuse a single transcript per episode, so adding more LLM/prompt variants does not multiply transcription cost. The runner also reuses on-disk transcripts produced by a prior production `detect_ads` run when the recorded whisper config matches the eval's whisper config — so evaluating against episodes that have already gone through production skips whisper entirely.
 
 <details>
 <summary>Category IDs</summary>

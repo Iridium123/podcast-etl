@@ -12,7 +12,7 @@ from typing import Any
 
 import yaml
 
-from podcast_etl.detectors.transcription import transcribe
+from podcast_etl.detectors.transcription import normalize_whisper_config, transcribe
 
 from eval.classify import classify_with_prompt
 from eval.models import Annotation
@@ -71,8 +71,13 @@ def load_prompt(name: str, prompts_dir: Path) -> str:
 
 
 def _whisper_config_key(whisper: dict[str, Any]) -> str:
-    """Stable hash key for a whisper config, for transcript reuse."""
-    serialized = json.dumps(whisper, sort_keys=True)
+    """Stable hash key for a whisper config, for transcript reuse.
+
+    Only considers fields that actually affect transcript content
+    (see normalize_whisper_config), so unrelated knobs (api_key, etc.) or
+    no-op typos do not fragment the cache.
+    """
+    serialized = json.dumps(normalize_whisper_config(whisper), sort_keys=True)
     return hashlib.sha256(serialized.encode()).hexdigest()[:12]
 
 
@@ -83,6 +88,31 @@ def group_configs_by_whisper(configs: list[EvalConfig]) -> dict[str, list[EvalCo
         key = _whisper_config_key(config.whisper)
         groups.setdefault(key, []).append(config)
     return groups
+
+
+def _reuse_production_transcript(
+    resolved, whisper: dict[str, Any],
+) -> list[dict[str, Any]] | None:
+    """Return the on-disk production transcript if its whisper provenance matches.
+
+    The detect_ads step records the normalized whisper config that produced
+    the transcript. If that matches the current eval whisper config (after
+    normalization), we can skip re-transcribing — saving minutes per episode.
+
+    Returns None when there's no transcript, no recorded provenance, or the
+    recorded config differs from the eval config.
+    """
+    if resolved.transcript_path is None:
+        return None
+    detect_status = resolved.episode.status.get("detect_ads")
+    if not detect_status:
+        return None
+    recorded = detect_status.result.get("whisper")
+    if recorded is None:
+        return None
+    if recorded != normalize_whisper_config(whisper):
+        return None
+    return json.loads(resolved.transcript_path.read_text())
 
 
 def _load_annotations(annotations_dir: Path) -> list[Annotation]:
@@ -177,15 +207,23 @@ def run_eval(
             cache_key = (whisper_key, ref_key)
 
             if cache_key not in transcript_cache:
-                ad_config = {"whisper": group[0].whisper}
-                try:
-                    transcript_cache[cache_key] = transcribe(resolved.audio_path, ad_config)
-                except Exception as e:
-                    logger.warning(
-                        "Transcription failed for %s with whisper config %s: %s",
-                        ref_key, whisper_key, e,
+                whisper = group[0].whisper
+                reused = _reuse_production_transcript(resolved, whisper)
+                if reused is not None:
+                    logger.info(
+                        "Reusing production transcript for %s (whisper match)", ref_key,
                     )
-                    continue
+                    transcript_cache[cache_key] = reused
+                else:
+                    ad_config = {"whisper": whisper}
+                    try:
+                        transcript_cache[cache_key] = transcribe(resolved.audio_path, ad_config)
+                    except Exception as e:
+                        logger.warning(
+                            "Transcription failed for %s with whisper config %s: %s",
+                            ref_key, whisper_key, e,
+                        )
+                        continue
 
             transcript = transcript_cache[cache_key]
 

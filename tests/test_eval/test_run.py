@@ -69,6 +69,17 @@ class TestGroupConfigsByWhisper:
         group_sizes = sorted(len(v) for v in groups.values())
         assert group_sizes == [1, 2]
 
+    def test_normalizes_keys_so_irrelevant_fields_share_cache(self):
+        """api_key and device differ but don't affect transcript content — should share a cache slot."""
+        configs = [
+            EvalConfig(name="a", whisper={"model": "base", "language": "en", "api_key": "k1"},
+                       llm={}, prompt="default", min_confidence=0.5),
+            EvalConfig(name="b", whisper={"model": "base", "language": "en", "device": "cuda"},
+                       llm={}, prompt="default", min_confidence=0.5),
+        ]
+        groups = group_configs_by_whisper(configs)
+        assert len(groups) == 1, "configs differing only in non-content fields must group together"
+
 
 class TestLoadPrompt:
     def test_loads_prompt_file(self, tmp_path):
@@ -360,3 +371,89 @@ class TestRunEval:
 
         # Both the human and the model annotation should be scored
         assert results["t"].episode_count == 2
+
+
+class TestReuseProductionTranscript:
+    """The eval runner should skip whisper transcription when an on-disk
+    transcript was produced by a matching whisper config."""
+
+    def _setup_with_recorded_whisper(self, tmp_path, recorded_whisper):
+        ann_dir, output_dir = _setup_annotation(tmp_path)
+        ep_path = output_dir / "my-podcast" / "episodes" / "ep.json"
+        ep_data = json.loads(ep_path.read_text())
+        ep_data["status"]["detect_ads"] = {
+            "completed_at": "2024-01-15T10:05:00",
+            "result": {
+                "whisper": recorded_whisper,
+                "segments": [],
+            },
+        }
+        ep_path.write_text(json.dumps(ep_data))
+        transcripts_dir = output_dir / "my-podcast" / "transcripts"
+        transcripts_dir.mkdir(parents=True, exist_ok=True)
+        (transcripts_dir / "ep.json").write_text(json.dumps([
+            {"start": 0.0, "end": 30.0, "text": "production transcript content"},
+        ]))
+        return ann_dir, output_dir
+
+    def _common(self, tmp_path):
+        prompts_dir = tmp_path / "prompts"
+        prompts_dir.mkdir()
+        (prompts_dir / "default.txt").write_text("Find ads.\n\nTranscript:\n")
+        return prompts_dir
+
+    def test_reuses_transcript_when_whisper_matches(self, tmp_path):
+        ann_dir, output_dir = self._setup_with_recorded_whisper(
+            tmp_path, {"model": "base", "language": "en"},
+        )
+        prompts_dir = self._common(tmp_path)
+        configs = [
+            EvalConfig(name="t", whisper={"model": "base", "language": "en"},
+                       llm={"provider": "anthropic", "model": "x"},
+                       prompt="default", min_confidence=0.5),
+        ]
+        with patch("eval.run.transcribe") as mock_transcribe:
+            with patch("eval.run.classify_with_prompt", return_value=[]):
+                run_eval(
+                    configs=configs, annotations_dir=ann_dir, output_dir=output_dir,
+                    prompts_dir=prompts_dir, results_dir=tmp_path / "results",
+                )
+        mock_transcribe.assert_not_called()
+
+    def test_falls_through_to_transcribe_when_whisper_differs(self, tmp_path):
+        ann_dir, output_dir = self._setup_with_recorded_whisper(
+            tmp_path, {"model": "base", "language": "en"},
+        )
+        prompts_dir = self._common(tmp_path)
+        configs = [
+            EvalConfig(name="t", whisper={"model": "large", "language": "en"},
+                       llm={"provider": "anthropic", "model": "x"},
+                       prompt="default", min_confidence=0.5),
+        ]
+        with patch("eval.run.transcribe", return_value=[]) as mock_transcribe:
+            with patch("eval.run.classify_with_prompt", return_value=[]):
+                run_eval(
+                    configs=configs, annotations_dir=ann_dir, output_dir=output_dir,
+                    prompts_dir=prompts_dir, results_dir=tmp_path / "results",
+                )
+        mock_transcribe.assert_called_once()
+
+    def test_falls_through_when_no_recorded_provenance(self, tmp_path):
+        """Legacy detect_ads results lack the whisper field — don't risk a stale match."""
+        ann_dir, output_dir = _setup_annotation(tmp_path)
+        transcripts_dir = output_dir / "my-podcast" / "transcripts"
+        transcripts_dir.mkdir(parents=True, exist_ok=True)
+        (transcripts_dir / "ep.json").write_text("[]")
+        prompts_dir = self._common(tmp_path)
+        configs = [
+            EvalConfig(name="t", whisper={"model": "base"},
+                       llm={"provider": "anthropic", "model": "x"},
+                       prompt="default", min_confidence=0.5),
+        ]
+        with patch("eval.run.transcribe", return_value=[]) as mock_transcribe:
+            with patch("eval.run.classify_with_prompt", return_value=[]):
+                run_eval(
+                    configs=configs, annotations_dir=ann_dir, output_dir=output_dir,
+                    prompts_dir=prompts_dir, results_dir=tmp_path / "results",
+                )
+        mock_transcribe.assert_called_once()
