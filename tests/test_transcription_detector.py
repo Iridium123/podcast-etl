@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from podcast_etl.detectors import AdSegment, merge_segments
+from podcast_etl.detectors import AdSegment, resolve_overlaps
 from podcast_etl.detectors.transcription import (
     AnthropicProvider,
     TranscriptionDetector,
@@ -343,43 +343,104 @@ class TestTranscriptionDetector:
 
 
 # ---------------------------------------------------------------------------
-# merge_segments
+# resolve_overlaps
 # ---------------------------------------------------------------------------
 
-class TestMergeSegments:
-    def test_merges_overlapping_segments(self):
+class TestResolveOverlaps:
+    def test_overlap_snaps_later_start_keeping_segments_separate(self):
+        # Earlier wins: the overlap [20,30] goes to the first segment; the second
+        # is kept distinct with its start snapped to the frontier.
         segments = [
             AdSegment(start=0.0, end=30.0, confidence=0.9, detector="a", label="Ad 1"),
             AdSegment(start=20.0, end=50.0, confidence=0.8, detector="b", label="Ad 2"),
         ]
-        result = merge_segments(segments)
-        assert len(result) == 1
-        assert result[0].start == 0.0
-        assert result[0].end == 50.0
-        assert result[0].confidence == 0.9
+        result = resolve_overlaps(segments)
+        assert [(s.start, s.end) for s in result] == [(0.0, 30.0), (30.0, 50.0)]
+        # Each segment keeps its own metadata — nothing is fused.
+        assert [s.label for s in result] == ["Ad 1", "Ad 2"]
+        assert [s.confidence for s in result] == [0.9, 0.8]
+        assert [s.detector for s in result] == ["a", "b"]
 
-    def test_keeps_non_overlapping_segments_separate(self):
+    def test_chain_of_overlaps(self):
+        segments = [
+            AdSegment(start=0.0, end=30.0, confidence=0.9, detector="a"),
+            AdSegment(start=20.0, end=50.0, confidence=0.8, detector="a"),
+            AdSegment(start=40.0, end=70.0, confidence=0.7, detector="a"),
+        ]
+        result = resolve_overlaps(segments)
+        assert [(s.start, s.end) for s in result] == [(0.0, 30.0), (30.0, 50.0), (50.0, 70.0)]
+
+    def test_fully_contained_segment_is_dropped(self):
+        segments = [
+            AdSegment(start=0.0, end=100.0, confidence=0.9, detector="a", label="Big"),
+            AdSegment(start=10.0, end=20.0, confidence=0.8, detector="a", label="Inner"),
+            AdSegment(start=30.0, end=40.0, confidence=0.8, detector="a", label="Inner2"),
+        ]
+        result = resolve_overlaps(segments)
+        assert [(s.start, s.end) for s in result] == [(0.0, 100.0)]
+        assert result[0].label == "Big"
+
+    def test_gap_larger_than_buffer_is_preserved(self):
         segments = [
             AdSegment(start=0.0, end=30.0, confidence=0.9, detector="a"),
             AdSegment(start=100.0, end=130.0, confidence=0.8, detector="a"),
         ]
-        result = merge_segments(segments)
-        assert len(result) == 2
+        result = resolve_overlaps(segments)
+        assert [(s.start, s.end) for s in result] == [(0.0, 30.0), (100.0, 130.0)]
 
-    def test_empty_input(self):
-        assert merge_segments([]) == []
+    def test_small_gap_within_buffer_is_closed(self):
+        # 3s gap (< 5s buffer): the later start snaps back to the frontier so the
+        # two ads become contiguous (no content sliver left between them).
+        segments = [
+            AdSegment(start=0.0, end=30.0, confidence=0.9, detector="a", label="Ad 1"),
+            AdSegment(start=33.0, end=60.0, confidence=0.8, detector="a", label="Ad 2"),
+        ]
+        result = resolve_overlaps(segments)
+        assert [(s.start, s.end) for s in result] == [(0.0, 30.0), (30.0, 60.0)]
+        assert [s.label for s in result] == ["Ad 1", "Ad 2"]
 
-    def test_single_segment(self):
-        segments = [AdSegment(start=0.0, end=30.0, confidence=0.9, detector="a")]
-        result = merge_segments(segments)
-        assert len(result) == 1
+    def test_gap_exactly_at_buffer_is_closed(self):
+        segments = [
+            AdSegment(start=0.0, end=30.0, confidence=0.9, detector="a"),
+            AdSegment(start=35.0, end=60.0, confidence=0.8, detector="a"),
+        ]
+        result = resolve_overlaps(segments)
+        assert [(s.start, s.end) for s in result] == [(0.0, 30.0), (30.0, 60.0)]
 
-    def test_adjacent_segments_merged(self):
+    def test_buffer_is_configurable(self):
+        segments = [
+            AdSegment(start=0.0, end=30.0, confidence=0.9, detector="a"),
+            AdSegment(start=33.0, end=60.0, confidence=0.8, detector="a"),
+        ]
+        # With a 1s buffer the 3s gap is a real gap and is preserved.
+        result = resolve_overlaps(segments, buffer=1.0)
+        assert [(s.start, s.end) for s in result] == [(0.0, 30.0), (33.0, 60.0)]
+
+    def test_exactly_adjacent_segments_stay_separate(self):
         segments = [
             AdSegment(start=0.0, end=30.0, confidence=0.9, detector="a", label="Ad 1"),
             AdSegment(start=30.0, end=60.0, confidence=0.8, detector="a", label="Ad 2"),
         ]
-        result = merge_segments(segments)
+        result = resolve_overlaps(segments)
+        assert [(s.start, s.end) for s in result] == [(0.0, 30.0), (30.0, 60.0)]
+        assert [s.label for s in result] == ["Ad 1", "Ad 2"]
+
+    def test_empty_input(self):
+        assert resolve_overlaps([]) == []
+
+    def test_single_segment(self):
+        segments = [AdSegment(start=0.0, end=30.0, confidence=0.9, detector="a")]
+        result = resolve_overlaps(segments)
         assert len(result) == 1
-        assert result[0].start == 0.0
-        assert result[0].end == 60.0
+
+    def test_unsorted_input_is_handled(self):
+        segments = [
+            AdSegment(start=40.0, end=70.0, confidence=0.7, detector="a"),
+            AdSegment(start=0.0, end=30.0, confidence=0.9, detector="a"),
+        ]
+        result = resolve_overlaps(segments)
+        assert [(s.start, s.end) for s in result] == [(0.0, 30.0), (40.0, 70.0)]
+
+    def test_negative_buffer_rejected(self):
+        with pytest.raises(ValueError, match="buffer must be non-negative"):
+            resolve_overlaps([], buffer=-1.0)

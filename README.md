@@ -240,7 +240,7 @@ Steps run in the order listed in `pipeline`. Each step's result is stored per-ep
 |------|----------|-------------|
 | `download` | -- | Fetch audio from RSS `audio_url` |
 | `tag` | `download` | Write ID3 metadata (title, artist, date, TRCK track number, APIC album art) |
-| `detect_ads` | `download` | Transcribe via faster-whisper, classify ad segments via LLM |
+| `detect_ads` | `download` | Transcribe via faster-whisper, classify ad segments via LLM; overlapping and near-adjacent (≤5s apart) segments are snapped into a contiguous, non-overlapping sequence (kept distinct, not fused) |
 | `strip_ads` | `detect_ads` | Remove ad segments via ffmpeg with crossfade |
 | `stage` | `download` | Copy audio to `torrent_data_dir/`; prefers cleaned audio if available |
 | `torrent` | `stage` | Create `.torrent` via `mktorrent` |

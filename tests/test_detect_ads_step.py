@@ -185,7 +185,7 @@ class TestDetectAdsStep:
         with pytest.raises(FileNotFoundError):
             DetectAdsStep().process(episode, context)
 
-    def test_process_merges_overlapping_segments(self, tmp_path):
+    def test_process_resolves_overlapping_segments(self, tmp_path):
         context = _make_context(tmp_path, ad_detection_config={
             "whisper": {"url": "http://localhost:9000"},
         })
@@ -206,10 +206,13 @@ class TestDetectAdsStep:
                 with patch("podcast_etl.steps.detect_ads._get_audio_duration", return_value=600.0):
                     result = DetectAdsStep().process(episode, context)
 
-        # Should be merged into one segment
-        assert len(result.data["segments"]) == 1
-        assert result.data["segments"][0]["start"] == 0.0
-        assert result.data["segments"][0]["end"] == 50.0
+        # Overlap is resolved (later start snapped to the frontier) but the two
+        # ads stay distinct with their own labels — not fused into one.
+        segs = result.data["segments"]
+        assert [(s["start"], s["end"]) for s in segs] == [(0.0, 30.0), (30.0, 50.0)]
+        assert [s["label"] for s in segs] == ["Ad 1", "Ad 2"]
+        # total_ad_duration counts the union once (no double-count from overlap).
+        assert result.data["total_ad_duration"] == 50.0
 
     def test_reuses_existing_transcript(self, tmp_path):
         context = _make_context(tmp_path, ad_detection_config={

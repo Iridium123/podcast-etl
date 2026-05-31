@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from podcast_etl.detectors import AdSegment, merge_segments
+from podcast_etl.detectors import AdSegment, resolve_overlaps
 from podcast_etl.detectors.transcription import TranscriptionDetector, transcribe
 from podcast_etl.models import Episode
 from podcast_etl.pipeline import PipelineContext, StepResult
@@ -83,7 +83,7 @@ class DetectAdsStep:
         detected = detector.classify_transcript(transcript_segments, ad_config)
         all_segments.extend(detected)
 
-        merged = merge_segments(all_segments)
+        merged = resolve_overlaps(all_segments)
         total_ad_duration = sum(s.end - s.start for s in merged)
         audio_duration = _get_audio_duration(audio_path)
 
