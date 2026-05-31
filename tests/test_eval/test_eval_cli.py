@@ -120,3 +120,40 @@ class TestEvalValidateCommand:
         ])
         assert result.exit_code != 0
         assert "validation error" in result.output.lower()
+
+
+class TestEvalAnnotateBlank:
+    def test_blank_with_explicit_duration(self, tmp_path):
+        output_dir = _write_episode(tmp_path)
+        annotations_dir = tmp_path / "annotations"
+        runner = CliRunner()
+        result = runner.invoke(main, [
+            "-c", str(tmp_path / "feeds.yaml"),
+            "eval", "annotate",
+            "p", "ep.json",
+            "--blank",
+            "--duration", "1234.5",
+            "--output-dir", str(output_dir),
+            "--annotations-dir", str(annotations_dir),
+        ])
+        assert result.exit_code == 0, result.output
+        data = json.loads((annotations_dir / "p-ep.json").read_text())
+        assert data["segments"] == []
+        assert data["audio_duration"] == 1234.5
+
+    def test_blank_errors_without_duration_when_audio_missing(self, tmp_path):
+        """Audio file does not exist on disk and --duration was not passed."""
+        output_dir = _write_episode(tmp_path)
+        # _write_episode creates audio/ep.mp3 with fake bytes; remove it to force the failure path
+        (output_dir / "p" / "audio" / "ep.mp3").unlink()
+        runner = CliRunner()
+        result = runner.invoke(main, [
+            "-c", str(tmp_path / "feeds.yaml"),
+            "eval", "annotate",
+            "p", "ep.json",
+            "--blank",
+            "--output-dir", str(output_dir),
+            "--annotations-dir", str(tmp_path / "annotations"),
+        ])
+        assert result.exit_code != 0
+        assert "--duration" in result.output

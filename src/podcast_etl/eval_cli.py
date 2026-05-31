@@ -22,6 +22,28 @@ def _ensure_eval_importable() -> None:
         sys.path.insert(0, str(_PROJECT_ROOT))
 
 
+def _resolve_blank_duration(episode, podcast_dir: Path, override: float | None) -> float:
+    """Pick the audio duration for a blank annotation.
+
+    Order: explicit --duration > read from the on-disk audio file via mutagen >
+    fail with a clear message asking for --duration.
+    """
+    if override is not None:
+        return override
+    download = episode.status.get("download")
+    if download and download.result.get("path"):
+        audio_path = podcast_dir / download.result["path"]
+        if audio_path.exists():
+            from mutagen.mp3 import MP3
+            audio = MP3(audio_path)
+            if audio.info is not None:
+                return float(audio.info.length)
+    raise click.ClickException(
+        f"Cannot determine audio duration for {episode.slug} — pass --duration <seconds> "
+        "(no downloaded audio file available to probe)",
+    )
+
+
 @click.group(name="eval")
 def eval_group() -> None:
     """Ad-detection evaluation harness (annotation + scoring tooling)."""
@@ -64,6 +86,12 @@ def run_cmd(config_path: Path) -> None:
 @click.option("--blank", is_flag=True, help="Create an empty annotation instead of bootstrapping from detect_ads")
 @click.option("--annotator", default=None, help="Override the annotator tag (defaults to recorded llm.model)")
 @click.option(
+    "--duration",
+    type=float,
+    default=None,
+    help="Audio duration in seconds (used with --blank; auto-detected from the audio file if omitted)",
+)
+@click.option(
     "--output-dir",
     type=click.Path(path_type=Path),
     default=Path("output"),
@@ -82,6 +110,7 @@ def annotate_cmd(
     episode_json: str,
     blank: bool,
     annotator: str | None,
+    duration: float | None,
     output_dir: Path,
     annotations_dir: Path,
 ) -> None:
@@ -99,12 +128,7 @@ def annotate_cmd(
     episode = Episode.load(episode_path)
 
     if blank:
-        download = episode.status.get("download")
-        if not download:
-            raise click.ClickException(
-                f"Episode {episode.slug} has no download step — pass a duration manually or run download first",
-            )
-        ann = create_blank(ref, audio_duration=0.0)
+        ann = create_blank(ref, audio_duration=_resolve_blank_duration(episode, output_dir / podcast_slug, duration))
     else:
         ann = bootstrap_from_episode(episode, ref, annotator=annotator)
 

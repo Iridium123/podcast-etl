@@ -16,7 +16,7 @@ from podcast_etl.detectors.transcription import normalize_whisper_config, transc
 
 from eval.classify import classify_with_prompt
 from eval.models import Annotation
-from eval.resolve import resolve_episode
+from eval.resolve import ResolvedEpisode, resolve_episode
 from eval.score import AggregateScore, aggregate_scores, format_report, score_episode
 
 logger = logging.getLogger(__name__)
@@ -91,7 +91,7 @@ def group_configs_by_whisper(configs: list[EvalConfig]) -> dict[str, list[EvalCo
 
 
 def _reuse_production_transcript(
-    resolved, whisper: dict[str, Any],
+    resolved: ResolvedEpisode, whisper: dict[str, Any],
 ) -> list[dict[str, Any]] | None:
     """Return the on-disk production transcript if its whisper provenance matches.
 
