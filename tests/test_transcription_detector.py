@@ -233,8 +233,10 @@ class TestLoadPrompt:
             load_prompt("nope", prompts_dir=tmp_path)
 
     def test_default_prompt_ships_with_project(self):
-        # The repo-root prompts/default.txt is the built-in prompt.
-        text = load_prompt("default")
+        # The repo-root prompts/default.txt is the built-in prompt. Pin the dir
+        # via __file__ so the test doesn't depend on the cwd pytest runs from.
+        prompts_dir = Path(__file__).resolve().parents[1] / "prompts"
+        text = load_prompt("default", prompts_dir=prompts_dir)
         assert "ad-segment detector" in text
 
 
@@ -285,6 +287,13 @@ class TestClassify:
         assert user_content.startswith("Transcript:")
         assert "brought to you by Acme Corp" in user_content
 
+    def test_empty_transcript_returns_early_without_api_call(self):
+        mock_client = MagicMock()
+        with patch.dict("sys.modules", {"anthropic": MagicMock()}) as mods:
+            assert classify([], "P", {"model": "m"}, client=mock_client) == []
+            mock_client.messages.create.assert_not_called()
+            mods["anthropic"].Anthropic.assert_not_called()
+
     def test_reuses_passed_client(self):
         mock_message = MagicMock()
         mock_message.content = [MagicMock(text=_llm_response_json([]))]
@@ -293,7 +302,8 @@ class TestClassify:
 
         # A passed client means no new anthropic client is constructed.
         with patch.dict("sys.modules", {"anthropic": MagicMock()}) as mods:
-            classify([], "P", {"model": "m"}, client=mock_client)
+            classify(_whisper_segments(), "P", {"model": "m"}, client=mock_client)
+            mock_client.messages.create.assert_called_once()
             mods["anthropic"].Anthropic.assert_not_called()
 
     def test_constructs_client_when_none(self):
@@ -305,7 +315,7 @@ class TestClassify:
         mock_anthropic.Anthropic.return_value = mock_client
 
         with patch.dict("sys.modules", {"anthropic": mock_anthropic}):
-            classify([], "P", {"model": "m", "api_key": "k"}, client=None)
+            classify(_whisper_segments(), "P", {"model": "m", "api_key": "k"}, client=None)
 
         mock_anthropic.Anthropic.assert_called_once_with(api_key="k")
 

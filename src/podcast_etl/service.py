@@ -78,7 +78,10 @@ def _check_ad_detection_prompt(resolved: dict) -> str | None:
     prompt_name = resolved.get("ad_detection", {}).get("llm", {}).get("prompt", "default")
     prompt_path = PROMPTS_DIR / f"{prompt_name}.txt"
     if not prompt_path.is_file():
-        return f"ad_detection prompt {prompt_name!r} not found at {prompt_path}"
+        return (
+            f"ad_detection prompt {prompt_name!r} not found at {prompt_path.resolve()} "
+            f"(searched from cwd: {Path.cwd()})"
+        )
     return None
 
 

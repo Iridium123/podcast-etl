@@ -158,6 +158,11 @@ def classify(
     the same prompt hit Anthropic's prompt cache; the per-episode transcript is
     the user message. Pass *client* to reuse one client across calls.
     """
+    if not transcript:
+        # Public-API guard: an empty transcript can only yield no ads, so skip
+        # the (billable) LLM round-trip. Production already short-circuits earlier.
+        return []
+
     model = llm_config.get("model", DEFAULT_LLM_MODEL)
     if client is None:
         import anthropic

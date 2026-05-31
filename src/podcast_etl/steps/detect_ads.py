@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -56,7 +57,11 @@ def _save_transcript(
     transcripts_dir = podcast_dir / "transcripts"
     transcripts_dir.mkdir(parents=True, exist_ok=True)
     transcript_path = transcripts_dir / filename
-    transcript_path.write_text(json.dumps(segments, indent=2) + "\n")
+    # Atomic write so a crash can't leave a partial transcript the reuse path
+    # would later read — consistent with Labels.save.
+    tmp = transcript_path.with_name(f".{filename}.tmp")
+    tmp.write_text(json.dumps(segments, indent=2) + "\n")
+    os.replace(tmp, transcript_path)
     return f"transcripts/{filename}"
 
 
