@@ -26,14 +26,15 @@ WORKDIR /app
 
 # Ad-detection prompts are resolved relative to the working directory (./prompts).
 COPY prompts/ prompts/
+# Maintenance scripts (e.g. one-off migrations) shipped so they can run against
+# the live /output volume inside the container.
+COPY scripts/ scripts/
 
 FROM base AS test
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/
 RUN uv pip install "pytest>=8.0" "pytest-asyncio>=0.25"
 COPY tests/ tests/
-# Migration script is not shipped in the final image, but its test needs it.
-COPY scripts/ scripts/
 CMD ["pytest", "tests/", "-v", "-m", ""]
 
 FROM base

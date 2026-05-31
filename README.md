@@ -241,6 +241,12 @@ If you have older episode data with segments embedded in the episode JSON, migra
 uv run python scripts/migrate_labels.py --output-dir output/    # add --dry-run to preview
 ```
 
+The script ships in the Docker image too, so you can run it against the live `/output` volume in your deployment:
+
+```sh
+docker compose run --rm podcast-etl python scripts/migrate_labels.py --output-dir /output --dry-run
+```
+
 ### Tracker Cookie
 
 To get the `remember_cookie` value: log in to the tracker in your browser, open DevTools, go to Application then Cookies, and copy the value of `remember_web_59ba36addc2b2f9401580f014c7f58ea4e30989d`. This works with 2FA-enabled accounts.

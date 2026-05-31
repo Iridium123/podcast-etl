@@ -149,7 +149,7 @@ feeds:
 
 ### Docker
 
-The final image installs `mktorrent` and `ffmpeg` via `apt-get` and exposes port `8000`. Three volumes: `/config` (YAML config), `/output` (download/processing data), `/torrent-data` (staging dir shared with qBittorrent container). The default entrypoint runs `serve` (web UI + integrated poll loop). The `prompts/` directory (ad-detection prompts, resolved relative to the `/app` working directory) is copied into the image.
+The final image installs `mktorrent` and `ffmpeg` via `apt-get` and exposes port `8000`. Three volumes: `/config` (YAML config), `/output` (download/processing data), `/torrent-data` (staging dir shared with qBittorrent container). The default entrypoint runs `serve` (web UI + integrated poll loop). The `prompts/` directory (ad-detection prompts, resolved relative to the `/app` working directory) and `scripts/` (maintenance scripts such as `migrate_labels.py`, runnable against the live `/output` volume) are copied into the image.
 
 ### Adding a new pipeline step
 
