@@ -63,7 +63,6 @@ def classify_with_prompt(
     """
     llm_config = config.get("llm", {})
     model = llm_config.get("model", "claude-haiku-4-5-20251001")
-    min_confidence = config.get("min_confidence", 0.5)
 
     if client is None:
         import anthropic
@@ -85,5 +84,4 @@ def classify_with_prompt(
     if not message.content or not hasattr(message.content[0], "text"):
         raise ValueError(f"Unexpected Anthropic response: {message.content!r}")
 
-    segments = _parse_llm_response(message.content[0].text)
-    return [s for s in segments if s.confidence >= min_confidence]
+    return _parse_llm_response(message.content[0].text)

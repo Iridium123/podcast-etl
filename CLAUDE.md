@@ -55,8 +55,8 @@ Eval harness tests live in `tests/test_eval/`:
 - `test_eval_models.py` -- `EpisodeRef`, `Annotation` dataclasses (load/save, segments_as_ad_segments, roundtrip equality)
 - `test_resolve.py` -- `resolve_episode` (audio/transcript path derivation, error branches: missing podcast/episode/audio/download-status/path)
 - `test_score.py` -- `overlap_fraction_matcher`, `match_segments` (greedy assignment), `score_episode`, `aggregate_scores` (precision/recall/F1, mean/median/p95 of absolute boundary errors), `format_report`
-- `test_classify.py` -- `classify_with_prompt` (custom prompt sent, default prompt absent, min_confidence filter, configured model)
-- `test_annotate.py` -- `bootstrap_from_episode` (from detect_ads status), `create_blank` (empty annotation skeleton)
+- `test_classify.py` -- `classify_with_prompt` (custom prompt sent, default prompt absent, returns all segments regardless of confidence, configured model)
+- `test_annotate.py` -- `bootstrap_from_episode` (from detect_ads status, default annotator from recorded llm.model, raises when missing), `create_blank` (empty annotation skeleton)
 - `test_validate.py` -- `validate_annotation`, `validate_annotations` (start>=end, exceeds duration, overlap, negative, missing fields)
 - `test_review.py` -- `format_review` (transcript with ad-segment highlighting via U+258C left half block)
 - `test_run.py` -- `run_eval` (whisper transcript reuse across configs, duplicate-name guard, YAML loading, prompt loading)

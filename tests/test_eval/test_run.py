@@ -59,9 +59,9 @@ def _setup_annotation(tmp_path):
 class TestGroupConfigsByWhisper:
     def test_groups_by_whisper_settings(self):
         configs = [
-            EvalConfig(name="a", whisper={"model": "base"}, llm={}, prompt="default", min_confidence=0.5),
-            EvalConfig(name="b", whisper={"model": "base"}, llm={}, prompt="alt", min_confidence=0.5),
-            EvalConfig(name="c", whisper={"model": "large"}, llm={}, prompt="default", min_confidence=0.5),
+            EvalConfig(name="a", whisper={"model": "base"}, llm={}, prompt="default"),
+            EvalConfig(name="b", whisper={"model": "base"}, llm={}, prompt="alt"),
+            EvalConfig(name="c", whisper={"model": "large"}, llm={}, prompt="default"),
         ]
         groups = group_configs_by_whisper(configs)
         # "a" and "b" share whisper config, "c" is separate
@@ -73,9 +73,9 @@ class TestGroupConfigsByWhisper:
         """api_key and device differ but don't affect transcript content — should share a cache slot."""
         configs = [
             EvalConfig(name="a", whisper={"model": "base", "language": "en", "api_key": "k1"},
-                       llm={}, prompt="default", min_confidence=0.5),
+                       llm={}, prompt="default"),
             EvalConfig(name="b", whisper={"model": "base", "language": "en", "device": "cuda"},
-                       llm={}, prompt="default", min_confidence=0.5),
+                       llm={}, prompt="default"),
         ]
         groups = group_configs_by_whisper(configs)
         assert len(groups) == 1, "configs differing only in non-content fields must group together"
@@ -111,7 +111,6 @@ configs:
       provider: anthropic
       model: claude-haiku-4-5-20251001
     prompt: default
-    min_confidence: 0.5
 """)
         run_config = load_run_config(config_path)
         assert run_config.output_dir == "./output"
@@ -130,7 +129,6 @@ configs:
     whisper: {model: base}
     llm: {model: x}
     prompt: default
-    min_confidence: 0.5
 """)
         run_config = load_run_config(config_path)
         assert run_config.allowed_annotators == ["human", "claude-opus-4-7"]
@@ -145,7 +143,6 @@ configs:
     whisper: {model: base}
     llm: {model: x}
     prompt: default
-    min_confidence: 0.5
 """)
         run_config = load_run_config(config_path)
         assert run_config.allowed_annotators == []
@@ -170,7 +167,7 @@ class TestRunEval:
 
         configs = [
             EvalConfig(name="test", whisper={"model": "base"}, llm={"provider": "anthropic", "model": "test"},
-                       prompt="default", min_confidence=0.5),
+                       prompt="default"),
         ]
 
         with patch("eval.run.transcribe", return_value=transcript_segments):
@@ -209,10 +206,10 @@ class TestRunEval:
         configs = [
             EvalConfig(name="a", whisper={"model": "base", "language": "en"},
                        llm={"provider": "anthropic", "model": "test"},
-                       prompt="p1", min_confidence=0.5),
+                       prompt="p1"),
             EvalConfig(name="b", whisper={"model": "base", "language": "en"},
                        llm={"provider": "anthropic", "model": "test"},
-                       prompt="p2", min_confidence=0.5),
+                       prompt="p2"),
         ]
 
         with patch("eval.run.transcribe", return_value=transcript_segments) as mock_transcribe:
@@ -242,8 +239,8 @@ class TestRunEval:
         (prompts_dir / "default.txt").write_text("Find ads.\n\nTranscript:\n")
 
         configs = [
-            EvalConfig(name="dup", whisper={"model": "base"}, llm={}, prompt="default", min_confidence=0.5),
-            EvalConfig(name="dup", whisper={"model": "large"}, llm={}, prompt="default", min_confidence=0.5),
+            EvalConfig(name="dup", whisper={"model": "base"}, llm={}, prompt="default"),
+            EvalConfig(name="dup", whisper={"model": "large"}, llm={}, prompt="default"),
         ]
 
         with pytest.raises(ValueError, match="Duplicate config names"):
@@ -276,7 +273,7 @@ class TestRunEval:
 
         configs = [
             EvalConfig(name="t", whisper={"model": "base"}, llm={"provider": "anthropic", "model": "x"},
-                       prompt="default", min_confidence=0.5),
+                       prompt="default"),
         ]
 
         with patch("eval.run.transcribe") as mock_transcribe:
@@ -316,7 +313,7 @@ class TestRunEval:
         ]
         configs = [
             EvalConfig(name="t", whisper={"model": "base"}, llm={"provider": "anthropic", "model": "x"},
-                       prompt="default", min_confidence=0.5),
+                       prompt="default"),
         ]
 
         with patch("eval.run.transcribe", return_value=[]):
@@ -355,7 +352,7 @@ class TestRunEval:
         ]
         configs = [
             EvalConfig(name="t", whisper={"model": "base"}, llm={"provider": "anthropic", "model": "x"},
-                       prompt="default", min_confidence=0.5),
+                       prompt="default"),
         ]
 
         with patch("eval.run.transcribe", return_value=[]):
@@ -410,7 +407,7 @@ class TestReuseProductionTranscript:
         configs = [
             EvalConfig(name="t", whisper={"model": "base", "language": "en"},
                        llm={"provider": "anthropic", "model": "x"},
-                       prompt="default", min_confidence=0.5),
+                       prompt="default"),
         ]
         with patch("eval.run.transcribe") as mock_transcribe:
             with patch("eval.run.classify_with_prompt", return_value=[]):
@@ -428,7 +425,7 @@ class TestReuseProductionTranscript:
         configs = [
             EvalConfig(name="t", whisper={"model": "large", "language": "en"},
                        llm={"provider": "anthropic", "model": "x"},
-                       prompt="default", min_confidence=0.5),
+                       prompt="default"),
         ]
         with patch("eval.run.transcribe", return_value=[]) as mock_transcribe:
             with patch("eval.run.classify_with_prompt", return_value=[]):
@@ -448,7 +445,7 @@ class TestReuseProductionTranscript:
         configs = [
             EvalConfig(name="t", whisper={"model": "base"},
                        llm={"provider": "anthropic", "model": "x"},
-                       prompt="default", min_confidence=0.5),
+                       prompt="default"),
         ]
         with patch("eval.run.transcribe", return_value=[]) as mock_transcribe:
             with patch("eval.run.classify_with_prompt", return_value=[]):

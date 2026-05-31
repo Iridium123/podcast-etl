@@ -28,7 +28,6 @@ class EvalConfig:
     whisper: dict[str, Any]
     llm: dict[str, Any]
     prompt: str  # name of prompt file in prompts/
-    min_confidence: float
 
 
 @dataclass
@@ -50,7 +49,6 @@ def load_run_config(path: Path) -> RunConfig:
             whisper=c.get("whisper", {}),
             llm=c.get("llm", {}),
             prompt=c.get("prompt", "default"),
-            min_confidence=c.get("min_confidence", 0.5),
         )
         for c in data.get("configs", [])
     ]
@@ -232,7 +230,6 @@ def run_eval(
                 ad_config = {
                     "whisper": config.whisper,
                     "llm": config.llm,
-                    "min_confidence": config.min_confidence,
                 }
                 try:
                     predicted = classify_with_prompt(transcript, prompt_text, ad_config, client=anthropic_client)

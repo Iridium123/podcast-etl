@@ -51,7 +51,8 @@ class TestClassifyWithPrompt:
         assert len(result) == 1
         assert result[0].start == 0.0
 
-    def test_filters_by_min_confidence(self):
+    def test_returns_all_segments_regardless_of_confidence(self):
+        """Eval workflow no longer filters by confidence — all model-flagged segments come through."""
         llm_response = json.dumps({"segments": [
             {"start": 0.0, "end": 10.0, "confidence": 0.3, "label": "Maybe ad"},
             {"start": 50.0, "end": 60.0, "confidence": 0.9, "label": "Definite ad"},
@@ -65,13 +66,13 @@ class TestClassifyWithPrompt:
         mock_anthropic = MagicMock()
         mock_anthropic.Anthropic.return_value = mock_client
 
-        config = {"llm": {"model": "claude-haiku-4-5-20251001"}, "min_confidence": 0.5}
+        config = {"llm": {"model": "claude-haiku-4-5-20251001"}}
 
         with patch.dict("sys.modules", {"anthropic": mock_anthropic}):
             result = classify_with_prompt(SAMPLE_TRANSCRIPT, CUSTOM_PROMPT, config)
 
-        assert len(result) == 1
-        assert result[0].start == 50.0
+        assert len(result) == 2
+        assert {s.start for s in result} == {0.0, 50.0}
 
     def test_uses_configured_model(self):
         llm_response = json.dumps({"segments": []})
