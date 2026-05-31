@@ -17,6 +17,18 @@ from typing import Any
 from podcast_etl.detectors import AdSegment
 
 
+def _require(data: dict[str, Any], key: str, ctx: str) -> Any:
+    """Return ``data[key]`` or raise a clear error naming the missing field.
+
+    Required fields fail loud (a missing one signals a malformed/incomplete
+    label file) but with an actionable message rather than a bare ``KeyError``,
+    which matters for hand-authored eval/annotation label files.
+    """
+    if key not in data:
+        raise ValueError(f"{ctx}: missing required field {key!r}")
+    return data[key]
+
+
 @dataclass
 class EpisodeRef:
     """Stable reference back to the episode a label file describes."""
@@ -29,7 +41,10 @@ class EpisodeRef:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> EpisodeRef:
-        return cls(podcast_slug=data["podcast_slug"], episode_json=data["episode_json"])
+        return cls(
+            podcast_slug=_require(data, "podcast_slug", "episode_ref"),
+            episode_json=_require(data, "episode_json", "episode_ref"),
+        )
 
 
 @dataclass
@@ -54,8 +69,8 @@ class Provenance:
         return cls(
             whisper=data.get("whisper", {}),
             llm=data.get("llm", {}),
-            annotator=data["annotator"],
-            created_at=data["created_at"],
+            annotator=_require(data, "annotator", "provenance"),
+            created_at=_require(data, "created_at", "provenance"),
         )
 
 
@@ -79,10 +94,10 @@ class Labels:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Labels:
         return cls(
-            episode_ref=EpisodeRef.from_dict(data["episode_ref"]),
-            audio_duration=data["audio_duration"],
+            episode_ref=EpisodeRef.from_dict(_require(data, "episode_ref", "labels")),
+            audio_duration=_require(data, "audio_duration", "labels"),
             segments=[AdSegment.from_dict(s) for s in data.get("segments", [])],
-            provenance=Provenance.from_dict(data["provenance"]),
+            provenance=Provenance.from_dict(_require(data, "provenance", "labels")),
         )
 
     def save(self, path: Path) -> None:

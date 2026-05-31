@@ -60,7 +60,7 @@ def _save_transcript(
     # Atomic write so a crash can't leave a partial transcript the reuse path
     # would later read — consistent with Labels.save.
     tmp = transcript_path.with_name(f".{filename}.tmp")
-    tmp.write_text(json.dumps(segments, indent=2) + "\n")
+    tmp.write_text(json.dumps(segments, indent=2) + "\n", encoding="utf-8")
     os.replace(tmp, transcript_path)
     return f"transcripts/{filename}"
 

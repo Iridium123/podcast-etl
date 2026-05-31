@@ -2,6 +2,8 @@
 
 import json
 
+import pytest
+
 from podcast_etl.detectors import AdSegment
 from podcast_etl.labels import EpisodeRef, Labels, Provenance
 
@@ -64,3 +66,23 @@ class TestLabelsRoundtrip:
         seg = AdSegment(start=0.0, end=1.0, confidence=0.9, detector="transcription")
         assert seg.notes == ""
         assert AdSegment.from_dict(seg.to_dict()).notes == ""
+
+
+class TestLabelsValidation:
+    def test_missing_annotator_raises_clear_error(self):
+        data = _make_labels().to_dict()
+        del data["provenance"]["annotator"]
+        with pytest.raises(ValueError, match="provenance: missing required field 'annotator'"):
+            Labels.from_dict(data)
+
+    def test_missing_structural_field_raises_clear_error(self):
+        data = _make_labels().to_dict()
+        del data["audio_duration"]
+        with pytest.raises(ValueError, match="labels: missing required field 'audio_duration'"):
+            Labels.from_dict(data)
+
+    def test_missing_segments_defaults_empty(self):
+        # segments is optional — a labels file with none loads as no ads.
+        data = _make_labels().to_dict()
+        del data["segments"]
+        assert Labels.from_dict(data).segments == []
