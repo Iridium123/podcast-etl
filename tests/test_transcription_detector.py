@@ -530,3 +530,12 @@ class TestResolveOverlaps:
     def test_negative_buffer_rejected(self):
         with pytest.raises(ValueError, match="buffer must be non-negative"):
             resolve_overlaps([], buffer=-1.0)
+
+    def test_preserves_each_segments_notes(self):
+        # Segments stay distinct, so each keeps its OWN notes — not concatenated.
+        segments = [
+            AdSegment(start=0.0, end=30.0, confidence=0.9, detector="a", notes="from human"),
+            AdSegment(start=20.0, end=50.0, confidence=0.8, detector="b", notes="auto"),
+        ]
+        result = resolve_overlaps(segments)
+        assert [s.notes for s in result] == ["from human", "auto"]
