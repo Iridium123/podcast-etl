@@ -176,7 +176,72 @@ def _build_provenance(ad_config: dict[str, Any]) -> Provenance:
 
 
 # ---------------------------------------------------------------------------
-# Per-episode entry point
+# Per-episode entry point (internal: post-resolution work)
+# ---------------------------------------------------------------------------
+
+def _label_resolved(
+    resolved: ResolvedEpisode,
+    ref: EpisodeRef,
+    ad_config: dict[str, Any],
+    dataset_root: Path,
+    *,
+    client: Any | None,
+    transcript_cache: dict[str, list[dict[str, Any]]],
+) -> Path:
+    """Acquire transcript, classify, and write a Labels file for an already-resolved episode.
+
+    Separated from :func:`label_episode` so :func:`label_dataset` can guard
+    only the resolution phase with ``FileNotFoundError``, letting errors from
+    transcript/classify/write (e.g. a missing prompt file) propagate normally.
+
+    Args:
+        resolved: Already-resolved episode (paths + episode object).
+        ref: Episode reference (for cache key and label file naming).
+        ad_config: Ad-detection config dict.
+        dataset_root: Root directory of the eval dataset to write into.
+        client: Pre-built LLM client (or ``None``).
+        transcript_cache: Shared in-memory transcript cache.
+
+    Returns:
+        Path to the written label file.
+    """
+    whisper = ad_config.get("whisper", {})
+    ref_key = f"{ref.podcast_slug}/{ref.episode_json}"
+    transcript = _get_transcript(resolved, whisper, transcript_cache, ref_key)
+
+    segments: list[AdSegment] = []
+    if transcript:
+        segments = _classify(transcript, ad_config, client)
+    else:
+        logger.warning(
+            "Empty transcript for %s/%s — recording 0 ad segments "
+            "(almost always indicates a whisper failure, not a speech-free episode)",
+            ref.podcast_slug,
+            ref.episode_json,
+        )
+
+    audio_duration = _get_audio_duration(resolved.audio_path)
+    provenance = _build_provenance(ad_config)
+
+    # Derive the label file stem from the episode_json in the ref so the
+    # filename is consistent and ref-derivable without resolving audio.
+    stem = ref.episode_json.removesuffix(".json")
+    labels = Labels(
+        episode_ref=ref,
+        audio_duration=round(audio_duration, 2),
+        segments=segments,
+        provenance=provenance,
+    )
+    path = label_file_path(dataset_root, ref.podcast_slug, stem)
+    labels.save(path)
+    logger.info(
+        "Wrote %d segment(s) to %s", len(segments), path,
+    )
+    return path
+
+
+# ---------------------------------------------------------------------------
+# Per-episode entry point (public convenience: resolve + label)
 # ---------------------------------------------------------------------------
 
 def label_episode(
@@ -218,33 +283,11 @@ def label_episode(
         transcript_cache = {}
 
     resolved = resolve_episode(ref, output_dir)
-
-    whisper = ad_config.get("whisper", {})
-    ref_key = f"{ref.podcast_slug}/{ref.episode_json}"
-    transcript = _get_transcript(resolved, whisper, transcript_cache, ref_key)
-
-    segments: list[AdSegment] = []
-    if transcript:
-        segments = _classify(transcript, ad_config, client)
-
-    audio_duration = _get_audio_duration(resolved.audio_path)
-    provenance = _build_provenance(ad_config)
-
-    # Derive the label file stem from the episode_json in the ref so the
-    # filename is consistent and ref-derivable without resolving audio.
-    stem = ref.episode_json.removesuffix(".json")
-    labels = Labels(
-        episode_ref=ref,
-        audio_duration=round(audio_duration, 2),
-        segments=segments,
-        provenance=provenance,
+    return _label_resolved(
+        resolved, ref, ad_config, dataset_root,
+        client=client,
+        transcript_cache=transcript_cache,
     )
-    path = label_file_path(dataset_root, ref.podcast_slug, stem)
-    labels.save(path)
-    logger.info(
-        "Wrote %d segment(s) to %s", len(segments), path,
-    )
-    return path
 
 
 # ---------------------------------------------------------------------------
@@ -264,7 +307,9 @@ def label_dataset(
 
     Unresolvable episodes (``FileNotFoundError`` from
     :func:`~eval.resolve.resolve_episode`) are logged as warnings and skipped
-    so the run continues for remaining episodes.
+    so the run continues for remaining episodes.  Errors from transcript
+    acquisition, classification, or file I/O (e.g. a missing prompt file) are
+    **not** caught and will propagate immediately.
 
     Args:
         refs: Episodes to label.
@@ -287,17 +332,20 @@ def label_dataset(
     paths: list[Path] = []
     for ref in refs:
         try:
-            path = label_episode(
-                ref,
-                ad_config,
-                output_dir,
-                dataset_root,
+            resolved = resolve_episode(ref, output_dir)
+        except FileNotFoundError as exc:
+            logger.warning(
+                "Skipping unresolvable episode %s/%s: %s",
+                ref.podcast_slug, ref.episode_json, exc,
+            )
+            continue
+        paths.append(
+            _label_resolved(
+                resolved, ref, ad_config, dataset_root,
                 client=client,
                 transcript_cache=transcript_cache,
             )
-            paths.append(path)
-        except FileNotFoundError as exc:
-            logger.warning("Skipping unresolvable episode %s/%s: %s", ref.podcast_slug, ref.episode_json, exc)
+        )
     return paths
 
 

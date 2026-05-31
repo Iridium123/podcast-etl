@@ -12,10 +12,13 @@ from podcast_etl.detectors import AdSegment
 from podcast_etl.labels import EpisodeRef, Labels, Provenance
 from podcast_etl.models import Episode, StepStatus
 
+import logging
+
 from eval.label import (
     _classify,
     _get_audio_duration,
     _get_transcript,
+    _label_resolved,
     _reuse_production_transcript,
     iter_episode_refs,
     label_dataset,
@@ -551,6 +554,89 @@ class TestLabelDataset:
             paths = label_dataset(refs, AD_CONFIG, output_dir, dataset_root)
 
         assert paths == []
+
+    def test_missing_prompt_propagates_not_swallowed(self, tmp_path):
+        """FileNotFoundError from load_prompt must NOT be silently skipped."""
+        dataset_root = tmp_path / "dataset"
+        ref = self._setup_episode(tmp_path, "p1", "ep1.json")
+        output_dir = tmp_path / "output"
+
+        with patch("eval.label.transcribe", return_value=TRANSCRIPT), \
+             patch("eval.label.load_prompt", side_effect=FileNotFoundError("no such prompt")), \
+             patch("eval.label.build_llm_client", return_value=None), \
+             patch("eval.label._get_audio_duration", return_value=600.0):
+            with pytest.raises(FileNotFoundError, match="no such prompt"):
+                label_dataset([ref], AD_CONFIG, output_dir, dataset_root)
+
+    def test_unresolvable_episode_still_skipped_with_prompt_error_sibling(self, tmp_path):
+        """Confirm the legitimate-skip path still works after the propagation fix."""
+        dataset_root = tmp_path / "dataset"
+        good = self._setup_episode(tmp_path, "good-podcast", "ep.json")
+        bad = EpisodeRef(podcast_slug="nonexistent", episode_json="ep.json")
+        output_dir = tmp_path / "output"
+
+        with patch("eval.label.transcribe", return_value=TRANSCRIPT), \
+             patch("eval.label.classify", return_value=[]), \
+             patch("eval.label.load_prompt", return_value="p"), \
+             patch("eval.label.build_llm_client", return_value=None), \
+             patch("eval.label._get_audio_duration", return_value=600.0):
+            paths = label_dataset([good, bad], AD_CONFIG, output_dir, dataset_root)
+
+        assert len(paths) == 1
+        assert paths[0].exists()
+
+
+# ---------------------------------------------------------------------------
+# _label_resolved: empty transcript warning
+# ---------------------------------------------------------------------------
+
+class TestLabelResolvedEmptyTranscript:
+    def _setup(self, tmp_path):
+        output_dir = tmp_path / "output"
+        dataset_root = tmp_path / "dataset"
+        podcast_slug = "my-podcast"
+        episode_json = "ep.json"
+        _write_episode(output_dir, podcast_slug, episode_json, _make_episode())
+        audio_path = _write_audio(output_dir, podcast_slug, "audio/episode.mp3")
+        ref = EpisodeRef(podcast_slug=podcast_slug, episode_json=episode_json)
+        resolved = ResolvedEpisode(
+            podcast_dir=output_dir / podcast_slug,
+            episode=_make_episode(),
+            audio_path=audio_path,
+            transcript_path=None,
+        )
+        return resolved, ref, dataset_root
+
+    def test_empty_transcript_writes_labels_with_zero_segments(self, tmp_path):
+        resolved, ref, dataset_root = self._setup(tmp_path)
+
+        with patch("eval.label.transcribe", return_value=[]), \
+             patch("eval.label._get_audio_duration", return_value=600.0):
+            path = _label_resolved(
+                resolved, ref, AD_CONFIG, dataset_root,
+                client=None,
+                transcript_cache={},
+            )
+
+        labels = Labels.load(path)
+        assert labels.segments == []
+
+    def test_empty_transcript_logs_warning(self, tmp_path, caplog):
+        resolved, ref, dataset_root = self._setup(tmp_path)
+
+        with patch("eval.label.transcribe", return_value=[]), \
+             patch("eval.label._get_audio_duration", return_value=600.0), \
+             caplog.at_level(logging.WARNING, logger="eval.label"):
+            _label_resolved(
+                resolved, ref, AD_CONFIG, dataset_root,
+                client=None,
+                transcript_cache={},
+            )
+
+        warning_messages = [r.message for r in caplog.records if r.levelno == logging.WARNING]
+        assert any("Empty transcript" in m for m in warning_messages), (
+            f"Expected 'Empty transcript' warning, got: {warning_messages}"
+        )
 
 
 # ---------------------------------------------------------------------------
