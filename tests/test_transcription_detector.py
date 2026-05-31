@@ -18,6 +18,7 @@ from podcast_etl.detectors.transcription import (
     classify,
     get_llm_provider,
     load_prompt,
+    normalize_whisper_config,
     transcribe,
 )
 
@@ -238,6 +239,37 @@ class TestLoadPrompt:
         prompts_dir = Path(__file__).resolve().parents[1] / "prompts"
         text = load_prompt("default", prompts_dir=prompts_dir)
         assert "ad-segment detector" in text
+
+
+# ---------------------------------------------------------------------------
+# normalize_whisper_config
+# ---------------------------------------------------------------------------
+
+class TestNormalizeWhisperConfig:
+    def test_returns_defaults_when_config_is_empty(self):
+        result = normalize_whisper_config({})
+        assert result == {"model": "base", "language": "en"}
+
+    def test_explicit_values_are_preserved(self):
+        result = normalize_whisper_config({"model": "large-v3", "language": "fr"})
+        assert result == {"model": "large-v3", "language": "fr"}
+
+    def test_extra_fields_are_dropped(self):
+        result = normalize_whisper_config({
+            "model": "tiny",
+            "language": "de",
+            "api_key": "secret",
+            "url": "http://whisper.local",
+            "device": "cuda",
+            "compute_type": "float16",
+        })
+        assert result == {"model": "tiny", "language": "de"}
+        assert "api_key" not in result
+        assert "url" not in result
+
+    def test_partial_config_applies_defaults_for_missing_keys(self):
+        assert normalize_whisper_config({"model": "medium"}) == {"model": "medium", "language": "en"}
+        assert normalize_whisper_config({"language": "ja"}) == {"model": "base", "language": "ja"}
 
 
 # ---------------------------------------------------------------------------

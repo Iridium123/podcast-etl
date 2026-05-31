@@ -20,6 +20,21 @@ PROMPTS_DIR = Path("prompts")
 DEFAULT_LLM_MODEL = "claude-haiku-4-5-20251001"
 
 
+def normalize_whisper_config(whisper: dict[str, Any]) -> dict[str, Any]:
+    """Extract only the transcript-affecting whisper fields for provenance/cache keys.
+
+    Returns the subset of the whisper config dict that determines whether a
+    cached transcript is still valid: model and language. Fields that don't
+    affect transcription output (e.g. ``api_key``, ``url``, ``device``,
+    ``compute_type``) are intentionally excluded so they don't fragment the
+    cache or cause spurious re-transcriptions.
+    """
+    return {
+        "model": whisper.get("model", "base"),
+        "language": whisper.get("language", "en"),
+    }
+
+
 def load_prompt(name: str, prompts_dir: Path | None = None) -> str:
     """Read the classification prompt named *name* from the prompts directory.
 

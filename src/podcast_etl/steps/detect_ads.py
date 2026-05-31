@@ -13,6 +13,7 @@ from podcast_etl.detectors.transcription import (
     DEFAULT_LLM_MODEL,
     TranscriptionDetector,
     build_llm_client,
+    normalize_whisper_config,
     transcribe,
 )
 from podcast_etl.labels import EpisodeRef, Labels, Provenance
@@ -67,11 +68,7 @@ def _save_transcript(
 
 def _normalize_whisper(ad_config: dict[str, Any]) -> dict[str, Any]:
     """Extract the transcript-affecting whisper settings for provenance."""
-    whisper = ad_config.get("whisper", {})
-    return {
-        "model": whisper.get("model", "base"),
-        "language": whisper.get("language", "en"),
-    }
+    return normalize_whisper_config(ad_config.get("whisper", {}))
 
 
 def _llm_provenance(ad_config: dict[str, Any]) -> dict[str, str]:
