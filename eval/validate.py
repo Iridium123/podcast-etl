@@ -15,6 +15,16 @@ def validate_labels(labels: Labels) -> list[str]:
     """
     errors: list[str] = []
 
+    # Segments present but no annotator means a hand-corrected file that forgot
+    # to set annotator — it would be silently excluded by score_datasets' default
+    # human-only filter. (A blank skeleton with no segments legitimately has an
+    # empty annotator during creation, so only flag when segments exist.)
+    if labels.segments and not labels.provenance.annotator:
+        errors.append(
+            "provenance.annotator is empty but segments are present — "
+            "set it to 'human' once labeling is complete"
+        )
+
     sorted_segs = sorted(labels.segments, key=lambda s: s.start)
     for i, seg in enumerate(sorted_segs):
         if seg.start < 0 or seg.end < 0:

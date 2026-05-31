@@ -10,13 +10,13 @@ from podcast_etl.labels import EpisodeRef, Labels, Provenance
 from eval.validate import validate_dataset, validate_labels
 
 
-def _labels(segments, audio_duration=100.0):
+def _labels(segments, audio_duration=100.0, annotator="human"):
     return Labels(
         episode_ref=EpisodeRef(podcast_slug="pod", episode_json="ep.json"),
         audio_duration=audio_duration,
         segments=segments,
         provenance=Provenance(
-            whisper={}, llm={}, annotator="human", created_at="2026-05-31T00:00:00",
+            whisper={}, llm={}, annotator=annotator, created_at="2026-05-31T00:00:00",
         ),
     )
 
@@ -49,6 +49,16 @@ class TestValidateLabels:
     def test_adjacent_segments_ok(self):
         # end == next.start is contiguous, not overlapping
         assert validate_labels(_labels([_seg(0, 30), _seg(30, 40)])) == []
+
+    def test_empty_annotator_with_segments_flagged(self):
+        # A filled-in annotation that forgot to set annotator would be silently
+        # excluded by the human-only score filter — flag it.
+        errors = validate_labels(_labels([_seg(0, 10)], annotator=""))
+        assert any("annotator" in e for e in errors)
+
+    def test_blank_skeleton_not_flagged_for_empty_annotator(self):
+        # A blank (no segments) legitimately has an empty annotator during creation.
+        assert validate_labels(_labels([], annotator="")) == []
 
 
 class TestValidateDataset:

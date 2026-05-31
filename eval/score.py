@@ -16,8 +16,15 @@ MatcherFunc = Callable[[AdSegment, AdSegment, float], bool]
 
 
 def overlap_fraction_matcher(predicted: AdSegment, gold: AdSegment, threshold: float = 0.5) -> bool:
-    """Return True if the overlap between predicted and gold exceeds threshold
-    fraction of the gold segment's duration."""
+    """Return True if the overlap exceeds *threshold* of the **gold** duration.
+
+    Intentionally asymmetric (recall-oriented): the fraction is of the gold
+    segment, so a short prediction covering >half a long gold ad still matches.
+    The flip side is that an oversized prediction enclosing a short gold matches
+    regardless of how much non-ad it also spans — but that false-positive tail is
+    already reported separately via ``content_lost_seconds``, so a symmetric
+    ``overlap / min(gold, pred)`` would double-count it here. The matcher is
+    pluggable (``MatcherFunc``) if a different policy is wanted."""
     gold_duration = gold.end - gold.start
     if gold_duration <= 0:
         return False
@@ -226,17 +233,20 @@ def aggregate_scores(scores: list[EpisodeScore]) -> AggregateScore:
 
 def format_report(results: dict[str, AggregateScore]) -> str:
     """Format a comparison table of aggregate scores across configs."""
-    header = f"{'Config':<30} {'Prec':>6} {'Rec':>6} {'F1':>6} {'Start(med)':>11} {'End(med)':>11} {'Content-lost':>13} {'Ads-missed':>11}"
+    # Size the name column to the longest config name (min 30) so long names
+    # don't overflow and misalign the rest of the table.
+    width = max([30, *(len(n) for n in results)])
+    header = f"{'Config':<{width}} {'Prec':>6} {'Rec':>6} {'F1':>6} {'Start(med)':>11} {'End(med)':>11} {'Content-lost':>13} {'Ads-missed':>11}"
     lines = [header, "-" * len(header)]
 
     for name, agg in results.items():
         if agg.episode_count == 0:
-            lines.append(f"{name:<30} (no episodes scored — check warnings above)")
+            lines.append(f"{name:<{width}} (no episodes scored — check warnings above)")
             continue
         start_med = f"{agg.start_error_median:.1f}s"
         end_med = f"{agg.end_error_median:.1f}s"
         lines.append(
-            f"{name:<30} {agg.precision:>6.2f} {agg.recall:>6.2f} {agg.f1:>6.2f} "
+            f"{name:<{width}} {agg.precision:>6.2f} {agg.recall:>6.2f} {agg.f1:>6.2f} "
             f"{start_med:>11} {end_med:>11} {agg.total_content_lost:>12.1f}s {agg.total_ads_missed:>10.1f}s"
         )
 

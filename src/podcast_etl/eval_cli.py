@@ -8,7 +8,9 @@ project-root ``sys.path`` insertion) is only paid when an eval command runs.
 
 from __future__ import annotations
 
+import json
 import sys
+from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
 
@@ -21,14 +23,6 @@ def _ensure_eval_importable() -> None:
     """Add the project root to sys.path so ``from eval.X import ...`` resolves."""
     if str(_PROJECT_ROOT) not in sys.path:
         sys.path.insert(0, str(_PROJECT_ROOT))
-
-
-def _audio_duration(audio_path: Path) -> float:
-    """Audio duration in seconds (mutagen). Patched in tests."""
-    from mutagen.mp3 import MP3
-
-    audio = MP3(audio_path)
-    return audio.info.length if audio.info is not None else 0.0
 
 
 @click.group(name="eval")
@@ -86,9 +80,6 @@ def score_cmd(predictions: tuple[str, ...], gold: str, allowed_annotators: str, 
     timestamp = datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
     results_dir.mkdir(parents=True, exist_ok=True)
 
-    from dataclasses import asdict
-    import json
-
     report_input = {}
     for pred in predictions:
         pred_dir = resolve_dataset_path(pred)
@@ -121,6 +112,7 @@ def annotate_cmd(podcast_slug: str, episode_json: str, dataset: str, blank: bool
     from eval.annotate import bootstrap_labels, create_blank
     from eval.datasets import resolve_dataset_path
     from eval.resolve import resolve_episode
+    from eval.run import _audio_duration
     from podcast_etl.labels import EpisodeRef, Labels
 
     ref = EpisodeRef(podcast_slug=podcast_slug, episode_json=episode_json)
@@ -202,7 +194,9 @@ def review_cmd(labels_path: Path, output_dir: Path) -> None:
 @eval_group.command(name="run")
 @click.option("--config", "config_path", type=click.Path(path_type=Path),
               default=Path("eval/eval_config.yaml"), show_default=True)
-def run_cmd(config_path: Path) -> None:
+@click.option("--prompts-dir", type=click.Path(path_type=Path), default=Path("prompts"), show_default=True,
+              help="Directory holding <prompt>.txt files")
+def run_cmd(config_path: Path, prompts_dir: Path) -> None:
     """Run the eval matrix from a config file and print a comparison report."""
     _ensure_eval_importable()
     from eval.datasets import resolve_dataset_path
@@ -211,6 +205,10 @@ def run_cmd(config_path: Path) -> None:
 
     if not config_path.exists():
         raise click.ClickException(f"Config not found: {config_path}")
+    # Surface a missing prompts dir here rather than deep inside run_eval (where
+    # it would only fail when the first prompt file is read).
+    if not prompts_dir.exists():
+        raise click.ClickException(f"Prompts directory not found: {prompts_dir}")
 
     eval_dir = config_path.parent
     rc = load_run_config(config_path)
@@ -219,7 +217,7 @@ def run_cmd(config_path: Path) -> None:
         output_dir=Path(rc.output_dir),
         gold_dir=resolve_dataset_path(rc.gold, datasets_dir=eval_dir / "datasets"),
         datasets_dir=eval_dir / "datasets",
-        prompts_dir=Path("prompts"),
+        prompts_dir=prompts_dir,
         results_dir=eval_dir / "results",
         timestamp=datetime.now().strftime("%Y-%m-%dT%H-%M-%S"),
         allowed_annotators=rc.allowed_annotators,

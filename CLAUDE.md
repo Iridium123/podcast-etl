@@ -56,7 +56,7 @@ Eval harness tests live in `tests/test_eval/`:
 - `test_datasets.py` -- `ref_key`, `load_dataset` (keyed by `episode_ref`, ignores non-`labels/` dirs, missing-root error), `resolve_dataset_path` (literal path vs bare name)
 - `test_resolve.py` -- `resolve_episode` (audio/transcript path derivation; error branches: missing podcast/episode/audio/download-status/path)
 - `test_score.py` -- `overlap_fraction_matcher`, `match_segments` (greedy assignment), `score_episode`, `aggregate_scores` (precision/recall/F1, abs boundary errors), `format_report`
-- `test_validate.py` -- `validate_labels`/`validate_dataset` (negative, start>=end, exceeds duration, overlap; touching boundaries OK)
+- `test_validate.py` -- `validate_labels`/`validate_dataset` (negative, start>=end, exceeds duration, overlap; touching boundaries OK; empty annotator flagged only when segments present)
 - `test_review.py` -- `format_review`/`review_labels_file` (transcript with ad-segment highlighting via U+258C left half block)
 - `test_annotate.py` -- `create_blank` skeleton, `bootstrap_labels` (deep copy, annotator override, independence from source)
 - `test_label.py` -- `classify_to_segments` (production `classify` + `resolve_overlaps`), `make_labels` (provenance with normalized whisper, annotator defaulting to llm model)

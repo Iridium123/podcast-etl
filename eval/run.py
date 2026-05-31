@@ -280,11 +280,15 @@ def run_eval(
             prompt_cache[config.prompt] = (prompts_dir / f"{config.prompt}.txt").read_text()
 
     if client is None:
-        # One shared client for prompt-cache reuse across configs. api_key is
-        # taken from the first config that sets one (rarely per-config; the SDK
-        # otherwise falls back to the ANTHROPIC_API_KEY env var).
-        api_key = next((c.llm.get("api_key") for c in configs if c.llm.get("api_key")), None)
-        client = build_llm_client({"provider": "anthropic", "api_key": api_key})
+        # One shared client for prompt-cache reuse across configs — but only when
+        # all configs agree on a provider, so we never hand a config an
+        # other-provider client. With mixed providers, leave client=None and let
+        # each classify call build its own. api_key comes from the first config
+        # that sets one (rarely per-config; the SDK otherwise falls back to env).
+        providers = {c.llm.get("provider", "anthropic") for c in configs}
+        if len(providers) == 1:
+            api_key = next((c.llm.get("api_key") for c in configs if c.llm.get("api_key")), None)
+            client = build_llm_client({"provider": next(iter(providers)), "api_key": api_key})
 
     transcript_cache: dict[tuple[str, str], list[dict[str, Any]]] = {}
     results: dict[str, AggregateScore] = {}

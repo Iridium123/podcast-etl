@@ -114,7 +114,7 @@ class TestAnnotateCommand:
         output_dir = tmp_path / "output"
         _episode(output_dir, with_labels=False)
         datasets_dir = tmp_path / "datasets"
-        with patch("podcast_etl.eval_cli._audio_duration", return_value=60.0):
+        with patch("eval.run._audio_duration", return_value=60.0):
             result = CliRunner().invoke(main, [
                 "-c", str(_feeds(tmp_path)), "eval", "annotate", "p", "ep.json",
                 "--blank", "--dataset", "gold", "--output-dir", str(output_dir),
@@ -159,3 +159,13 @@ class TestRunCommand:
         ])
         assert result.exit_code != 0
         assert "not found" in result.output.lower()
+
+    def test_missing_prompts_dir_errors_early(self, tmp_path):
+        config = tmp_path / "eval_config.yaml"
+        config.write_text("gold: gold\noutput_dir: ./output\nconfigs: []\n")
+        result = CliRunner().invoke(main, [
+            "-c", str(_feeds(tmp_path)), "eval", "run",
+            "--config", str(config), "--prompts-dir", str(tmp_path / "no-prompts"),
+        ])
+        assert result.exit_code != 0
+        assert "Prompts directory not found" in result.output
