@@ -3,12 +3,19 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from podcast_etl.detectors import AdSegment, resolve_overlaps
-from podcast_etl.detectors.transcription import TranscriptionDetector, transcribe
-from podcast_etl.models import Episode
+from podcast_etl.detectors.transcription import (
+    DEFAULT_LLM_MODEL,
+    TranscriptionDetector,
+    build_llm_client,
+    transcribe,
+)
+from podcast_etl.labels import EpisodeRef, Labels, Provenance
+from podcast_etl.models import Episode, episode_json_filename
 from podcast_etl.pipeline import PipelineContext, StepResult
 
 logger = logging.getLogger(__name__)
@@ -53,6 +60,25 @@ def _save_transcript(
     return f"transcripts/{filename}"
 
 
+def _normalize_whisper(ad_config: dict[str, Any]) -> dict[str, Any]:
+    """Extract the transcript-affecting whisper settings for provenance."""
+    whisper = ad_config.get("whisper", {})
+    return {
+        "model": whisper.get("model", "base"),
+        "language": whisper.get("language", "en"),
+    }
+
+
+def _llm_provenance(ad_config: dict[str, Any]) -> dict[str, str]:
+    """Extract the LLM identity (provider/model/prompt) for provenance."""
+    llm = ad_config.get("llm", {})
+    return {
+        "provider": llm.get("provider", "anthropic"),
+        "model": llm.get("model", DEFAULT_LLM_MODEL),
+        "prompt": llm.get("prompt", "default"),
+    }
+
+
 @dataclass
 class DetectAdsStep:
     name: str = "detect_ads"
@@ -74,13 +100,30 @@ class DetectAdsStep:
                 transcript_segments, context.podcast_dir, transcript_filename,
             )
 
+        if not transcript_segments:
+            # An empty transcript almost always means transcription failed or
+            # produced nothing (bad audio, wrong language, whisper outage) rather
+            # than a genuinely speech-free episode. Record it as 0 ads but make
+            # the cause visible — the generic "0 ads" log is indistinguishable
+            # from a real no-ads episode.
+            logger.warning(
+                "Transcription produced 0 segments for %s (%s) — recording 0 ads; "
+                "check whisper config/connectivity",
+                audio_path.name, episode.slug,
+            )
+
+        # One LLM client per step invocation, threaded through classification so
+        # the cacheable prompt is reused across calls. Skip construction when
+        # there's nothing to classify (avoids requiring credentials needlessly).
+        client = build_llm_client(ad_config.get("llm", {})) if transcript_segments else None
+
         # Run detectors (pass pre-transcribed segments to avoid double transcription)
         all_segments: list[AdSegment] = []
         detectors_used: list[str] = []
 
         detector = TranscriptionDetector()
         detectors_used.append(detector.name)
-        detected = detector.classify_transcript(transcript_segments, ad_config)
+        detected = detector.classify_transcript(transcript_segments, ad_config, client=client)
         all_segments.extend(detected)
 
         merged = resolve_overlaps(all_segments)
@@ -92,10 +135,33 @@ class DetectAdsStep:
             len(merged), total_ad_duration, audio_duration, audio_path.name,
         )
 
+        # Write labels as a first-class artifact parallel to transcripts/.
+        whisper_norm = _normalize_whisper(ad_config)
+        llm_norm = _llm_provenance(ad_config)
+        episode_json = episode_json_filename(
+            episode.guid, episode.raw_title or episode.title, episode.published,
+        ) + ".json"
+        labels = Labels(
+            episode_ref=EpisodeRef(
+                podcast_slug=context.podcast.slug, episode_json=episode_json,
+            ),
+            audio_duration=round(audio_duration, 2),
+            segments=merged,
+            provenance=Provenance(
+                whisper=whisper_norm,
+                llm=llm_norm,
+                annotator=llm_norm["model"],
+                created_at=datetime.now().isoformat(),
+            ),
+        )
+        labels_relative = f"labels/{audio_path.stem}.json"
+        labels.save(context.podcast_dir / labels_relative)
+
         return StepResult(data={
-            "segments": [s.to_dict() for s in merged],
-            "total_ad_duration": round(total_ad_duration, 2),
-            "audio_duration": round(audio_duration, 2),
-            "detectors_used": detectors_used,
+            "labels_path": labels_relative,
             "transcript_path": transcript_path,
+            "total_ad_duration": round(total_ad_duration, 2),
+            "detectors_used": detectors_used,
+            "whisper": whisper_norm,
+            "llm": llm_norm,
         })

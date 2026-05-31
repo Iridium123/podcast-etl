@@ -14,7 +14,10 @@ from podcast_etl.detectors.transcription import (
     _get_whisper_model,
     _parse_llm_response,
     _transcribe_local,
+    build_llm_client,
+    classify,
     get_llm_provider,
+    load_prompt,
     transcribe,
 )
 
@@ -217,50 +220,133 @@ class TestParseLlmResponse:
 
 
 # ---------------------------------------------------------------------------
-# AnthropicProvider
+# load_prompt
 # ---------------------------------------------------------------------------
 
-class TestAnthropicProvider:
-    def test_classify_ads_calls_anthropic(self):
+class TestLoadPrompt:
+    def test_loads_named_prompt(self, tmp_path):
+        (tmp_path / "custom.txt").write_text("Custom prompt text")
+        assert load_prompt("custom", prompts_dir=tmp_path) == "Custom prompt text"
+
+    def test_raises_clear_error_when_missing(self, tmp_path):
+        with pytest.raises(FileNotFoundError, match="prompt 'nope' not found"):
+            load_prompt("nope", prompts_dir=tmp_path)
+
+    def test_default_prompt_ships_with_project(self):
+        # The repo-root prompts/default.txt is the built-in prompt.
+        text = load_prompt("default")
+        assert "ad-segment detector" in text
+
+
+# ---------------------------------------------------------------------------
+# build_llm_client
+# ---------------------------------------------------------------------------
+
+class TestBuildLlmClient:
+    def test_builds_anthropic_client(self):
+        mock_anthropic = MagicMock()
+        with patch.dict("sys.modules", {"anthropic": mock_anthropic}):
+            client = build_llm_client({"provider": "anthropic", "api_key": "k"})
+        mock_anthropic.Anthropic.assert_called_once_with(api_key="k")
+        assert client is mock_anthropic.Anthropic.return_value
+
+    def test_returns_none_for_other_providers(self):
+        assert build_llm_client({"provider": "other"}) is None
+
+
+# ---------------------------------------------------------------------------
+# classify
+# ---------------------------------------------------------------------------
+
+class TestClassify:
+    def test_sends_prompt_as_cached_system_block(self):
         mock_message = MagicMock()
         mock_message.content = [MagicMock(text=_llm_response_json([
             {"start": 0.0, "end": 30.0, "confidence": 0.85, "label": "Pre-roll ad"},
         ]))]
-
         mock_client = MagicMock()
         mock_client.messages.create.return_value = mock_message
 
-        mock_anthropic = MagicMock()
-        mock_anthropic.Anthropic.return_value = mock_client
-
-        config = {"llm": {"model": "claude-sonnet-4-20250514"}}
-
-        with patch.dict("sys.modules", {"anthropic": mock_anthropic}):
-            provider = AnthropicProvider()
-            result = provider.classify_ads(_whisper_segments(), config)
+        result = classify(
+            _whisper_segments(), "PROMPT TEXT",
+            {"model": "claude-haiku-4-5-20251001"}, client=mock_client,
+        )
 
         assert len(result) == 1
-        assert result[0].start == 0.0
         assert result[0].label == "Pre-roll ad"
-        mock_client.messages.create.assert_called_once()
+        call_kwargs = mock_client.messages.create.call_args.kwargs
+        assert call_kwargs["model"] == "claude-haiku-4-5-20251001"
+        # Prompt goes in a cacheable system block...
+        assert call_kwargs["system"] == [
+            {"type": "text", "text": "PROMPT TEXT", "cache_control": {"type": "ephemeral"}}
+        ]
+        # ...and the transcript is the user message.
+        user_content = call_kwargs["messages"][0]["content"]
+        assert user_content.startswith("Transcript:")
+        assert "brought to you by Acme Corp" in user_content
 
-    def test_passes_configured_model(self):
+    def test_reuses_passed_client(self):
         mock_message = MagicMock()
         mock_message.content = [MagicMock(text=_llm_response_json([]))]
-
         mock_client = MagicMock()
         mock_client.messages.create.return_value = mock_message
 
+        # A passed client means no new anthropic client is constructed.
+        with patch.dict("sys.modules", {"anthropic": MagicMock()}) as mods:
+            classify([], "P", {"model": "m"}, client=mock_client)
+            mods["anthropic"].Anthropic.assert_not_called()
+
+    def test_constructs_client_when_none(self):
+        mock_message = MagicMock()
+        mock_message.content = [MagicMock(text=_llm_response_json([]))]
+        mock_client = MagicMock()
+        mock_client.messages.create.return_value = mock_message
         mock_anthropic = MagicMock()
         mock_anthropic.Anthropic.return_value = mock_client
 
-        config = {"llm": {"model": "claude-haiku-4-5-20251001"}}
-
         with patch.dict("sys.modules", {"anthropic": mock_anthropic}):
-            AnthropicProvider().classify_ads([], config)
+            classify([], "P", {"model": "m", "api_key": "k"}, client=None)
 
-        call_kwargs = mock_client.messages.create.call_args.kwargs
-        assert call_kwargs["model"] == "claude-haiku-4-5-20251001"
+        mock_anthropic.Anthropic.assert_called_once_with(api_key="k")
+
+
+# ---------------------------------------------------------------------------
+# AnthropicProvider
+# ---------------------------------------------------------------------------
+
+class TestAnthropicProvider:
+    def test_classify_ads_resolves_prompt_and_calls_classify(self, tmp_path):
+        (tmp_path / "default.txt").write_text("RESOLVED PROMPT")
+        mock_client = MagicMock()
+
+        with patch("podcast_etl.detectors.transcription.load_prompt", return_value="RESOLVED PROMPT") as mock_load:
+            with patch("podcast_etl.detectors.transcription.classify", return_value=[]) as mock_classify:
+                AnthropicProvider().classify_ads(
+                    _whisper_segments(),
+                    {"llm": {"model": "m", "prompt": "default"}},
+                    client=mock_client,
+                )
+
+        mock_load.assert_called_once_with("default")
+        mock_classify.assert_called_once()
+        args, kwargs = mock_classify.call_args
+        assert args[1] == "RESOLVED PROMPT"
+        assert kwargs["client"] is mock_client
+
+    def test_classify_ads_end_to_end(self):
+        mock_message = MagicMock()
+        mock_message.content = [MagicMock(text=_llm_response_json([
+            {"start": 0.0, "end": 30.0, "confidence": 0.85, "label": "Pre-roll ad"},
+        ]))]
+        mock_client = MagicMock()
+        mock_client.messages.create.return_value = mock_message
+
+        result = AnthropicProvider().classify_ads(
+            _whisper_segments(), {"llm": {"model": "m"}}, client=mock_client,
+        )
+
+        assert len(result) == 1
+        assert result[0].label == "Pre-roll ad"
 
 
 # ---------------------------------------------------------------------------

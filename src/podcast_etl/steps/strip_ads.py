@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from podcast_etl.detectors import AdSegment
+from podcast_etl.labels import Labels
 from podcast_etl.models import Episode
 from podcast_etl.pipeline import PipelineContext, StepResult
 
@@ -172,8 +173,14 @@ class StripAdsStep:
         if not detect_status:
             raise ValueError(f"Episode {episode.slug} has no completed 'detect_ads' step")
 
-        raw_segments = detect_status.result.get("segments", [])
-        audio_duration = detect_status.result.get("audio_duration", 0.0)
+        labels_path = detect_status.result.get("labels_path")
+        if not labels_path:
+            raise ValueError(
+                f"Episode {episode.slug} detect_ads result has no 'labels_path'"
+            )
+        labels = Labels.load(context.podcast_dir / labels_path)
+        segments = labels.segments
+        audio_duration = labels.audio_duration
 
         # Get original audio path
         download_status = episode.status.get("download")
@@ -182,7 +189,7 @@ class StripAdsStep:
         original_relative = download_status.result.get("path", "")
         audio_path = context.podcast_dir / original_relative
 
-        if not raw_segments:
+        if not segments:
             logger.info("No ad segments to strip for %s", audio_path.name)
             return StepResult(data={
                 "path": original_relative,
@@ -190,8 +197,6 @@ class StripAdsStep:
                 "segments_removed": 0,
                 "duration_removed": 0.0,
             })
-
-        segments = [AdSegment.from_dict(s) for s in raw_segments]
 
         cleaned_dir = context.podcast_dir / "cleaned"
         cleaned_dir.mkdir(parents=True, exist_ok=True)

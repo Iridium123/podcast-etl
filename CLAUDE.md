@@ -29,9 +29,11 @@ Tests live in `tests/` and use pytest:
 - `test_tag_step.py` -- `TagStep` MP3 tagging, TRCK track number, APIC album art embedding, audio file discovery, error cases
 - `test_qbittorrent_client.py` -- `QBittorrentClient` login, has_torrent, add_torrent
 - `test_unit3d_tracker.py` -- `ModifiedUnit3dTracker` upload, field construction, image handling, cover override precedence
-- `test_transcription_detector.py` -- `TranscriptionDetector` whisper API, local transcription, `AnthropicProvider` LLM calls, `resolve_overlaps` (overlap/near-adjacent snapping, containment drop, buffer), `_parse_llm_response`
-- `test_detect_ads_step.py` -- `DetectAdsStep` orchestration, config merging, transcript saving/reuse, segment merging
-- `test_strip_ads_step.py` -- `StripAdsStep` ffmpeg args, idempotency, no-ads passthrough
+- `test_transcription_detector.py` -- `TranscriptionDetector` whisper API, local transcription, `load_prompt`, `build_llm_client`, `classify` (cached system prompt, client reuse), `AnthropicProvider` (prompt resolution + classify), `resolve_overlaps` (overlap/near-adjacent snapping, containment drop, buffer), `_parse_llm_response`
+- `test_detect_ads_step.py` -- `DetectAdsStep` orchestration, config merging, transcript saving/reuse, overlap resolution, standalone labels-file output
+- `test_strip_ads_step.py` -- `StripAdsStep` ffmpeg args, idempotency, no-ads passthrough, reading segments from the labels file
+- `test_labels.py` -- `Labels`/`Provenance`/`EpisodeRef` to_dict/from_dict, save/load roundtrip, on-disk shape, `AdSegment.notes`
+- `test_migrate_labels.py` -- `scripts/migrate_labels.py` migration of embedded segments to label files, dry-run, idempotency, CLI entry
 - `test_stage_step.py` -- `StageStep` copy, idempotency, client_path rebasing, strip_ads fallback
 - `test_torrent_step.py` -- `TorrentStep` mktorrent args, idempotency, error cases
 - `test_seed_step.py` -- `SeedStep` add_torrent, idempotency, client resolution
@@ -83,6 +85,7 @@ Click commands: `add`, `fetch`, `run`, `reset`, `delete`, `status`, `poll`, `ser
 ### Core modules
 
 - `models.py` -- `Podcast`, `Episode`, `StepStatus` dataclasses with `save()`/`load()` methods. `Episode.raw_title` stores the original RSS title before cleaning. `episode_json_filename()` produces stable GUID-based filenames.
+- `labels.py` -- `Labels`, `Provenance`, `EpisodeRef` dataclasses. `Labels` is the first-class on-disk ad-label artifact (`save`/`load`), written by `detect_ads` to `output/<slug>/labels/<stem>.json` and read by `strip_ads`.
 - `feed.py` -- fetches RSS via `feedparser`, parses into models, merges existing on-disk step status to preserve progress. Parses `itunes:episode` into `Episode.episode_number` and `itunes:image` into `Episode.image_url`.
 - `pipeline.py` -- `Pipeline` runs registered `Step` instances over episodes, skipping completed ones. `PipelineContext` carries `output_dir`, `podcast`, and resolved config. `deep_merge` and `resolve_feed_config` handle config inheritance.
 - `poller.py` -- synchronous `run_poll_loop` (for standalone `poll` command) and async `async_poll_loop` (for `serve` command). Both reload config each cycle. `PollControl` dataclass provides pause/resume/run-now/shutdown via asyncio events.
@@ -96,8 +99,8 @@ Each step implements the `Step` protocol (`name: str`, `process(episode, context
 
 - `download` -- fetch audio from RSS `audio_url`
 - `tag` -- ID3 metadata, TRCK track number from `episode_number`, APIC album art (episode image -> feed image fallback, 600x600 JPEG)
-- `detect_ads` -- transcribe via local `faster-whisper` or remote whisper server, classify segments via LLM (Anthropic Claude). Saves transcript for reuse on retry.
-- `strip_ads` -- remove ad segments via ffmpeg with crossfade
+- `detect_ads` -- transcribe via local `faster-whisper` or remote whisper server, classify segments via LLM (Anthropic Claude). Saves transcript for reuse on retry. Writes a `Labels` file to `labels/<stem>.json`; the step result records `labels_path`/`transcript_path`/`whisper`/`llm` (no inline segments).
+- `strip_ads` -- remove ad segments via ffmpeg with crossfade; loads segments + audio duration from the `detect_ads` labels file (no embedded-segments fallback)
 - `stage` -- copy audio to `torrent_data_dir/`; prefers cleaned audio, falls back to download
 - `torrent` -- create `.torrent` via `mktorrent`, extract `info_hash` via `torf`
 - `seed` -- add torrent to qBittorrent via Web API
@@ -108,7 +111,7 @@ Each step implements the `Step` protocol (`name: str`, `process(episode, context
 
 - `clients/qbittorrent.py` -- `QBittorrentClient` implementing `TorrentClient` protocol; session-based auth
 - `trackers/unit3d.py` -- `ModifiedUnit3dTracker` implementing `Tracker` protocol; multipart upload to UNIT3D REST API
-- `detectors/` -- `AdSegment` dataclass, `Detector`/`LLMProvider` protocols, `resolve_overlaps` utility (greedy earliest-start-wins: snaps overlapping/near-adjacent segments — gap ≤ `ADJACENCY_BUFFER_SECONDS`, default 5s — to a contiguous, non-overlapping sequence while keeping each segment distinct; drops fully-contained segments). `TranscriptionDetector` handles whisper + LLM classification; `AnthropicProvider` for Claude API.
+- `detectors/` -- `AdSegment` dataclass (with optional `notes`), `Detector`/`LLMProvider` protocols, `resolve_overlaps` utility (greedy earliest-start-wins: snaps overlapping/near-adjacent segments — gap ≤ `ADJACENCY_BUFFER_SECONDS`, default 5s — to a contiguous, non-overlapping sequence while keeping each segment distinct; drops fully-contained segments). `transcription.py` owns the production classify code path: `load_prompt(name)` reads `prompts/<name>.txt`; `build_llm_client(llm_config)` makes one reusable client; `classify(transcript, prompt_text, llm_config, client=None)` is the single classify function (prompt sent as a cacheable `ephemeral` system block, transcript as the user message). `TranscriptionDetector` handles whisper + classification; `AnthropicProvider` resolves the prompt name and calls `classify`.
 
 ### Config format
 
@@ -123,7 +126,7 @@ defaults:
   blacklist: ["John Doe"]
   pipeline: [download, tag, detect_ads, strip_ads, stage, torrent, seed, upload]
   title_cleaning: {strip_date: false, reorder_parts: false, prepend_episode_number: false, sanitize: false}
-  ad_detection: {whisper: {model: base, language: en}, llm: {provider: anthropic, model: claude-sonnet-4-20250514}, min_confidence: 0.5}
+  ad_detection: {whisper: {model: base, language: en}, llm: {provider: anthropic, model: claude-sonnet-4-20250514, prompt: default}, min_confidence: 0.5}
   audiobookshelf: {url: ..., api_key: ..., library_id: ..., dir: /podcasts}
   client: {url: ..., username: ..., password: ..., save_path: /data}
   tracker: {url: ..., remember_cookie: ..., announce_url: ..., anonymous: 0, personal_release: 0, mod_queue_opt_in: 0}
@@ -146,7 +149,7 @@ feeds:
 
 ### Docker
 
-The final image installs `mktorrent` and `ffmpeg` via `apt-get` and exposes port `8000`. Three volumes: `/config` (YAML config), `/output` (download/processing data), `/torrent-data` (staging dir shared with qBittorrent container). The default entrypoint runs `serve` (web UI + integrated poll loop).
+The final image installs `mktorrent` and `ffmpeg` via `apt-get` and exposes port `8000`. Three volumes: `/config` (YAML config), `/output` (download/processing data), `/torrent-data` (staging dir shared with qBittorrent container). The default entrypoint runs `serve` (web UI + integrated poll loop). The `prompts/` directory (ad-detection prompts, resolved relative to the `/app` working directory) is copied into the image.
 
 ### Adding a new pipeline step
 

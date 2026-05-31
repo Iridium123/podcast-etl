@@ -24,6 +24,9 @@ ENV PATH="/app/.venv/bin:$PATH"
 
 WORKDIR /app
 
+# Ad-detection prompts are resolved relative to the working directory (./prompts).
+COPY prompts/ prompts/
+
 FROM base AS test
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/

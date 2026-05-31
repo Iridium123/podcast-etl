@@ -12,27 +12,29 @@ from podcast_etl.detectors import AdSegment, LLMProvider
 
 logger = logging.getLogger(__name__)
 
-_CLASSIFY_PROMPT = """\
-You are an ad-segment detector for podcast audio. You will receive a timestamped \
-transcript of a podcast episode. Identify all advertisement segments, including:
-- Programmatic ads (dynamically inserted, often with abrupt topic changes)
-- Burned-in ads (pre-recorded by advertisers)
-- Host-read ads (hosts reading ad copy / sponsor mentions)
+# Prompts live in a project-root `prompts/` directory (resolved relative to the
+# current working directory, matching the `output_dir: ./output` convention).
+# The Docker image copies this directory into its WORKDIR.
+PROMPTS_DIR = Path("prompts")
 
-For each ad segment, return the start and end timestamps (in seconds) and a short \
-label describing the ad (e.g. "Pre-roll ad for Squarespace").
+DEFAULT_LLM_MODEL = "claude-haiku-4-5-20251001"
 
-Return ONLY valid JSON — no markdown fences, no commentary. Use this exact schema:
-{
-  "segments": [
-    {"start": 0.0, "end": 45.2, "confidence": 0.9, "label": "Pre-roll ad for Squarespace"}
-  ]
-}
 
-If there are no ads, return: {"segments": []}
+def load_prompt(name: str, prompts_dir: Path | None = None) -> str:
+    """Read the classification prompt named *name* from the prompts directory.
 
-Transcript:
-"""
+    Resolves ``<prompts_dir>/<name>.txt`` (default ``prompts/<name>.txt``).
+    Raises a clear error if the file is missing so misconfiguration surfaces
+    early rather than as an opaque failure mid-pipeline.
+    """
+    base = prompts_dir or PROMPTS_DIR
+    path = base / f"{name}.txt"
+    if not path.is_file():
+        raise FileNotFoundError(
+            f"Ad-detection prompt {name!r} not found at {path}. "
+            f"Create the file or set a valid 'ad_detection.llm.prompt' value."
+        )
+    return path.read_text(encoding="utf-8")
 
 
 def transcribe(audio_path: Path, config: dict[str, Any]) -> list[dict[str, Any]]:
@@ -125,33 +127,72 @@ def _format_transcript(segments: list[dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
+def build_llm_client(llm_config: dict[str, Any]) -> Any | None:
+    """Construct the LLM client for the configured provider, or None if N/A.
+
+    Takes the ``llm`` config dict (same shape ``classify`` accepts) so the two
+    compose cleanly: ``classify(t, p, llm_cfg, client=build_llm_client(llm_cfg))``.
+    Lets a caller build a single client per run and thread it through, so prompt
+    caching and connection reuse span multiple classify calls. Returns None for
+    providers without a client to share.
+    """
+    provider = llm_config.get("provider", "anthropic")
+    if provider == "anthropic":
+        import anthropic
+
+        api_key = llm_config.get("api_key") or None  # SDK falls back to env var
+        return anthropic.Anthropic(api_key=api_key)
+    return None
+
+
+def classify(
+    transcript: list[dict[str, Any]],
+    prompt_text: str,
+    llm_config: dict[str, Any],
+    client: Any | None = None,
+) -> list[AdSegment]:
+    """Classify a transcript into ad segments via the Anthropic API.
+
+    This is the single production classify code path. The prompt is sent as a
+    cacheable system block (``cache_control: ephemeral``) so repeated calls with
+    the same prompt hit Anthropic's prompt cache; the per-episode transcript is
+    the user message. Pass *client* to reuse one client across calls.
+    """
+    model = llm_config.get("model", DEFAULT_LLM_MODEL)
+    if client is None:
+        import anthropic
+
+        client = anthropic.Anthropic(api_key=llm_config.get("api_key") or None)
+
+    formatted = _format_transcript(transcript)
+
+    logger.info("Classifying ads via Anthropic (%s)", model)
+    message = client.messages.create(
+        model=model,
+        max_tokens=4096,
+        system=[{"type": "text", "text": prompt_text, "cache_control": {"type": "ephemeral"}}],
+        messages=[{"role": "user", "content": f"Transcript:\n{formatted}"}],
+    )
+
+    if not message.content or not hasattr(message.content[0], "text"):
+        raise ValueError(f"Unexpected Anthropic response content: {message.content!r}")
+    return _parse_llm_response(message.content[0].text)
+
+
 @dataclass
 class AnthropicProvider:
     name: str = "anthropic"
 
-    def classify_ads(self, transcript: list[dict[str, Any]], config: dict[str, Any]) -> list[AdSegment]:
-        import anthropic
-
+    def classify_ads(
+        self,
+        transcript: list[dict[str, Any]],
+        config: dict[str, Any],
+        client: Any | None = None,
+    ) -> list[AdSegment]:
         llm_config = config.get("llm", {})
-        api_key = llm_config.get("api_key") or None  # SDK falls back to env var
-        model = llm_config.get("model", "claude-haiku-4-5-20251001")
-
-        client = anthropic.Anthropic(api_key=api_key)
-
-        formatted = _format_transcript(transcript)
-        prompt = _CLASSIFY_PROMPT + formatted
-
-        logger.info("Classifying ads via Anthropic (%s)", model)
-        message = client.messages.create(
-            model=model,
-            max_tokens=4096,
-            messages=[{"role": "user", "content": prompt}],
-        )
-
-        if not message.content or not hasattr(message.content[0], "text"):
-            raise ValueError(f"Unexpected Anthropic response content: {message.content!r}")
-        response_text = message.content[0].text
-        return _parse_llm_response(response_text)
+        prompt_name = llm_config.get("prompt", "default")
+        prompt_text = load_prompt(prompt_name)
+        return classify(transcript, prompt_text, llm_config, client=client)
 
 
 def _parse_llm_response(response_text: str) -> list[AdSegment]:
@@ -167,10 +208,15 @@ def _parse_llm_response(response_text: str) -> list[AdSegment]:
         raise ValueError(f"LLM returned invalid JSON: {response_text!r}") from exc
     segments = []
     for seg in data.get("segments", []):
+        try:
+            start = float(seg["start"])
+            end = float(seg["end"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError(f"LLM segment missing/invalid start or end: {seg!r}") from exc
         segments.append(
             AdSegment(
-                start=float(seg["start"]),
-                end=float(seg["end"]),
+                start=start,
+                end=end,
                 confidence=float(seg.get("confidence", 0.8)),
                 detector="transcription",
                 label=seg.get("label", ""),
@@ -198,12 +244,17 @@ def get_llm_provider(config: dict[str, Any]) -> LLMProvider:
 class TranscriptionDetector:
     name: str = "transcription"
 
-    def detect(self, audio_path: Path, config: dict[str, Any]) -> list[AdSegment]:
+    def detect(
+        self, audio_path: Path, config: dict[str, Any], client: Any | None = None,
+    ) -> list[AdSegment]:
         segments = transcribe(audio_path, config)
-        return self.classify_transcript(segments, config)
+        return self.classify_transcript(segments, config, client=client)
 
     def classify_transcript(
-        self, segments: list[dict[str, Any]], config: dict[str, Any],
+        self,
+        segments: list[dict[str, Any]],
+        config: dict[str, Any],
+        client: Any | None = None,
     ) -> list[AdSegment]:
         """Classify pre-transcribed segments without re-transcribing."""
         if not segments:
@@ -213,5 +264,5 @@ class TranscriptionDetector:
         provider = get_llm_provider(config)
         min_confidence = config.get("min_confidence", 0.5)
 
-        ad_segments = provider.classify_ads(segments, config)
+        ad_segments = provider.classify_ads(segments, config, client=client)
         return [s for s in ad_segments if s.confidence >= min_confidence]

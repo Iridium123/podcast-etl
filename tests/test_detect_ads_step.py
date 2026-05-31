@@ -7,9 +7,26 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from podcast_etl.detectors import AdSegment
+from podcast_etl.labels import Labels
 from podcast_etl.models import Episode, Podcast, StepStatus
 from podcast_etl.pipeline import PipelineContext
 from podcast_etl.steps.detect_ads import DetectAdsStep, _get_ad_detection_config
+
+
+def _classify_transcript_patch(return_value):
+    """Patch TranscriptionDetector.classify_transcript to return *return_value*."""
+    transcription = __import__(
+        "podcast_etl.detectors.transcription", fromlist=["TranscriptionDetector"],
+    )
+    return patch.object(
+        transcription.TranscriptionDetector, "classify_transcript",
+        return_value=return_value,
+    )
+
+
+def _no_client():
+    """Patch build_llm_client so no real Anthropic client is constructed."""
+    return patch("podcast_etl.steps.detect_ads.build_llm_client", return_value=None)
 
 
 # ---------------------------------------------------------------------------
@@ -99,9 +116,10 @@ class TestGetAdDetectionConfig:
 # ---------------------------------------------------------------------------
 
 class TestDetectAdsStep:
-    def test_process_returns_detected_segments(self, tmp_path):
+    def test_process_writes_labels_file(self, tmp_path):
         context = _make_context(tmp_path, ad_detection_config={
-            "whisper": {"url": "http://localhost:9000"},
+            "whisper": {"url": "http://localhost:9000", "model": "base", "language": "en"},
+            "llm": {"provider": "anthropic", "model": "claude-haiku-4-5-20251001"},
         })
         episode = _make_episode()
         _create_audio_file(context)
@@ -111,21 +129,29 @@ class TestDetectAdsStep:
         ]
         whisper_segments = [{"start": 0.0, "end": 30.0, "text": "Ad copy"}]
 
-        with patch("podcast_etl.steps.detect_ads.transcribe", return_value=whisper_segments):
-            with patch.object(
-                __import__("podcast_etl.detectors.transcription", fromlist=["TranscriptionDetector"]).TranscriptionDetector,
-                "classify_transcript",
-                return_value=ad_segments,
-            ):
-                with patch("podcast_etl.steps.detect_ads._get_audio_duration", return_value=3600.0):
-                    result = DetectAdsStep().process(episode, context)
+        with _no_client(), \
+             patch("podcast_etl.steps.detect_ads.transcribe", return_value=whisper_segments), \
+             _classify_transcript_patch(ad_segments), \
+             patch("podcast_etl.steps.detect_ads._get_audio_duration", return_value=3600.0):
+            result = DetectAdsStep().process(episode, context)
 
-        assert len(result.data["segments"]) == 1
-        assert result.data["segments"][0]["start"] == 0.0
-        assert result.data["segments"][0]["label"] == "Pre-roll ad"
+        # Result records the label path + provenance, NOT inline segments.
+        assert "segments" not in result.data
+        assert "audio_duration" not in result.data
+        assert result.data["labels_path"] == "labels/episode.json"
         assert result.data["total_ad_duration"] == 30.0
-        assert result.data["audio_duration"] == 3600.0
         assert "transcription" in result.data["detectors_used"]
+        assert result.data["whisper"] == {"model": "base", "language": "en"}
+        assert result.data["llm"]["model"] == "claude-haiku-4-5-20251001"
+        assert result.data["llm"]["prompt"] == "default"
+
+        # The standalone labels file holds the segments + audio_duration.
+        labels = Labels.load(context.podcast_dir / result.data["labels_path"])
+        assert len(labels.segments) == 1
+        assert labels.segments[0].label == "Pre-roll ad"
+        assert labels.audio_duration == 3600.0
+        assert labels.episode_ref.podcast_slug == "my-podcast"
+        assert labels.provenance.annotator == "claude-haiku-4-5-20251001"
 
     def test_process_saves_transcript(self, tmp_path):
         context = _make_context(tmp_path, ad_detection_config={
@@ -136,14 +162,11 @@ class TestDetectAdsStep:
 
         whisper_segments = [{"start": 0.0, "end": 10.0, "text": "Hello"}]
 
-        with patch("podcast_etl.steps.detect_ads.transcribe", return_value=whisper_segments):
-            with patch.object(
-                __import__("podcast_etl.detectors.transcription", fromlist=["TranscriptionDetector"]).TranscriptionDetector,
-                "classify_transcript",
-                return_value=[],
-            ):
-                with patch("podcast_etl.steps.detect_ads._get_audio_duration", return_value=600.0):
-                    result = DetectAdsStep().process(episode, context)
+        with _no_client(), \
+             patch("podcast_etl.steps.detect_ads.transcribe", return_value=whisper_segments), \
+             _classify_transcript_patch([]), \
+             patch("podcast_etl.steps.detect_ads._get_audio_duration", return_value=600.0):
+            result = DetectAdsStep().process(episode, context)
 
         assert result.data["transcript_path"].startswith("transcripts/")
         transcript_file = context.podcast_dir / result.data["transcript_path"]
@@ -158,17 +181,15 @@ class TestDetectAdsStep:
         episode = _make_episode()
         _create_audio_file(context)
 
-        with patch("podcast_etl.steps.detect_ads.transcribe", return_value=[{"start": 0.0, "end": 10.0, "text": "Hi"}]):
-            with patch.object(
-                __import__("podcast_etl.detectors.transcription", fromlist=["TranscriptionDetector"]).TranscriptionDetector,
-                "classify_transcript",
-                return_value=[],
-            ):
-                with patch("podcast_etl.steps.detect_ads._get_audio_duration", return_value=600.0):
-                    result = DetectAdsStep().process(episode, context)
+        with _no_client(), \
+             patch("podcast_etl.steps.detect_ads.transcribe", return_value=[{"start": 0.0, "end": 10.0, "text": "Hi"}]), \
+             _classify_transcript_patch([]), \
+             patch("podcast_etl.steps.detect_ads._get_audio_duration", return_value=600.0):
+            result = DetectAdsStep().process(episode, context)
 
-        assert result.data["segments"] == []
         assert result.data["total_ad_duration"] == 0
+        labels = Labels.load(context.podcast_dir / result.data["labels_path"])
+        assert labels.segments == []
 
     def test_raises_without_download_step(self, tmp_path):
         context = _make_context(tmp_path)
@@ -197,20 +218,17 @@ class TestDetectAdsStep:
             AdSegment(start=20.0, end=50.0, confidence=0.8, detector="transcription", label="Ad 2"),
         ]
 
-        with patch("podcast_etl.steps.detect_ads.transcribe", return_value=[{"start": 0.0, "end": 60.0, "text": "stuff"}]):
-            with patch.object(
-                __import__("podcast_etl.detectors.transcription", fromlist=["TranscriptionDetector"]).TranscriptionDetector,
-                "classify_transcript",
-                return_value=ad_segments,
-            ):
-                with patch("podcast_etl.steps.detect_ads._get_audio_duration", return_value=600.0):
-                    result = DetectAdsStep().process(episode, context)
+        with _no_client(), \
+             patch("podcast_etl.steps.detect_ads.transcribe", return_value=[{"start": 0.0, "end": 60.0, "text": "stuff"}]), \
+             _classify_transcript_patch(ad_segments), \
+             patch("podcast_etl.steps.detect_ads._get_audio_duration", return_value=600.0):
+            result = DetectAdsStep().process(episode, context)
 
         # Overlap is resolved (later start snapped to the frontier) but the two
-        # ads stay distinct with their own labels — not fused into one.
-        segs = result.data["segments"]
-        assert [(s["start"], s["end"]) for s in segs] == [(0.0, 30.0), (30.0, 50.0)]
-        assert [s["label"] for s in segs] == ["Ad 1", "Ad 2"]
+        # ads stay distinct with their own labels in the labels file — not fused.
+        labels = Labels.load(context.podcast_dir / result.data["labels_path"])
+        assert [(s.start, s.end) for s in labels.segments] == [(0.0, 30.0), (30.0, 50.0)]
+        assert [s.label for s in labels.segments] == ["Ad 1", "Ad 2"]
         # total_ad_duration counts the union once (no double-count from overlap).
         assert result.data["total_ad_duration"] == 50.0
 
@@ -227,14 +245,11 @@ class TestDetectAdsStep:
         transcripts_dir.mkdir(parents=True, exist_ok=True)
         (transcripts_dir / "episode.json").write_text(json.dumps(transcript_segments))
 
-        with patch("podcast_etl.steps.detect_ads.transcribe") as mock_transcribe:
-            with patch.object(
-                __import__("podcast_etl.detectors.transcription", fromlist=["TranscriptionDetector"]).TranscriptionDetector,
-                "classify_transcript",
-                return_value=[],
-            ):
-                with patch("podcast_etl.steps.detect_ads._get_audio_duration", return_value=600.0):
-                    result = DetectAdsStep().process(episode, context)
+        with _no_client(), \
+             patch("podcast_etl.steps.detect_ads.transcribe") as mock_transcribe, \
+             _classify_transcript_patch([]), \
+             patch("podcast_etl.steps.detect_ads._get_audio_duration", return_value=600.0):
+            result = DetectAdsStep().process(episode, context)
 
         mock_transcribe.assert_not_called()
         assert result.data["transcript_path"] == "transcripts/episode.json"
@@ -252,13 +267,10 @@ class TestDetectAdsStep:
         transcripts_dir.mkdir(parents=True, exist_ok=True)
         (transcripts_dir / "episode.json").write_text("[]")
 
-        with patch("podcast_etl.steps.detect_ads.transcribe", return_value=[{"start": 0.0, "end": 10.0, "text": "Hi"}]) as mock_transcribe:
-            with patch.object(
-                __import__("podcast_etl.detectors.transcription", fromlist=["TranscriptionDetector"]).TranscriptionDetector,
-                "classify_transcript",
-                return_value=[],
-            ):
-                with patch("podcast_etl.steps.detect_ads._get_audio_duration", return_value=600.0):
-                    DetectAdsStep().process(episode, context)
+        with _no_client(), \
+             patch("podcast_etl.steps.detect_ads.transcribe", return_value=[{"start": 0.0, "end": 10.0, "text": "Hi"}]) as mock_transcribe, \
+             _classify_transcript_patch([]), \
+             patch("podcast_etl.steps.detect_ads._get_audio_duration", return_value=600.0):
+            DetectAdsStep().process(episode, context)
 
         mock_transcribe.assert_called_once()
