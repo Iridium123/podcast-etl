@@ -132,7 +132,7 @@ def _transcribe_remote(audio_path: Path, whisper_config: dict[str, Any]) -> list
     return data.get("segments", [])
 
 
-def _format_transcript(segments: list[dict[str, Any]]) -> str:
+def format_transcript(segments: list[dict[str, Any]]) -> str:
     """Format whisper segments into a readable timestamped transcript."""
     lines = []
     for seg in segments:
@@ -185,7 +185,7 @@ def classify(
 
         client = anthropic.Anthropic(api_key=llm_config.get("api_key") or None)
 
-    formatted = _format_transcript(transcript)
+    formatted = format_transcript(transcript)
 
     logger.info("Classifying ads via Anthropic (%s)", model)
     message = client.messages.create(
@@ -197,7 +197,7 @@ def classify(
 
     if not message.content or not hasattr(message.content[0], "text"):
         raise ValueError(f"Unexpected Anthropic response content: {message.content!r}")
-    return _parse_llm_response(message.content[0].text)
+    return parse_llm_response(message.content[0].text)
 
 
 @dataclass
@@ -216,7 +216,7 @@ class AnthropicProvider:
         return classify(transcript, prompt_text, llm_config, client=client)
 
 
-def _parse_llm_response(response_text: str) -> list[AdSegment]:
+def parse_llm_response(response_text: str) -> list[AdSegment]:
     """Parse the LLM JSON response into AdSegment objects."""
     try:
         text = response_text.strip()
