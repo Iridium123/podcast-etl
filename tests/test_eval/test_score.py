@@ -40,7 +40,7 @@ class TestOverlapFractionMatcher:
         g = _seg(0.0, 60.0)
         assert overlap_fraction_matcher(p, g, threshold=0.5) is False
 
-    def test_partial_overlap_above_threshold(self):
+    def test_partial_overlap_below_threshold(self):
         # predicted covers [40, 100], gold covers [0, 60].
         # overlap = [40, 60] = 20s, gold_duration = 60s -> 20/60 ≈ 0.33 < 0.5
         p = _seg(40.0, 100.0)

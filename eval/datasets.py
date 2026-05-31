@@ -56,7 +56,11 @@ def load_dataset(root: Path) -> dict[str, Labels]:
     """
     if not root.exists():
         raise FileNotFoundError(f"Dataset root not found: {root}")
-    return {episode_key(labels.episode_ref): labels for path in iter_label_files(root) if (labels := Labels.load(path))}
+    dataset: dict[str, Labels] = {}
+    for path in iter_label_files(root):
+        labels = Labels.load(path)
+        dataset[episode_key(labels.episode_ref)] = labels
+    return dataset
 
 
 def resolve_dataset_root(name_or_path: str, output_dir: Path, datasets_dir: Path) -> Path:
