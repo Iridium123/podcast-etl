@@ -29,6 +29,7 @@ dev = ["pytest>=9.0.3", "pytest-asyncio>=0.25"]
 [tool.pytest.ini_options]
 markers = ["integration: tests requiring Docker (mktorrent, ffmpeg, network)"]
 addopts = "-m 'not integration'"
+pythonpath = ["."]
 
 [build-system]
 requires = ["uv_build>=0.10.6,<0.11.0"]
