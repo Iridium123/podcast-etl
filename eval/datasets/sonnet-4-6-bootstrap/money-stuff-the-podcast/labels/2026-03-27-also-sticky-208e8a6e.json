@@ -1,0 +1,114 @@
+{
+  "episode_ref": {
+    "podcast_slug": "money-stuff-the-podcast",
+    "episode_json": "2026-03-27-also-sticky-208e8a6e.json"
+  },
+  "audio_duration": 2324.0881632653063,
+  "segments": [
+    {
+      "start": 0.0,
+      "end": 34.6,
+      "confidence": 1.0,
+      "detector": "gold",
+      "label": "Pre-roll ad for TastyTrade",
+      "notes": ""
+    },
+    {
+      "start": 34.6,
+      "end": 70.6,
+      "confidence": 1.0,
+      "detector": "gold",
+      "label": "Pre-roll ad for Chase for Business",
+      "notes": ""
+    },
+    {
+      "start": 70.6,
+      "end": 104.4,
+      "confidence": 1.0,
+      "detector": "gold",
+      "label": "Pre-roll ad for Red Lion Hotels / Sonesta Travel Pass",
+      "notes": ""
+    },
+    {
+      "start": 899.4,
+      "end": 933.5,
+      "confidence": 1.0,
+      "detector": "gold",
+      "label": "Mid-roll ad for TastyTrade",
+      "notes": ""
+    },
+    {
+      "start": 934.2,
+      "end": 963.9,
+      "confidence": 1.0,
+      "detector": "gold",
+      "label": "Mid-roll ad for IBM",
+      "notes": ""
+    },
+    {
+      "start": 964.6,
+      "end": 992.2,
+      "confidence": 1.0,
+      "detector": "gold",
+      "label": "Mid-roll ad for The Visibility Gap podcast / Signal Healthcare",
+      "notes": ""
+    },
+    {
+      "start": 1498.6,
+      "end": 1525.9,
+      "confidence": 1.0,
+      "detector": "gold",
+      "label": "Mid-roll ad for IBM",
+      "notes": ""
+    },
+    {
+      "start": 1526.7,
+      "end": 1554.2,
+      "confidence": 1.0,
+      "detector": "gold",
+      "label": "Mid-roll ad for The Visibility Gap podcast / Signal Healthcare",
+      "notes": ""
+    },
+    {
+      "start": 1556.9,
+      "end": 1589.0,
+      "confidence": 1.0,
+      "detector": "gold",
+      "label": "Mid-roll ad for Adobe Acrobat",
+      "notes": ""
+    },
+    {
+      "start": 2227.5,
+      "end": 2255.0,
+      "confidence": 1.0,
+      "detector": "gold",
+      "label": "Post-roll ad for The Visibility Gap podcast / Signal Healthcare",
+      "notes": ""
+    },
+    {
+      "start": 2257.7,
+      "end": 2293.0,
+      "confidence": 1.0,
+      "detector": "gold",
+      "label": "Post-roll ad for Sonesta Travel Pass",
+      "notes": ""
+    },
+    {
+      "start": 2293.0,
+      "end": 2323.9,
+      "confidence": 1.0,
+      "detector": "gold",
+      "label": "Post-roll ad for Okta",
+      "notes": ""
+    }
+  ],
+  "provenance": {
+    "whisper": {},
+    "llm": {
+      "provider": "anthropic",
+      "model": "claude-sonnet-4-6"
+    },
+    "annotator": "claude-sonnet-4-6",
+    "created_at": "2026-05-30T21:07:12.397983"
+  }
+}

@@ -1,0 +1,36 @@
+# Eval run configuration.
+# Copy to eval_config.yaml and customize, then run: podcast-etl eval run
+#
+# The runner labels each config below into its own dataset under eval/datasets/
+# (running production's classifier), then scores it against the `gold` dataset.
+
+# Production output directory holding the episodes to label (audio + transcripts).
+output_dir: ./output
+
+# Gold dataset to score against — a name under eval/datasets/ or a path.
+# A production output directory works directly (its labels/ dirs are a dataset).
+gold: sonnet-4-6-bootstrap
+
+# Which gold annotators count as gold. Default ["human"] avoids circular
+# scoring. The shipped sonnet-4-6-bootstrap dataset is annotated by
+# "claude-sonnet-4-6", so to score against it either list it here or use [].
+allowed_annotators: ["claude-sonnet-4-6"]
+
+configs:
+  - name: haiku-default
+    whisper:
+      model: base
+      language: en
+    llm:
+      provider: anthropic
+      model: claude-haiku-4-5-20251001
+    prompt: default
+
+  - name: sonnet-default
+    whisper:
+      model: base
+      language: en
+    llm:
+      provider: anthropic
+      model: claude-sonnet-4-6
+    prompt: default

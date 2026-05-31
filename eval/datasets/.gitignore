@@ -1,0 +1,7 @@
+# Generated prediction datasets (written by `eval run` / `eval label`) are not
+# version controlled. Hand-curated gold datasets are committed explicitly; if
+# you add a new gold dataset, re-include it here like sonnet-4-6-bootstrap.
+*
+!.gitignore
+!sonnet-4-6-bootstrap/
+!sonnet-4-6-bootstrap/**
