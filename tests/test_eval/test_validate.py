@@ -139,10 +139,11 @@ class TestValidateDataset:
     def test_empty_dataset_returns_empty_dict(self, tmp_path):
         assert validate_dataset(tmp_path) == {}
 
-    def test_all_valid_returns_empty_dict(self, tmp_path):
+    def test_all_valid_returns_entry_per_file_with_empty_list(self, tmp_path):
         labels = _make_labels(segments=[_seg(0.0, 30.0)])
         _write_labels(tmp_path, labels, "my-podcast", "ep1")
-        assert validate_dataset(tmp_path) == {}
+        result = validate_dataset(tmp_path)
+        assert result == {"my-podcast/labels/ep1.json": []}
 
     def test_invalid_file_appears_in_result(self, tmp_path):
         bad_labels = _make_labels(segments=[_seg(-1.0, 30.0)])
@@ -174,8 +175,10 @@ class TestValidateDataset:
         _write_labels(tmp_path, bad, "p2", "bad")
 
         result = validate_dataset(tmp_path)
-        assert len(result) == 1
-        assert any("p2" in k for k in result)
+        assert len(result) == 2
+        assert result["p1/labels/good.json"] == []
+        assert result["p2/labels/bad.json"] != []
+        assert any("negative" in e for e in result["p2/labels/bad.json"])
 
     def test_result_sorted_by_key(self, tmp_path):
         for slug in ("zzz-podcast", "aaa-podcast"):

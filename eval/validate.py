@@ -59,13 +59,12 @@ def validate_labels(labels: Labels) -> list[str]:
 
 
 def validate_dataset(root: Path) -> dict[str, list[str]]:
-    """Validate every label file under *root*, returning errors keyed by relative path.
+    """Validate every label file under *root*, returning results keyed by relative path.
 
     Scans ``<root>/<podcast-slug>/labels/*.json`` via
     :func:`~eval.datasets.iter_label_files`.  Each file is loaded and passed to
-    :func:`validate_labels`.  Only files with at least one error appear in the
-    result (files that pass validation are omitted), but all files are always
-    inspected.
+    :func:`validate_labels`.  Every file found appears in the result — valid
+    files map to an empty list ``[]``, invalid files map to their error list.
 
     Args:
         root: Dataset root directory.
@@ -73,13 +72,13 @@ def validate_dataset(root: Path) -> dict[str, list[str]]:
     Returns:
         Dict mapping relative file path strings (e.g.
         ``"my-podcast/labels/ep.json"``) to lists of error messages, sorted by
-        key.  Empty dict means every file is valid.
+        key.  Empty list value means the file is valid; empty dict means no
+        files were found.
     """
     result: dict[str, list[str]] = {}
     for path in iter_label_files(root):
         labels = Labels.load(path)
         errors = validate_labels(labels)
-        if errors:
-            relative = path.relative_to(root)
-            result[str(relative)] = errors
+        relative = path.relative_to(root)
+        result[str(relative)] = errors
     return dict(sorted(result.items()))
