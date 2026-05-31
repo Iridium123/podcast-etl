@@ -440,3 +440,7 @@ class TestResolveOverlaps:
         ]
         result = resolve_overlaps(segments)
         assert [(s.start, s.end) for s in result] == [(0.0, 30.0), (40.0, 70.0)]
+
+    def test_negative_buffer_rejected(self):
+        with pytest.raises(ValueError, match="buffer must be non-negative"):
+            resolve_overlaps([], buffer=-1.0)

@@ -73,6 +73,11 @@ def resolve_overlaps(
     Unlike a fusing merge, each input ad remains its own output segment, so
     per-segment metadata (distinct labels, confidences) is never collapsed.
     """
+    if buffer < 0:
+        # A negative buffer would let a truly-overlapping segment slip through
+        # unsnapped (its start failing the `<= frontier + buffer` test), leaving
+        # an overlap in the output — the opposite of this function's contract.
+        raise ValueError(f"buffer must be non-negative, got {buffer!r}")
     if not segments:
         return []
 
