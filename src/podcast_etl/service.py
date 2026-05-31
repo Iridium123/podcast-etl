@@ -64,6 +64,27 @@ def save_config(config: dict, config_path: Path) -> None:
     os.replace(tmp, config_path)
 
 
+def _check_ad_detection_prompt(resolved: dict) -> str | None:
+    """Return an error message if the resolved config names a missing prompt.
+
+    Only relevant when the pipeline runs ``detect_ads``; otherwise the prompt
+    setting is inert and not validated.
+    """
+    from podcast_etl.detectors.transcription import PROMPTS_DIR
+
+    pipeline = resolved.get("pipeline") or []
+    if "detect_ads" not in pipeline:
+        return None
+    prompt_name = resolved.get("ad_detection", {}).get("llm", {}).get("prompt", "default")
+    prompt_path = PROMPTS_DIR / f"{prompt_name}.txt"
+    if not prompt_path.is_file():
+        return (
+            f"ad_detection prompt {prompt_name!r} not found at {prompt_path.resolve()} "
+            f"(searched from cwd: {Path.cwd()})"
+        )
+    return None
+
+
 def validate_config(config: dict) -> None:
     """Validate config structure and catch common errors early."""
     defaults = config.get("defaults", {})
@@ -81,9 +102,14 @@ def validate_config(config: dict) -> None:
                 errors.append(f"Feed {feed_label!r}: unknown pipeline step {step_name!r}")
 
         try:
-            deep_merge(defaults, feed)
+            resolved = deep_merge(defaults, feed)
         except TypeError as exc:
             errors.append(f"Feed {feed_label!r}: {exc}")
+            continue
+
+        prompt_error = _check_ad_detection_prompt(resolved)
+        if prompt_error:
+            errors.append(f"Feed {feed_label!r}: {prompt_error}")
 
     for step_name in defaults.get("pipeline", []):
         if step_name not in STEP_REGISTRY:

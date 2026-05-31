@@ -19,6 +19,7 @@ class AdSegment:
     confidence: float  # 0.0–1.0
     detector: str  # name of detector that found this
     label: str = ""  # human-readable description
+    notes: str = ""  # free-form annotation notes (production ignores; eval uses)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -27,6 +28,7 @@ class AdSegment:
             "confidence": self.confidence,
             "detector": self.detector,
             "label": self.label,
+            "notes": self.notes,
         }
 
     @classmethod
@@ -37,13 +39,19 @@ class AdSegment:
             confidence=data["confidence"],
             detector=data["detector"],
             label=data.get("label", ""),
+            notes=data.get("notes", ""),
         )
 
 
 class LLMProvider(Protocol):
     name: str
 
-    def classify_ads(self, transcript: list[dict[str, Any]], config: dict[str, Any]) -> list[AdSegment]: ...
+    def classify_ads(
+        self,
+        transcript: list[dict[str, Any]],
+        config: dict[str, Any],
+        client: Any | None = None,
+    ) -> list[AdSegment]: ...
 
 
 class Detector(Protocol):

@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from podcast_etl.detectors import AdSegment
+from podcast_etl.labels import EpisodeRef, Labels, Provenance
 from podcast_etl.models import Episode, Podcast, StepStatus
 from podcast_etl.pipeline import PipelineContext
 from podcast_etl.steps.strip_ads import (
@@ -36,6 +37,7 @@ def _make_episode(
     download_path="audio/episode.mp3",
     detect_segments=None,
     audio_duration=3600.0,
+    labels_path="labels/episode.json",
 ):
     status = {}
     if download_path is not None:
@@ -47,11 +49,12 @@ def _make_episode(
         status["detect_ads"] = StepStatus(
             completed_at="2024-01-15T10:05:00",
             result={
-                "segments": [s.to_dict() for s in detect_segments],
+                "labels_path": labels_path,
                 "total_ad_duration": sum(s.end - s.start for s in detect_segments),
-                "audio_duration": audio_duration,
                 "detectors_used": ["transcription"],
                 "transcript_path": "transcripts/episode.json",
+                "whisper": {"model": "base", "language": "en"},
+                "llm": {"provider": "anthropic", "model": "m", "prompt": "default"},
             },
         )
     return Episode(
@@ -80,6 +83,23 @@ def _create_audio_file(context, relative_path="audio/episode.mp3"):
     audio_path.parent.mkdir(parents=True, exist_ok=True)
     audio_path.write_bytes(b"fake audio data")
     return audio_path
+
+
+def _write_labels(context, segments, audio_duration=3600.0, labels_path="labels/episode.json"):
+    """Write a Labels file the strip_ads step will read via detect_ads result."""
+    labels = Labels(
+        episode_ref=EpisodeRef(podcast_slug="my-podcast", episode_json="ep.json"),
+        audio_duration=audio_duration,
+        segments=segments,
+        provenance=Provenance(
+            whisper={"model": "base", "language": "en"},
+            llm={"provider": "anthropic", "model": "m", "prompt": "default"},
+            annotator="m",
+            created_at="2024-01-15T10:05:00",
+        ),
+    )
+    labels.save(context.podcast_dir / labels_path)
+    return labels
 
 
 # ---------------------------------------------------------------------------
@@ -165,6 +185,7 @@ class TestStripAdsStep:
         context = _make_context(tmp_path)
         episode = _make_episode(detect_segments=[])
         _create_audio_file(context)
+        _write_labels(context, [], audio_duration=600.0)
 
         result = StripAdsStep().process(episode, context)
 
@@ -177,6 +198,7 @@ class TestStripAdsStep:
         segments = [AdSegment(start=0.0, end=30.0, confidence=0.9, detector="transcription", label="Ad")]
         episode = _make_episode(detect_segments=segments, audio_duration=600.0)
         _create_audio_file(context)
+        _write_labels(context, segments, audio_duration=600.0)
 
         mock_result = MagicMock()
         mock_result.returncode = 0
@@ -201,6 +223,7 @@ class TestStripAdsStep:
         segments = [AdSegment(start=0.0, end=30.0, confidence=0.9, detector="transcription")]
         episode = _make_episode(detect_segments=segments)
         _create_audio_file(context)
+        _write_labels(context, segments)
 
         # Pre-create cleaned file
         cleaned_dir = context.podcast_dir / "cleaned"
@@ -220,6 +243,7 @@ class TestStripAdsStep:
         segments = [AdSegment(start=0.0, end=30.0, confidence=0.9, detector="transcription")]
         episode = _make_episode(detect_segments=segments, audio_duration=600.0)
         _create_audio_file(context)
+        _write_labels(context, segments, audio_duration=600.0)
 
         # Pre-create cleaned file
         cleaned_dir = context.podcast_dir / "cleaned"
@@ -244,15 +268,20 @@ class TestStripAdsStep:
 
     def test_raises_if_no_download_step(self, tmp_path):
         context = _make_context(tmp_path)
-        episode = _make_episode(download_path=None)
-        # Manually add detect_ads status
-        episode.status["detect_ads"] = StepStatus(
-            completed_at="2024-01-15T10:05:00",
-            result={"segments": [], "audio_duration": 600.0},
-        )
+        episode = _make_episode(download_path=None, detect_segments=[])
+        _write_labels(context, [], audio_duration=600.0)
 
         # No segments means it tries to return original path, which needs download
         with pytest.raises(ValueError, match="no completed 'download' step"):
+            StripAdsStep().process(episode, context)
+
+    def test_raises_without_labels_path(self, tmp_path):
+        context = _make_context(tmp_path)
+        episode = _make_episode(detect_segments=[])
+        # Strip the labels_path from the detect_ads result
+        episode.status["detect_ads"].result.pop("labels_path")
+
+        with pytest.raises(ValueError, match="no 'labels_path'"):
             StripAdsStep().process(episode, context)
 
     def test_raises_on_ffmpeg_failure(self, tmp_path):
@@ -260,6 +289,7 @@ class TestStripAdsStep:
         segments = [AdSegment(start=0.0, end=30.0, confidence=0.9, detector="transcription")]
         episode = _make_episode(detect_segments=segments, audio_duration=600.0)
         _create_audio_file(context)
+        _write_labels(context, segments, audio_duration=600.0)
 
         mock_result = MagicMock()
         mock_result.returncode = 1

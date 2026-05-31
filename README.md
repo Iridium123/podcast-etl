@@ -163,6 +163,7 @@ defaults:
     llm:
       provider: anthropic
       model: claude-sonnet-4-20250514
+      prompt: default          # name of a file in prompts/<name>.txt
     min_confidence: 0.5
 
   audiobookshelf:
@@ -228,6 +229,24 @@ Optional rules applied at feed parse time. All off by default; enable globally o
 
 Changing title cleaning rules changes episode slugs and filenames. Use `reset` to start fresh if enabling mid-stream.
 
+### Ad Detection
+
+The `detect_ads` step transcribes the episode (local faster-whisper or a remote whisper server) and classifies ad segments with an LLM. The classification prompt lives in `prompts/<name>.txt` at the project root; select one with `ad_detection.llm.prompt` (default `default`). An unknown prompt name fails config validation early.
+
+Detected ad segments are written as a first-class artifact to `output/<slug>/labels/<stem>.json` (parallel to `output/<slug>/transcripts/`), recording the segments, audio duration, and provenance (whisper/LLM config + annotator). The `strip_ads` step reads segments from this labels file. The episode JSON's `detect_ads` result records the `labels_path` rather than embedding segments inline.
+
+If you have older episode data with segments embedded in the episode JSON, migrate it once with:
+
+```sh
+uv run python scripts/migrate_labels.py --output-dir output/    # add --dry-run to preview
+```
+
+The script ships in the Docker image too, so you can run it against the live `/output` volume in your deployment:
+
+```sh
+docker compose run --rm podcast-etl python scripts/migrate_labels.py --output-dir /output --dry-run
+```
+
 ### Tracker Cookie
 
 To get the `remember_cookie` value: log in to the tracker in your browser, open DevTools, go to Application then Cookies, and copy the value of `remember_web_59ba36addc2b2f9401580f014c7f58ea4e30989d`. This works with 2FA-enabled accounts.
@@ -240,8 +259,8 @@ Steps run in the order listed in `pipeline`. Each step's result is stored per-ep
 |------|----------|-------------|
 | `download` | -- | Fetch audio from RSS `audio_url` |
 | `tag` | `download` | Write ID3 metadata (title, artist, date, TRCK track number, APIC album art) |
-| `detect_ads` | `download` | Transcribe via faster-whisper, classify ad segments via LLM; overlapping and near-adjacent (≤5s apart) segments are snapped into a contiguous, non-overlapping sequence (kept distinct, not fused) |
-| `strip_ads` | `detect_ads` | Remove ad segments via ffmpeg with crossfade |
+| `detect_ads` | `download` | Transcribe via faster-whisper, classify ad segments via LLM; overlapping/near-adjacent (≤5s apart) segments are snapped into a contiguous, non-overlapping sequence (kept distinct, not fused); writes labels to `output/<slug>/labels/<stem>.json` |
+| `strip_ads` | `detect_ads` | Remove ad segments via ffmpeg with crossfade (reads segments from the labels file) |
 | `stage` | `download` | Copy audio to `torrent_data_dir/`; prefers cleaned audio if available |
 | `torrent` | `stage` | Create `.torrent` via `mktorrent` |
 | `seed` | `torrent` | Add torrent to qBittorrent via Web API |

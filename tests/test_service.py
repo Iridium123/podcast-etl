@@ -450,6 +450,38 @@ def test_validate_config_passes_valid_title_cleaning():
     validate_config(config)  # should not raise
 
 
+def test_validate_config_default_prompt_passes():
+    config = {
+        "feeds": [{"url": "https://example.com/rss", "pipeline": ["detect_ads"]}],
+        "defaults": {"ad_detection": {"llm": {"prompt": "default"}}},
+    }
+    validate_config(config)  # default.txt ships with the project
+
+
+def test_validate_config_unknown_prompt_raises():
+    config = {
+        "feeds": [{
+            "url": "https://example.com/rss",
+            "pipeline": ["detect_ads"],
+            "ad_detection": {"llm": {"prompt": "does-not-exist"}},
+        }],
+    }
+    with pytest.raises(SystemExit, match="prompt 'does-not-exist' not found"):
+        validate_config(config)
+
+
+def test_validate_config_prompt_not_checked_without_detect_ads():
+    # An unknown prompt is inert when the pipeline doesn't run detect_ads.
+    config = {
+        "feeds": [{
+            "url": "https://example.com/rss",
+            "pipeline": ["download"],
+            "ad_detection": {"llm": {"prompt": "does-not-exist"}},
+        }],
+    }
+    validate_config(config)  # should not raise
+
+
 # ---------------------------------------------------------------------------
 # Helpers for get_feed_status tests
 # ---------------------------------------------------------------------------

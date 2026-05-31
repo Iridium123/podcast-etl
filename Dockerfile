@@ -24,6 +24,12 @@ ENV PATH="/app/.venv/bin:$PATH"
 
 WORKDIR /app
 
+# Ad-detection prompts are resolved relative to the working directory (./prompts).
+COPY prompts/ prompts/
+# Maintenance scripts (e.g. one-off migrations) shipped so they can run against
+# the live /output volume inside the container.
+COPY scripts/ scripts/
+
 FROM base AS test
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/
