@@ -34,6 +34,13 @@ FROM base AS test
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/
 RUN uv pip install "pytest>=8.0" "pytest-asyncio>=0.25"
+# pyproject.toml carries the pytest config (markers + pythonpath = ["."]); without
+# it pytest can't resolve the root-level `eval` package or register the
+# `integration` marker. The eval harness lives at the repo root (not under src/),
+# so it must be copied explicitly — it ships only in the test stage, never the
+# final image.
+COPY pyproject.toml ./
+COPY eval/ eval/
 COPY tests/ tests/
 CMD ["pytest", "tests/", "-v", "-m", ""]
 
