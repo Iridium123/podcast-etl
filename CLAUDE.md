@@ -62,6 +62,18 @@ Tests live in `tests/` and use pytest:
 - `test_integration.py` -- end-to-end: parse real RSS feed, download episode, tag MP3, stage file (marked `integration`)
 - `test_integration_torrent.py` -- stage + torrent steps with real disk I/O and mktorrent binary (marked `integration`)
 
+Eval harness tests live in `tests/test_eval/`:
+
+- `test_score.py` -- `overlap_fraction_matcher`, `match_segments` (greedy assignment), `score_episode`, `aggregate_scores` (precision/recall/F1, mean/median/p95 of absolute boundary errors), `format_report`
+- `test_resolve.py` -- `resolve_episode` (audio/transcript path derivation, error branches: missing podcast/episode/audio/download-status/path)
+- `test_datasets.py` -- `episode_key`, `iter_label_files`, `label_file_path`, `load_dataset` (keyed by episode_ref not filename), `resolve_dataset_root` (output alias, explicit path, named dataset)
+- `test_label.py` -- `label_episode`, `label_dataset` (transcript reuse: cache/production-disk/fresh transcription), `iter_episode_refs` (scanning + regex filter), `_reuse_production_transcript` (provenance matching), `_classify`, production-seam patching
+- `test_annotate.py` -- `create_blank` (empty skeleton, human annotator), `bootstrap_from_dataset` (copy from source dataset, missing-episode error)
+- `test_validate.py` -- `validate_labels`, `validate_dataset` (negative timestamps, start>=end, exceeds audio duration, overlap)
+- `test_review.py` -- `format_review` (transcript with ad-segment highlighting via U+258C left half block), `review_labels`
+- `test_eval_cli.py` -- `podcast-etl eval label` (single podcast, all podcasts, regex filter, config YAML), `eval annotate` (--blank, --bootstrap-from, mutually exclusive error), `eval validate` (OK and errors), `eval score` (--predictions/--gold, --allowed-annotators), `eval run` (matrix from config file)
+- `test_run.py` -- `run_eval` (shared transcript cache across configs, allowed_annotators filtering, duplicate-name guard, YAML loading, result JSON written, production transcript reuse when whisper provenance matches)
+
 **After making changes**, run tests and check whether new behaviour should be tested. Always update `README.md` and `CLAUDE.md` to reflect any changes to CLI commands, pipeline steps, architecture, or configuration.
 
 ## Architecture
@@ -170,8 +182,41 @@ The final image installs `mktorrent` and `ffmpeg` via `apt-get` and exposes port
 2. Register it in `service.py`: `register_step(YourStep())`
 3. Add `your_step` to `pipeline` list in `feeds.yaml`
 
+### Ad detection eval harness (`eval/`)
+
+Standalone evaluation system for measuring ad detection quality against gold-standard `Labels` files. Decoupled from the main pipeline — imports `podcast_etl` for episode resolution and classification but does not modify pipeline data.
+
+**Design:** a *dataset* is a directory of production-format `Labels` files laid out as `<root>/<podcast-slug>/labels/<stem>.json`. Production's own `output/` directory is a valid dataset (it uses the same layout). Two datasets are matched by `episode_key` (derived from `EpisodeRef` embedded in each file, not from filenames). The eval harness is a thin scorer on top of production: classification uses production's `classify()`, `load_prompt()`, and `build_llm_client()` directly, so eval predictions are faithful to what the pipeline would produce.
+
+**Modules:**
+- `eval/datasets.py` -- `load_dataset`, `iter_label_files`, `label_file_path`, `episode_key`, `resolve_dataset_root` (resolves `"output"` alias, explicit path, or named dataset under `eval/datasets/`)
+- `eval/label.py` -- `label_episode`, `label_dataset`, `iter_episode_refs` — run production detection logic to generate `Labels` files into a dataset root; reuses production transcripts when whisper provenance matches, then falls back to in-memory cache, then fresh transcription
+- `eval/annotate.py` -- `create_blank` (empty skeleton with `annotator="human"`), `bootstrap_from_dataset` (copy a Labels from a source dataset as a hand-edit starting point)
+- `eval/validate.py` -- `validate_labels`, `validate_dataset` (negative timestamps, start >= end, exceeds audio duration, overlaps)
+- `eval/review.py` -- `format_review` (transcript display with ad-segment highlights via U+258C left half block), `review_labels`
+- `eval/score.py` -- `overlap_fraction_matcher`, `match_segments` (greedy assignment), `score_episode`, `aggregate_scores` (precision/recall/F1, mean/median/p95 of absolute boundary errors), `format_report`
+- `eval/resolve.py` -- `resolve_episode` finds audio/transcript paths on disk from an `EpisodeRef`
+- `eval/run.py` -- matrix runner: load YAML, label each config's predictions into `eval/datasets/_runs/<name>`, score vs gold, print comparison table
+
+**CLI (`podcast-etl eval`):** Five subcommands, all must be run from the repo root:
+- `label DATASET_NAME [--podcast SLUG] [--episodes REGEX] [--config YAML]` — generate predicted Labels
+- `annotate PODCAST EPISODE_STEM [--dataset gold] [--blank | --bootstrap-from SRC]` — create/seed a gold annotation
+- `validate DATASET_NAME` — consistency check; non-zero exit on errors
+- `score --predictions DS [--predictions DS ...] --gold DS [--allowed-annotators A ...]` — score predictions vs gold
+- `run [--config eval/eval_config.yaml]` — run the full matrix
+
+Common options: `--output-dir` (default `./output`), `--datasets-dir` (default `eval/datasets`), `--results-dir` (default `eval/results`).
+
+**Transcript reuse:** Before transcribing, `label.py` checks `episode.status['detect_ads'].result['whisper']`; if it matches the eval's normalized whisper config (via `normalize_whisper_config`), the on-disk production transcript is reused. A single in-memory cache is shared across all configs in a run, so identical whisper settings transcribe each episode only once.
+
+**Annotator filtering:** `allowed_annotators` (YAML field in `eval_config.yaml`, default `["human"]`) controls which gold annotations are scored. This prevents circular eval when scoring against model-bootstrapped labels.
+
+**Bundled dataset:** `eval/datasets/sonnet-4-6-bootstrap/` is a committed dataset of 3 money-stuff episodes labelled by `claude-sonnet-4-6`. Per-run predictions land in `eval/datasets/_runs/` and result JSON in `eval/results/` (both gitignored).
+
 ### Gotchas
 
 **Logging disable hack:** `cli.py` disables all logging at module import (`logging.disable(logging.ERROR)`) before dependencies load, to suppress pyenv hashlib blake2 errors. It re-enables logging in `setup_logging()`. Any code that runs before `setup_logging()` will not produce log output.
 
 **Web UI form/YAML split:** The sets `KNOWN_FEED_FIELDS` and `KNOWN_DEFAULTS_FIELDS` in `service.py` control which config keys get structured form controls vs. raw YAML editing. Promoting a field means adding it to the set and writing the template markup.
+
+**Eval pythonpath:** The `eval/` package lives at the project root, not under `src/`. `pyproject.toml` sets `pythonpath = ["."]` in `[tool.pytest.ini_options]` so `from eval.<module> import ...` works in pytest. The `podcast-etl eval` console entry point inserts CWD onto `sys.path` at runtime (via `_ensure_cwd_importable()`), so the command must be run from the repo root — running it from any other directory will fail with an import error.
