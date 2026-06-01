@@ -13,8 +13,21 @@ uv run podcast-etl -v run --all              # run pipeline (verbose)
 uv run podcast-etl --log-level WARNING run --all
 uv run pytest tests/ -v                      # unit tests only
 uv run pytest tests/ -v -m ''               # all tests (including integration)
+uv run podcast-etl eval --help               # ad-detection eval harness (run from repo root)
+uv run podcast-etl eval run                  # run eval matrix (reads eval/eval_config.yaml)
+uv run python eval/run.py                    # equivalent standalone runner
 docker build --target test -t podcast-etl-test . && docker run --rm podcast-etl-test
 ```
+
+The `eval` command group (`src/podcast_etl/eval_cli.py`) wraps the `eval/`
+harness (which lives at the repo root, not in the installed package). Subcommands:
+`label` (generate predicted Labels into a named dataset), `annotate`
+(`--blank` or `--bootstrap-from` an existing dataset), `validate` (consistency
+check; non-zero exit on errors), `score` (`--predictions`/`--gold` datasets,
+`--allowed-annotators` filter), and `run` (full matrix from `eval/eval_config.yaml`,
+see `eval/eval_config.yaml.example`). Because `eval/` is outside the installed
+package, `eval_cli.py` inserts CWD onto `sys.path` and imports `eval.*` lazily
+inside each callback, so the harness must be run from the repository root.
 
 ## Tests
 
