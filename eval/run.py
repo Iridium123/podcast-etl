@@ -100,10 +100,16 @@ def run_eval(
         # empty — e.g. the gold annotator filter removed every episode. Treat an
         # absent predictions dir as an empty dataset rather than erroring.
         pred = load_dataset(pred_root) if pred_root.exists() else {}
+        scored_keys = [k for k in gold if k in pred]
+        unscored_keys = [k for k in gold if k not in pred]
+        if unscored_keys:
+            logger.warning(
+                "Scored %d/%d gold episodes for %r; %d had no prediction and were excluded: %s",
+                len(scored_keys), len(gold), name, len(unscored_keys), sorted(unscored_keys),
+            )
         scores = [
             score_episode(pred[k].segments, gold[k].segments)
-            for k in gold
-            if k in pred
+            for k in scored_keys
         ]
         agg = aggregate_scores(scores)
         results[name] = agg
@@ -115,6 +121,8 @@ def run_eval(
                     "config": name,
                     "gold": cfg["gold"],
                     "timestamp": timestamp,
+                    "gold_episode_count": len(gold),
+                    "scored_episode_count": len(scored_keys),
                     "aggregate": dataclasses.asdict(agg),
                 },
                 indent=2,

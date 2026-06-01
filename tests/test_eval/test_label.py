@@ -640,6 +640,61 @@ class TestLabelResolvedEmptyTranscript:
 
 
 # ---------------------------------------------------------------------------
+# _get_audio_duration
+# ---------------------------------------------------------------------------
+
+class TestGetAudioDuration:
+    def test_returns_0_and_warns_when_mutagen_raises(self, tmp_path, caplog):
+        """When mutagen raises, _get_audio_duration returns 0.0 and logs a warning."""
+        audio_path = tmp_path / "episode.mp3"
+        audio_path.write_bytes(b"not an mp3")
+
+        with patch("eval.label.MP3", side_effect=Exception("corrupt file")), \
+             caplog.at_level(logging.WARNING, logger="eval.label"):
+            result = _get_audio_duration(audio_path)
+
+        assert result == 0.0
+        warnings = [r.message for r in caplog.records if r.levelno == logging.WARNING]
+        assert any(str(audio_path) in str(w) for w in warnings), \
+            f"Expected warning naming {audio_path}; got: {warnings}"
+
+    def test_returns_0_and_warns_when_info_is_none(self, tmp_path, caplog):
+        """When mutagen returns MP3 with info=None, returns 0.0 and warns."""
+        audio_path = tmp_path / "episode.mp3"
+        audio_path.write_bytes(b"fake")
+
+        class _FakeMP3:
+            def __init__(self, *_a, **_k):
+                self.info = None
+
+        with patch("eval.label.MP3", _FakeMP3), \
+             caplog.at_level(logging.WARNING, logger="eval.label"):
+            result = _get_audio_duration(audio_path)
+
+        assert result == 0.0
+        warnings = [r.message for r in caplog.records if r.levelno == logging.WARNING]
+        assert any(str(audio_path) in str(w) for w in warnings), \
+            f"Expected warning naming {audio_path}; got: {warnings}"
+
+    def test_returns_length_when_info_present(self, tmp_path):
+        """Happy path: returns audio info length."""
+        audio_path = tmp_path / "episode.mp3"
+        audio_path.write_bytes(b"fake")
+
+        class _FakeInfo:
+            length = 1234.5
+
+        class _FakeMP3:
+            def __init__(self, *_a, **_k):
+                self.info = _FakeInfo()
+
+        with patch("eval.label.MP3", _FakeMP3):
+            result = _get_audio_duration(audio_path)
+
+        assert result == 1234.5
+
+
+# ---------------------------------------------------------------------------
 # iter_episode_refs
 # ---------------------------------------------------------------------------
 

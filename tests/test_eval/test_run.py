@@ -192,6 +192,52 @@ class TestRunEval:
         assert payload["gold"] == "gold"
         assert payload["aggregate"]["total_tp"] == 1
 
+    def test_unscored_gold_warns_and_records_coverage(self, tmp_path, caplog):
+        """Gold episode with no matching prediction emits a warning and records coverage counts."""
+        import logging
+
+        output_dir = tmp_path / "output"
+        datasets_dir = tmp_path / "datasets"
+        results_dir = tmp_path / "results"
+
+        # Write TWO gold episodes but label_dataset will only produce a prediction
+        # for ep1 (ep2's resolve will raise FileNotFoundError → skipped by label_dataset).
+        _write_episode(output_dir, "p", "ep1.json")
+        _write_audio(output_dir, "p")
+        # ep2: episode JSON exists in gold but NOT on disk → label_dataset skips it
+        # so no prediction file is written.
+        seg = AdSegment(start=10.0, end=40.0, confidence=1.0, detector="human")
+        _write_gold(datasets_dir, "p", "ep1", _gold_labels("p", "ep1.json", [seg]))
+        _write_gold(datasets_dir, "p", "ep2", _gold_labels("p", "ep2.json", [seg]))
+
+        config_path = _two_config_yaml(tmp_path, output_dir, [
+            {"name": "cfg-a", "whisper": {"model": "base", "language": "en"},
+             "llm": {"provider": "anthropic", "model": "m"}, "prompt": "default"},
+        ])
+
+        pred_seg = AdSegment(start=11.0, end=39.0, confidence=0.9, detector="transcription")
+        with patch("eval.label.transcribe", return_value=[{"start": 0.0, "end": 1.0, "text": "x"}]), \
+             patch("eval.label.classify", return_value=[pred_seg]), \
+             patch("eval.label.load_prompt", return_value="p"), \
+             patch("eval.label.build_llm_client", return_value=None), \
+             patch("eval.label._get_audio_duration", return_value=600.0), \
+             caplog.at_level(logging.WARNING, logger="eval.run"):
+            results = run_eval(config_path, output_dir, datasets_dir, results_dir)
+
+        # ep1 scored, ep2 had no prediction → warning emitted
+        warning_texts = [r.message for r in caplog.records if r.levelno == logging.WARNING]
+        assert any("ep2.json" in str(w) for w in warning_texts), \
+            f"Expected warning mentioning ep2.json; got: {warning_texts}"
+        assert any("1/2" in str(w) for w in warning_texts), \
+            f"Expected '1/2' coverage in warning; got: {warning_texts}"
+
+        # Results JSON records coverage
+        json_files = list(results_dir.glob("*-cfg-a.json"))
+        assert len(json_files) == 1
+        payload = json.loads(json_files[0].read_text())
+        assert payload["gold_episode_count"] == 2
+        assert payload["scored_episode_count"] == 1
+
     def test_allowed_annotators_filters_gold(self, tmp_path):
         output_dir = tmp_path / "output"
         datasets_dir = tmp_path / "datasets"

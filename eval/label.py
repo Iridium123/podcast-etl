@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Any
 
 # Import production seams at module level so tests can monkeypatch them.
+from mutagen.mp3 import MP3
 from podcast_etl.detectors import AdSegment, resolve_overlaps
 from podcast_etl.detectors.transcription import (
     DEFAULT_LLM_MODEL,
@@ -48,11 +49,19 @@ logger = logging.getLogger(__name__)
 
 def _get_audio_duration(audio_path: Path) -> float:
     """Return audio duration in seconds using mutagen (0.0 on failure)."""
-    from mutagen.mp3 import MP3
-
-    audio = MP3(audio_path)
-    if audio.info is not None:
-        return audio.info.length
+    try:
+        audio = MP3(audio_path)
+        if audio.info is not None:
+            return audio.info.length
+        logger.warning(
+            "Could not read audio duration for %s: mutagen returned no info; using 0.0",
+            audio_path,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "Could not read audio duration for %s: %s; using 0.0",
+            audio_path, exc,
+        )
     return 0.0
 
 

@@ -116,7 +116,7 @@ def _build_ad_config_from_yaml(config_path: Path | None):
 
     raw = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
     if "whisper" in raw:
-        ad_config["whisper"] = raw["whisper"]
+        ad_config["whisper"] = {**ad_config["whisper"], **raw["whisper"]}
     if "llm" in raw:
         ad_config["llm"] = {**ad_config["llm"], **raw["llm"]}
     if "prompt" in raw:
@@ -330,10 +330,18 @@ def score_cmd(
         except FileNotFoundError:
             click.echo(f"predictions dataset not found: {pred_root}", err=True)
             raise SystemExit(1)
+        scored_keys = [k for k in gold_dataset if k in pred_dataset]
+        unscored_keys = [k for k in gold_dataset if k not in pred_dataset]
+        if unscored_keys:
+            click.echo(
+                f"Scored {len(scored_keys)}/{len(gold_dataset)} gold episodes for"
+                f" {pred_name!r}; {len(unscored_keys)} had no prediction and were"
+                f" excluded: {sorted(unscored_keys)}",
+                err=True,
+            )
         scores = [
             score_episode(pred_dataset[k].segments, gold_dataset[k].segments)
-            for k in gold_dataset
-            if k in pred_dataset
+            for k in scored_keys
         ]
         agg = aggregate_scores(scores)
         results[pred_name] = agg
@@ -347,6 +355,8 @@ def score_cmd(
                     "config": pred_name,
                     "gold": gold,
                     "timestamp": timestamp,
+                    "gold_episode_count": len(gold_dataset),
+                    "scored_episode_count": len(scored_keys),
                     "aggregate": dataclasses.asdict(agg),
                 },
                 indent=2,

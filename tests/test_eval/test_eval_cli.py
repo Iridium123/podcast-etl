@@ -167,6 +167,22 @@ class TestLabelCmd:
         assert labels.provenance.llm["model"] == "custom-model-9000"
         assert labels.provenance.annotator == "custom-model-9000"
 
+    def test_partial_whisper_config_preserves_default_language(self, tmp_path):
+        """A --config YAML with only whisper.model keeps the default language: en."""
+        from podcast_etl.eval_cli import _build_ad_config_from_yaml
+
+        config_path = tmp_path / "cfg.yaml"
+        # Only override the model; language should be preserved from the default.
+        config_path.write_text(
+            yaml.safe_dump({"whisper": {"model": "large-v3"}}),
+            encoding="utf-8",
+        )
+
+        ad_config = _build_ad_config_from_yaml(config_path)
+
+        assert ad_config["whisper"]["model"] == "large-v3"
+        assert ad_config["whisper"]["language"] == "en"
+
     def test_no_episodes_message(self, tmp_path):
         output_dir = tmp_path / "output"
         output_dir.mkdir()
@@ -387,6 +403,37 @@ class TestScoreCmd:
         assert result.exit_code != 0
         assert "gold dataset not found" in (result.output + (result.stderr or ""))
         assert "no-such-gold" in (result.output + (result.stderr or ""))
+
+    def test_unscored_gold_warns_on_stderr_and_records_coverage(self, tmp_path):
+        """Gold episode absent from predictions emits stderr warning with coverage counts in JSON."""
+        output_dir = tmp_path / "output"
+        datasets_dir = tmp_path / "datasets"
+        results_dir = tmp_path / "results"
+
+        seg = AdSegment(start=10.0, end=40.0, confidence=1.0, detector="human")
+        # Gold has ep1 + ep2; predictions only has ep1.
+        _write_label(datasets_dir / "gold", "p", "ep1", _make_labels("p", "ep1.json", [seg], annotator="human"))
+        _write_label(datasets_dir / "gold", "p", "ep2", _make_labels("p", "ep2.json", [seg], annotator="human"))
+        _write_label(datasets_dir / "preds", "p", "ep1", _make_labels("p", "ep1.json", [seg], annotator="model"))
+
+        runner = CliRunner()
+        result = runner.invoke(
+            eval_group,
+            ["score", "--predictions", "preds", "--gold", "gold",
+             "--output-dir", str(output_dir), "--datasets-dir", str(datasets_dir),
+             "--results-dir", str(results_dir)],
+        )
+
+        assert result.exit_code == 0, result.output
+        # Warning names the unscored episode (CliRunner mixes stderr into output by default).
+        assert "ep2.json" in result.output, \
+            f"Expected 'ep2.json' in output; got: {result.output!r}"
+        assert "1/2" in result.output or ("1" in result.output and "2" in result.output), \
+            f"Expected coverage counts in output; got: {result.output!r}"
+
+        payload = json.loads(next(results_dir.glob("*.json")).read_text())
+        assert payload["gold_episode_count"] == 2
+        assert payload["scored_episode_count"] == 1
 
     def test_missing_predictions_exits_nonzero_with_message(self, tmp_path):
         output_dir = tmp_path / "output"
