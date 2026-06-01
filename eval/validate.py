@@ -34,6 +34,12 @@ def validate_labels(labels: Labels) -> list[str]:
     errors: list[str] = []
     segments = sorted(labels.segments, key=lambda s: s.start)
 
+    check_end_bounds = labels.audio_duration > 0
+    if not check_end_bounds:
+        errors.append(
+            f"audio_duration is {labels.audio_duration}; cannot validate segment end bounds"
+        )
+
     for i, seg in enumerate(segments):
         if seg.start < 0:
             errors.append(f"Segment {i}: negative start ({seg.start})")
@@ -43,7 +49,7 @@ def validate_labels(labels: Labels) -> list[str]:
             errors.append(
                 f"Segment {i}: start ({seg.start}) >= end ({seg.end})"
             )
-        if seg.end > labels.audio_duration:
+        if check_end_bounds and seg.end > labels.audio_duration:
             errors.append(
                 f"Segment {i}: end ({seg.end}) > audio_duration ({labels.audio_duration})"
             )

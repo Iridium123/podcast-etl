@@ -208,3 +208,53 @@ class TestValidateDataset:
         result = validate_dataset(tmp_path)
         errors = next(iter(result.values()))
         assert len(errors) >= 2
+
+
+# ---------------------------------------------------------------------------
+# validate_labels — zero/negative audio_duration
+# ---------------------------------------------------------------------------
+
+class TestValidateLabelsZeroDuration:
+    def test_zero_duration_emits_single_duration_error(self):
+        """audio_duration=0.0 emits exactly one duration-related error, not one per segment."""
+        segs = [_seg(10.0, 40.0), _seg(60.0, 90.0), _seg(120.0, 150.0)]
+        labels = _make_labels(segments=segs, audio_duration=0.0)
+        errors = validate_labels(labels)
+        duration_errors = [e for e in errors if "audio_duration" in e]
+        assert len(duration_errors) == 1, (
+            f"Expected exactly one audio_duration error; got {len(duration_errors)}: {duration_errors}"
+        )
+
+    def test_zero_duration_does_not_emit_per_segment_end_errors(self):
+        """With audio_duration=0.0, the per-segment end > audio_duration check is skipped."""
+        segs = [_seg(10.0, 40.0), _seg(60.0, 90.0)]
+        labels = _make_labels(segments=segs, audio_duration=0.0)
+        errors = validate_labels(labels)
+        per_seg_end_errors = [e for e in errors if "end" in e and ">" in e and "audio_duration" in e]
+        assert per_seg_end_errors == [], (
+            f"Expected no per-segment end-bound errors; got: {per_seg_end_errors}"
+        )
+
+    def test_zero_duration_still_catches_overlap(self):
+        """Even with audio_duration=0.0, overlapping segments are still reported."""
+        # [0-50] and [30-80] overlap
+        segs = [_seg(0.0, 50.0), _seg(30.0, 80.0)]
+        labels = _make_labels(segments=segs, audio_duration=0.0)
+        errors = validate_labels(labels)
+        assert any("overlap" in e for e in errors), (
+            f"Expected overlap error with audio_duration=0; got: {errors}"
+        )
+
+    def test_zero_duration_still_catches_negative_start(self):
+        """Negative-start check still runs when audio_duration=0.0."""
+        segs = [_seg(-5.0, 10.0)]
+        labels = _make_labels(segments=segs, audio_duration=0.0)
+        errors = validate_labels(labels)
+        assert any("negative start" in e for e in errors), errors
+
+    def test_positive_duration_end_bound_still_checked(self):
+        """Sanity: when audio_duration > 0, end > audio_duration is still reported."""
+        segs = [_seg(3590.0, 3700.0)]
+        labels = _make_labels(segments=segs, audio_duration=3600.0)
+        errors = validate_labels(labels)
+        assert any("audio_duration" in e and "end" in e for e in errors), errors

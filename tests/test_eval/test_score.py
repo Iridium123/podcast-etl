@@ -402,3 +402,54 @@ class TestFormatReport:
         report = format_report({"config-a": _agg(1), "config-b": _agg(2)})
         assert "config-a" in report
         assert "config-b" in report
+
+    def test_long_name_truncated_to_30_chars(self):
+        """Config names longer than 30 chars are truncated so columns stay aligned."""
+        long_name = "a" * 35  # 35 chars, exceeds 30-char column
+        agg = AggregateScore(
+            total_tp=1, total_fp=0, total_fn=0,
+            precision=1.0, recall=1.0, f1=1.0,
+            start_error_mean=0.0, start_error_median=0.0, start_error_p95=0.0,
+            end_error_mean=0.0, end_error_median=0.0, end_error_p95=0.0,
+            total_content_lost=0.0, total_ads_missed=0.0,
+            episode_count=1,
+        )
+        report = format_report({long_name: agg})
+        data_line = [l for l in report.splitlines() if "1.00" in l][0]
+        # The name column is exactly 30 chars wide (left-justified with padding).
+        assert data_line.startswith("a" * 29 + "…"), (
+            f"Expected 29 'a's + ellipsis at start of row; got: {data_line!r}"
+        )
+        # The numeric columns must still be present and aligned.
+        assert "1.00" in data_line
+
+    def test_30_char_name_not_truncated(self):
+        """A name of exactly 30 chars must NOT be truncated."""
+        exact_name = "b" * 30
+        agg = AggregateScore(
+            total_tp=1, total_fp=0, total_fn=0,
+            precision=1.0, recall=1.0, f1=1.0,
+            start_error_mean=0.0, start_error_median=0.0, start_error_p95=0.0,
+            end_error_mean=0.0, end_error_median=0.0, end_error_p95=0.0,
+            total_content_lost=0.0, total_ads_missed=0.0,
+            episode_count=1,
+        )
+        report = format_report({exact_name: agg})
+        assert exact_name in report
+
+    def test_long_name_zero_episodes_truncated(self):
+        """Long name with zero-episode special case is also truncated."""
+        long_name = "c" * 40
+        agg = AggregateScore(
+            total_tp=0, total_fp=0, total_fn=0,
+            precision=1.0, recall=1.0, f1=0.0,
+            start_error_mean=0.0, start_error_median=0.0, start_error_p95=0.0,
+            end_error_mean=0.0, end_error_median=0.0, end_error_p95=0.0,
+            total_content_lost=0.0, total_ads_missed=0.0,
+            episode_count=0,
+        )
+        report = format_report({long_name: agg})
+        data_line = [l for l in report.splitlines() if "no episodes" in l][0]
+        assert data_line.startswith("c" * 29 + "…"), (
+            f"Expected truncated name at start of row; got: {data_line!r}"
+        )

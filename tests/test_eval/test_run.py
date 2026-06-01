@@ -263,6 +263,68 @@ class TestRunEval:
         # Default allowed_annotators=["human"] filters out the model gold -> nothing scored.
         assert results["cfg-a"].episode_count == 0
 
+    def test_llm_prompt_used_when_no_top_level_prompt(self, tmp_path):
+        """A prompt under llm: must be used when no top-level prompt: key is present."""
+        output_dir = tmp_path / "output"
+        datasets_dir = tmp_path / "datasets"
+        results_dir = tmp_path / "results"
+
+        _write_episode(output_dir, "p", "ep1.json")
+        _write_audio(output_dir, "p")
+        seg = AdSegment(start=10.0, end=40.0, confidence=1.0, detector="human")
+        _write_gold(datasets_dir, "p", "ep1", _gold_labels("p", "ep1.json", [seg]))
+
+        # Config has llm.prompt but NO top-level prompt key.
+        config_path = _two_config_yaml(tmp_path, output_dir, [
+            {
+                "name": "cfg-llm-prompt",
+                "whisper": {"model": "base", "language": "en"},
+                "llm": {"provider": "anthropic", "model": "m", "prompt": "custom-prompt"},
+                # deliberately omitting top-level "prompt" key
+            },
+        ])
+
+        pred_seg = AdSegment(start=11.0, end=39.0, confidence=0.9, detector="transcription")
+        with patch("eval.label.transcribe", return_value=[{"start": 0.0, "end": 1.0, "text": "x"}]), \
+             patch("eval.label.classify", return_value=[pred_seg]), \
+             patch("eval.label.load_prompt", return_value="p") as mock_load_prompt, \
+             patch("eval.label.build_llm_client", return_value=None), \
+             patch("eval.label._get_audio_duration", return_value=600.0):
+            run_eval(config_path, output_dir, datasets_dir, results_dir)
+
+        # load_prompt must be called with the llm.prompt value, not "default".
+        mock_load_prompt.assert_called_once_with("custom-prompt")
+
+    def test_top_level_prompt_takes_precedence_over_llm_prompt(self, tmp_path):
+        """When both top-level prompt: and llm.prompt are set, top-level wins."""
+        output_dir = tmp_path / "output"
+        datasets_dir = tmp_path / "datasets"
+        results_dir = tmp_path / "results"
+
+        _write_episode(output_dir, "p", "ep1.json")
+        _write_audio(output_dir, "p")
+        seg = AdSegment(start=10.0, end=40.0, confidence=1.0, detector="human")
+        _write_gold(datasets_dir, "p", "ep1", _gold_labels("p", "ep1.json", [seg]))
+
+        config_path = _two_config_yaml(tmp_path, output_dir, [
+            {
+                "name": "cfg-top-wins",
+                "whisper": {"model": "base", "language": "en"},
+                "llm": {"provider": "anthropic", "model": "m", "prompt": "llm-level"},
+                "prompt": "top-level",
+            },
+        ])
+
+        pred_seg = AdSegment(start=11.0, end=39.0, confidence=0.9, detector="transcription")
+        with patch("eval.label.transcribe", return_value=[{"start": 0.0, "end": 1.0, "text": "x"}]), \
+             patch("eval.label.classify", return_value=[pred_seg]), \
+             patch("eval.label.load_prompt", return_value="p") as mock_load_prompt, \
+             patch("eval.label.build_llm_client", return_value=None), \
+             patch("eval.label._get_audio_duration", return_value=600.0):
+            run_eval(config_path, output_dir, datasets_dir, results_dir)
+
+        mock_load_prompt.assert_called_once_with("top-level")
+
 
 # ---------------------------------------------------------------------------
 # eval run CLI smoke test

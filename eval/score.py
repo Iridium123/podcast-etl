@@ -195,13 +195,14 @@ def format_report(results: dict[str, AggregateScore]) -> str:
     header = f"{'Config':<30} {'Prec':>6} {'Rec':>6} {'F1':>6} {'Start(med)':>11} {'End(med)':>11} {'Content-lost':>13} {'Ads-missed':>11}"
     lines = [header, "-" * len(header)]
     for name, agg in results.items():
+        display_name = name if len(name) <= 30 else name[:29] + "…"
         if agg.episode_count == 0:
-            lines.append(f"{name:<30} (no episodes scored — check warnings above)")
+            lines.append(f"{display_name:<30} (no episodes scored — check warnings above)")
             continue
         start_med = f"{agg.start_error_median:.1f}s"
         end_med = f"{agg.end_error_median:.1f}s"
         lines.append(
-            f"{name:<30} {agg.precision:>6.2f} {agg.recall:>6.2f} {agg.f1:>6.2f} "
+            f"{display_name:<30} {agg.precision:>6.2f} {agg.recall:>6.2f} {agg.f1:>6.2f} "
             f"{start_med:>11} {end_med:>11} {agg.total_content_lost:>12.1f}s {agg.total_ads_missed:>10.1f}s"
         )
     return "\n".join(lines)

@@ -37,7 +37,7 @@ from podcast_etl.detectors.transcription import (
 )
 from podcast_etl.labels import EpisodeRef, Labels, Provenance
 
-from eval.datasets import label_file_path
+from eval.datasets import episode_key, label_file_path
 from eval.resolve import ResolvedEpisode, resolve_episode
 
 logger = logging.getLogger(__name__)
@@ -107,7 +107,7 @@ def _reuse_production_transcript(
 def _get_transcript(
     resolved: ResolvedEpisode,
     whisper: dict[str, Any],
-    transcript_cache: dict[str, list[dict[str, Any]]],
+    transcript_cache: dict[tuple[str, str], list[dict[str, Any]]],
     ref_key: str,
 ) -> list[dict[str, Any]]:
     """Return transcript segments, using cache then production file then transcribing.
@@ -195,7 +195,7 @@ def _label_resolved(
     dataset_root: Path,
     *,
     client: Any | None,
-    transcript_cache: dict[str, list[dict[str, Any]]],
+    transcript_cache: dict[tuple[str, str], list[dict[str, Any]]],
 ) -> Path:
     """Acquire transcript, classify, and write a Labels file for an already-resolved episode.
 
@@ -215,7 +215,7 @@ def _label_resolved(
         Path to the written label file.
     """
     whisper = ad_config.get("whisper", {})
-    ref_key = f"{ref.podcast_slug}/{ref.episode_json}"
+    ref_key = episode_key(ref)
     transcript = _get_transcript(resolved, whisper, transcript_cache, ref_key)
 
     segments: list[AdSegment] = []
@@ -260,7 +260,7 @@ def label_episode(
     dataset_root: Path,
     *,
     client: Any | None = None,
-    transcript_cache: dict[str, list[dict[str, Any]]] | None = None,
+    transcript_cache: dict[tuple[str, str], list[dict[str, Any]]] | None = None,
 ) -> Path:
     """Label one episode, writing a Labels file to *dataset_root*.
 
@@ -310,7 +310,7 @@ def label_dataset(
     dataset_root: Path,
     *,
     client: Any | None = None,
-    transcript_cache: dict[str, list[dict[str, Any]]] | None = None,
+    transcript_cache: dict[tuple[str, str], list[dict[str, Any]]] | None = None,
 ) -> list[Path]:
     """Label a list of episodes, sharing one LLM client and transcript cache.
 

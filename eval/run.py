@@ -87,9 +87,10 @@ def run_eval(
 
     for c in configs:
         name = c["name"]
+        prompt = c.get("prompt", c.get("llm", {}).get("prompt", "default"))
         ad_config = {
             "whisper": c.get("whisper", {}),
-            "llm": {**c.get("llm", {}), "prompt": c.get("prompt", "default")},
+            "llm": {**c.get("llm", {}), "prompt": prompt},
             "min_confidence": c.get("min_confidence", 0.5),
         }
         pred_root = datasets_dir / "_runs" / name
