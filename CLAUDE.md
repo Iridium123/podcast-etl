@@ -71,8 +71,8 @@ Eval harness tests live in `tests/test_eval/`:
 - `test_annotate.py` -- `create_blank` (empty skeleton, human annotator), `bootstrap_from_dataset` (copy from source dataset, missing-episode error)
 - `test_validate.py` -- `validate_labels`, `validate_dataset` (negative timestamps, start>=end, exceeds audio duration, overlap)
 - `test_review.py` -- `format_review` (transcript with ad-segment highlighting via U+258C left half block), `review_labels`
-- `test_eval_cli.py` -- `podcast-etl eval label` (single podcast, all podcasts, regex filter, config YAML), `eval annotate` (--blank, --bootstrap-from, mutually exclusive error), `eval validate` (OK and errors), `eval score` (--predictions/--gold, --allowed-annotators), `eval run` (matrix from config file)
-- `test_run.py` -- `run_eval` (shared transcript cache across configs, allowed_annotators filtering, duplicate-name guard, YAML loading, result JSON written, production transcript reuse when whisper provenance matches)
+- `test_eval_cli.py` -- `podcast-etl eval label` (writes label files, `--podcast` slug filter, `--config` YAML, no-episodes message, missing-podcast error), `eval annotate` (--blank with duration resolution, --bootstrap-from source copy, mutually exclusive error), `eval validate` (OK exit, non-zero + filename on errors, missing-dataset error), `eval score` (results JSON + report, `--allowed-annotators` filter, only-episodes-in-both, missing-gold/missing-predictions errors)
+- `test_run.py` -- `run_eval` (shared transcript cache across configs, allowed_annotators filtering, duplicate-name guard, YAML loading, result JSON written, gold defines scored episode set); `eval run` CLI smoke test (exit zero, writes results JSON, prints report)
 
 **After making changes**, run tests and check whether new behaviour should be tested. Always update `README.md` and `CLAUDE.md` to reflect any changes to CLI commands, pipeline steps, architecture, or configuration.
 
@@ -205,7 +205,7 @@ Standalone evaluation system for measuring ad detection quality against gold-sta
 - `score --predictions DS [--predictions DS ...] --gold DS [--allowed-annotators A ...]` — score predictions vs gold
 - `run [--config eval/eval_config.yaml]` — run the full matrix
 
-Common options: `--output-dir` (default `./output`), `--datasets-dir` (default `eval/datasets`), `--results-dir` (default `eval/results`).
+Common options on all five subcommands: `--output-dir` (default `./output`) and `--datasets-dir` (default `eval/datasets`). `--results-dir` (default `eval/results`) is present only on `score` and `run`.
 
 **Transcript reuse:** Before transcribing, `label.py` checks `episode.status['detect_ads'].result['whisper']`; if it matches the eval's normalized whisper config (via `normalize_whisper_config`), the on-disk production transcript is reused. A single in-memory cache is shared across all configs in a run, so identical whisper settings transcribe each episode only once.
 
