@@ -15,6 +15,7 @@ configs sharing identical whisper settings transcribe each episode only once.
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import logging
 from datetime import datetime
@@ -50,7 +51,7 @@ def run_eval(
     Raises:
         ValueError: If two configs share the same ``name``.
     """
-    cfg = yaml.safe_load(Path(config_path).read_text(encoding="utf-8")) or {}
+    cfg = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
     output_dir = Path(cfg.get("output_dir", output_dir))
 
     gold_root = resolve_dataset_root(cfg["gold"], output_dir, datasets_dir)
@@ -82,7 +83,6 @@ def run_eval(
     transcript_cache: dict = {}
     results: dict[str, AggregateScore] = {}
     timestamp = datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
-    results_dir = Path(results_dir)
     results_dir.mkdir(parents=True, exist_ok=True)
 
     for c in configs:
@@ -115,7 +115,7 @@ def run_eval(
                     "config": name,
                     "gold": cfg["gold"],
                     "timestamp": timestamp,
-                    "aggregate": _asdict(agg),
+                    "aggregate": dataclasses.asdict(agg),
                 },
                 indent=2,
             )
@@ -124,12 +124,6 @@ def run_eval(
         )
 
     return results
-
-
-def _asdict(agg: AggregateScore) -> dict:
-    import dataclasses
-
-    return dataclasses.asdict(agg)
 
 
 def main() -> None:

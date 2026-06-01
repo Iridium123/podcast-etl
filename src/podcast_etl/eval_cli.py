@@ -17,6 +17,7 @@ module — and therefore ``cli.py`` — from hard-failing in deployments where t
 from __future__ import annotations
 
 import dataclasses
+import json
 import logging
 import sys
 from datetime import datetime
@@ -147,7 +148,14 @@ def label_cmd(
     ad_config = _build_ad_config_from_yaml(config_path)
 
     if podcast_slug:
-        refs = iter_episode_refs(output_dir, podcast_slug, episodes_regex)
+        try:
+            refs = iter_episode_refs(output_dir, podcast_slug, episodes_regex)
+        except FileNotFoundError:
+            click.echo(
+                f"no episodes found for podcast '{podcast_slug}' under {output_dir}",
+                err=True,
+            )
+            raise SystemExit(1)
     else:
         # Enumerate every podcast dir (subdir with an episodes/ dir) and concat.
         refs = []
@@ -247,6 +255,9 @@ def validate_cmd(dataset_name: str, output_dir: Path, datasets_dir: Path) -> Non
     from eval.validate import validate_dataset
 
     root = resolve_dataset_root(dataset_name, output_dir, datasets_dir)
+    if not root.exists():
+        click.echo(f"dataset not found: {root}", err=True)
+        raise SystemExit(1)
     results = validate_dataset(root)
 
     any_errors = False
@@ -289,7 +300,11 @@ def score_cmd(
     from eval.score import aggregate_scores, format_report, score_episode
 
     gold_root = resolve_dataset_root(gold, output_dir, datasets_dir)
-    gold_dataset = load_dataset(gold_root)
+    try:
+        gold_dataset = load_dataset(gold_root)
+    except FileNotFoundError:
+        click.echo(f"gold dataset not found: {gold_root}", err=True)
+        raise SystemExit(1)
 
     allowed = set(allowed_annotators)
     if allowed:
@@ -310,7 +325,11 @@ def score_cmd(
 
     for pred_name in predictions:
         pred_root = resolve_dataset_root(pred_name, output_dir, datasets_dir)
-        pred_dataset = load_dataset(pred_root)
+        try:
+            pred_dataset = load_dataset(pred_root)
+        except FileNotFoundError:
+            click.echo(f"predictions dataset not found: {pred_root}", err=True)
+            raise SystemExit(1)
         scores = [
             score_episode(pred_dataset[k].segments, gold_dataset[k].segments)
             for k in gold_dataset
@@ -322,8 +341,6 @@ def score_cmd(
         safe_pred = pred_name.replace("/", "-")
         safe_gold = gold.replace("/", "-")
         out_path = results_dir / f"{timestamp}-{safe_pred}-vs-{safe_gold}.json"
-        import json
-
         out_path.write_text(
             json.dumps(
                 {

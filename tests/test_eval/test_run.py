@@ -9,8 +9,10 @@ from unittest.mock import patch
 
 import pytest
 import yaml
+from click.testing import CliRunner
 
 from podcast_etl.detectors import AdSegment
+from podcast_etl.eval_cli import eval_group
 from podcast_etl.labels import EpisodeRef, Labels, Provenance
 from podcast_etl.models import Episode, StepStatus
 
@@ -214,3 +216,53 @@ class TestRunEval:
 
         # Default allowed_annotators=["human"] filters out the model gold -> nothing scored.
         assert results["cfg-a"].episode_count == 0
+
+
+# ---------------------------------------------------------------------------
+# eval run CLI smoke test
+# ---------------------------------------------------------------------------
+
+class TestRunCmd:
+    def test_run_cmd_exit_zero_and_writes_results(self, tmp_path):
+        """Happy-path: CLI run subcommand forwards args, prints report, writes JSON."""
+        output_dir = tmp_path / "output"
+        datasets_dir = tmp_path / "datasets"
+        results_dir = tmp_path / "results"
+
+        _write_episode(output_dir, "p", "ep1.json")
+        _write_audio(output_dir, "p")
+        seg = AdSegment(start=10.0, end=40.0, confidence=1.0, detector="human")
+        _write_gold(datasets_dir, "p", "ep1", _gold_labels("p", "ep1.json", [seg]))
+
+        config_path = _two_config_yaml(tmp_path, output_dir, [
+            {"name": "cfg-a", "whisper": {"model": "base", "language": "en"},
+             "llm": {"provider": "anthropic", "model": "m"}, "prompt": "default"},
+        ])
+
+        pred_seg = AdSegment(start=11.0, end=39.0, confidence=0.9, detector="transcription")
+        runner = CliRunner()
+        with patch("eval.label.transcribe", return_value=[{"start": 0.0, "end": 1.0, "text": "x"}]), \
+             patch("eval.label.classify", return_value=[pred_seg]), \
+             patch("eval.label.load_prompt", return_value="p"), \
+             patch("eval.label.build_llm_client", return_value=None), \
+             patch("eval.label._get_audio_duration", return_value=600.0):
+            result = runner.invoke(
+                eval_group,
+                [
+                    "run",
+                    "--config", str(config_path),
+                    "--output-dir", str(output_dir),
+                    "--datasets-dir", str(datasets_dir),
+                    "--results-dir", str(results_dir),
+                ],
+            )
+
+        assert result.exit_code == 0, result.output
+        # A results JSON was written for cfg-a.
+        json_files = list(results_dir.glob("*-cfg-a.json"))
+        assert len(json_files) == 1
+        payload = json.loads(json_files[0].read_text())
+        assert payload["config"] == "cfg-a"
+        assert payload["aggregate"]["total_tp"] == 1
+        # The printed report contains a header line.
+        assert "Config" in result.output

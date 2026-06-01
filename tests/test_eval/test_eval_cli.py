@@ -370,3 +370,82 @@ class TestScoreCmd:
         payload = json.loads(next(results_dir.glob("*.json")).read_text())
         # Only ep1 is in both -> exactly one episode scored.
         assert payload["aggregate"]["episode_count"] == 1
+
+    def test_missing_gold_exits_nonzero_with_message(self, tmp_path):
+        output_dir = tmp_path / "output"
+        datasets_dir = tmp_path / "datasets"
+        results_dir = tmp_path / "results"
+
+        runner = CliRunner()
+        result = runner.invoke(
+            eval_group,
+            ["score", "--predictions", "preds", "--gold", "no-such-gold",
+             "--output-dir", str(output_dir), "--datasets-dir", str(datasets_dir),
+             "--results-dir", str(results_dir)],
+        )
+
+        assert result.exit_code != 0
+        assert "gold dataset not found" in (result.output + (result.stderr or ""))
+        assert "no-such-gold" in (result.output + (result.stderr or ""))
+
+    def test_missing_predictions_exits_nonzero_with_message(self, tmp_path):
+        output_dir = tmp_path / "output"
+        datasets_dir = tmp_path / "datasets"
+        results_dir = tmp_path / "results"
+
+        seg = AdSegment(start=10.0, end=40.0, confidence=1.0, detector="human")
+        _write_label(datasets_dir / "gold", "p", "ep", _make_labels("p", "ep.json", [seg], annotator="human"))
+
+        runner = CliRunner()
+        result = runner.invoke(
+            eval_group,
+            ["score", "--predictions", "no-such-preds", "--gold", "gold",
+             "--output-dir", str(output_dir), "--datasets-dir", str(datasets_dir),
+             "--results-dir", str(results_dir)],
+        )
+
+        assert result.exit_code != 0
+        assert "predictions dataset not found" in (result.output + (result.stderr or ""))
+        assert "no-such-preds" in (result.output + (result.stderr or ""))
+
+
+# ---------------------------------------------------------------------------
+# eval validate — error cases
+# ---------------------------------------------------------------------------
+
+class TestValidateCmdErrors:
+    def test_missing_dataset_exits_nonzero_with_message(self, tmp_path):
+        output_dir = tmp_path / "output"
+        datasets_dir = tmp_path / "datasets"
+
+        runner = CliRunner()
+        result = runner.invoke(
+            eval_group,
+            ["validate", "no-such-dataset",
+             "--output-dir", str(output_dir), "--datasets-dir", str(datasets_dir)],
+        )
+
+        assert result.exit_code != 0
+        assert "dataset not found" in (result.output + (result.stderr or ""))
+        assert "no-such-dataset" in (result.output + (result.stderr or ""))
+
+
+# ---------------------------------------------------------------------------
+# eval label — error cases
+# ---------------------------------------------------------------------------
+
+class TestLabelCmdErrors:
+    def test_missing_podcast_slug_exits_nonzero_with_message(self, tmp_path):
+        output_dir = tmp_path / "output"
+        output_dir.mkdir()
+        datasets_dir = tmp_path / "datasets"
+
+        runner = CliRunner()
+        result = runner.invoke(
+            eval_group,
+            ["label", "gold", "--podcast", "no-such-podcast",
+             "--output-dir", str(output_dir), "--datasets-dir", str(datasets_dir)],
+        )
+
+        assert result.exit_code != 0
+        assert "no-such-podcast" in (result.output + (result.stderr or ""))
