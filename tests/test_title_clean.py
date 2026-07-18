@@ -41,6 +41,12 @@ class TestStripDate:
     def test_slash_ymd_in_brackets(self):
         assert strip_date("Guest Name [2026/03/22]") == "Guest Name"
 
+    def test_invalid_calendar_triple_kept(self):
+        assert strip_date("App Review [1080/60/2]") == "App Review [1080/60/2]"
+
+    def test_three_digit_year_kept(self):
+        assert strip_date("Mix [12.13.320]") == "Mix [12.13.320]"
+
     # Brackets
     def test_numeric_brackets(self):
         assert strip_date("Guest Name [3_19_26]") == "Guest Name"
@@ -112,6 +118,24 @@ class TestStripInlineDate:
     def test_empty(self):
         assert strip_inline_date("") == ""
 
+    def test_version_string_kept(self):
+        assert strip_inline_date("App Update v2.10.24 Discussion") == "App Update v2.10.24 Discussion"
+
+    def test_invalid_calendar_date_kept(self):
+        assert strip_inline_date("Nonsense 13/45/26 here") == "Nonsense 13/45/26 here"
+
+    def test_underscore_separators_tidied(self):
+        assert strip_inline_date("Show_2025.10.02_Ep") == "Show Ep"
+
+    def test_trailing_comma_tidied(self):
+        assert strip_inline_date("Interview 3.19.26, extended cut") == "Interview extended cut"
+
+    def test_date_inside_larger_parenthetical_stripped(self):
+        assert strip_inline_date("Show (Live 2025.10.02) Extended") == "Show (Live) Extended"
+
+    def test_dotted_scene_name(self):
+        assert strip_inline_date("Show.Name.2025.10.02.Ep.Title") == "Show.Name Ep.Title"
+
 
 class TestCleanTitleInlineDate:
     def test_flag_wiring(self):
@@ -173,6 +197,12 @@ class TestParseInlineDate:
     def test_digit_run_not_a_date(self):
         # A 4-digit year must not be carved out of a longer digit run
         assert parse_inline_date("id 12025.10.023 x") is None
+
+    def test_version_string_not_a_date(self):
+        assert parse_inline_date("Show - Interview v1.2.34") is None
+
+    def test_three_digit_number_not_a_year(self):
+        assert parse_inline_date("Mix 12.13.320 kbps") is None
 
     def test_release_junk_ignored(self):
         assert parse_inline_date(

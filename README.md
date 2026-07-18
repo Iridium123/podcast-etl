@@ -282,8 +282,8 @@ Operational notes:
 
 Optional rules applied at feed parse time. All off by default; enable globally or per-feed.
 
-- **`strip_date`** -- removes dates in brackets: `(3/19/26)`, `[2026-03-22]`, `[2026.03.22]`, `(March 22, 2026)`, etc. Numeric dates accept `/`, `.`, `_`, `-` separators, month-first or year-first.
-- **`strip_inline_date`** -- removes the same date formats when they appear unbracketed: `Show - 2025.10.02 - Ep` becomes `Show - Ep`.
+- **`strip_date`** -- removes dates in brackets: `(3/19/26)`, `[2026-03-22]`, `[2026.03.22]`, `(March 22, 2026)`, etc. Numeric dates accept `/`, `.`, `_`, `-` separators, month-first or year-first; only real calendar dates are removed (`[1080/60/2]` stays).
+- **`strip_inline_date`** -- removes the same date formats when they appear unbracketed: `Show - 2025.10.02 - Ep` becomes `Show - Ep`. Version-like tokens (`v2.10.24`) and non-dates are left alone.
 - **`reorder_parts`** -- moves `(Part N)` after the common series prefix so multi-part same-day episodes sort correctly.
 - **`prepend_episode_number`** -- prepends `itunes:episode` number: `"Rise of the Mongols"` becomes `"123 - Rise of the Mongols"`.
 - **`sanitize`** -- replaces filesystem-invalid characters with `_`, collapses separator sequences to ` - `.

@@ -24,10 +24,11 @@ _MONTH_NAMES = (
 
 _DATE_SEP = r"[./_-]"
 
-# Numeric month-first dates: M/D/YY through MM/DD/YYYY with /, ., _, - separators.
-# This is intentionally loose — it may match non-date sequences like (1/2/34).
-# Acceptable trade-off for podcast titles where such patterns are rare.
-_NUMERIC_DATE = rf"\d{{1,2}}{_DATE_SEP}\d{{1,2}}{_DATE_SEP}\d{{2,4}}"
+# Numeric month-first dates: M/D/YY or MM/DD/YYYY with /, ., _, - separators.
+# The regex alone is loose (it can still match date-shaped junk like 1/2/34);
+# the strip and parse consumers below only act on matches that _to_datetime
+# accepts as real calendar dates.
+_NUMERIC_DATE = rf"\d{{1,2}}{_DATE_SEP}\d{{1,2}}{_DATE_SEP}(?:\d{{4}}|\d{{2}})"
 # Year-first dates: 2025.10.02, 2025-10-02, 2025/10/02, 2025_10_02
 _YMD_DATE = rf"\d{{4}}{_DATE_SEP}\d{{1,2}}{_DATE_SEP}\d{{1,2}}"
 # Month name dates: March 22, 2026 or Mar 22 2026
@@ -40,70 +41,106 @@ _DATE_PATTERN = rf"(?:{_YMD_DATE}|{_NUMERIC_DATE}|{_MONTH_DATE})"
 # Bracketed date with optional surrounding whitespace/dashes
 # Only consume leading separator (dash before bracket) to avoid eating
 # a trailing separator that belongs to subsequent content.
-_BRACKETED_DATE = (
+_BRACKETED_DATE_RE = re.compile(
     r"\s*[-\u2013\u2014]*\s*"
     r"(?:"
-    rf"\({_DATE_PATTERN}\)"
-    rf"|\[{_DATE_PATTERN}\]"
-    rf"|\{{{_DATE_PATTERN}\}}"
+    rf"\(({_DATE_PATTERN})\)"
+    rf"|\[({_DATE_PATTERN})\]"
+    rf"|\{{({_DATE_PATTERN})\}}"
     r")"
     r"\s*"
 )
 
-_BRACKETED_DATE_RE = re.compile(_BRACKETED_DATE)
+_BRACKET_PAIRS = {("(", ")"), ("[", "]"), ("{", "}")}
+
+
+def _date_token(match: re.Match) -> tuple[str, int, int]:
+    """Text and span of whichever date group of the regex matched."""
+    for i, group in enumerate(match.groups(), 1):
+        if group is not None:
+            return group, match.start(i), match.end(i)
+    raise ValueError("regex has no matching date group")
+
+
+def _strip_dates(title: str, regex: re.Pattern, keep) -> str:
+    """Replace matches of *regex* with a space and tidy leftover separators.
+
+    Matches for which *keep* returns True are left untouched. Returns the
+    original title if nothing was stripped or stripping would leave an
+    empty result.
+    """
+    # Replace with space (not empty) so surrounding words don't merge;
+    # the regexes already consume adjacent whitespace.
+    result = regex.sub(lambda m: m.group(0) if keep(m) else " ", title)
+    if result == title:
+        return title
+    result = result.strip()
+    # Clean up leftover dangling separators at the edges and stray spaces
+    # left just inside brackets
+    result = re.sub(r"^[-\u2013\u2014_,]\s*", "", result)
+    result = re.sub(r"\s*[-\u2013\u2014_,]$", "", result)
+    result = re.sub(r"([(\[{])\s+", r"\1", result)
+    result = re.sub(r"\s+([)\]}])", r"\1", result)
+    return result if result else title
 
 
 def strip_date(title: str) -> str:
     """Remove all bracketed date strings from a title.
 
-    Only matches dates inside (), [], or {}: month-first numeric (3/19/26),
-    year-first (2026.03.22), and month-name (March 22, 2026) forms, with
-    any of / . _ - as separators. Removes every match (titles with multiple
-    bracketed dates get all of them stripped). Cleans up adjacent whitespace
-    and dashes. Returns the original if stripping would leave an empty
-    result.
+    Only matches real calendar dates inside (), [], or {}: month-first
+    numeric (3/19/26), year-first (2026.03.22), and month-name
+    (March 22, 2026) forms, with any of / . _ - as separators. Removes
+    every match (titles with multiple bracketed dates get all of them
+    stripped). Cleans up adjacent whitespace and dashes. Returns the
+    original if stripping would leave an empty result.
     """
     if not title:
         return title
-    # Replace with space (not empty) so surrounding words don't merge;
-    # the regex's \s* already consumes adjacent whitespace.
-    result = _BRACKETED_DATE_RE.sub(" ", title).strip()
-    # Clean up leftover dangling separators at start/end
-    result = re.sub(r"^[-\u2013\u2014]\s*", "", result)
-    result = re.sub(r"\s*[-\u2013\u2014]$", "", result)
-    return result if result else title
+    return _strip_dates(
+        title,
+        _BRACKETED_DATE_RE,
+        keep=lambda m: _to_datetime(_date_token(m)[0]) is None,
+    )
 
 
-# Unbracketed date with optional leading separator. Digit lookarounds keep a
-# match from starting/ending inside a longer digit run; bracket lookarounds
-# leave fully bracketed dates to strip_date.
+# Unbracketed date with optional leading/trailing separators. Letter/digit
+# lookarounds keep a match from starting or ending inside a longer word or
+# digit run (v1.2.34, 320kbps).
 _INLINE_DATE_RE = re.compile(
-    r"\s*[-–—]*\s*"
-    rf"(?<![\d(\[{{]){_DATE_PATTERN}(?![\d)\]}}])"
-    r"\s*"
+    r"[\s_.\-–—]*"
+    rf"(?<![\dA-Za-z])({_DATE_PATTERN})(?![\dA-Za-z])"
+    r"[.,_]*\s*"
 )
 
 
 def strip_inline_date(title: str) -> str:
     """Remove unbracketed date strings from a title.
 
-    Same date formats as strip_date, but matched bare rather than inside
-    brackets: 'Show - 2025.10.02 - Ep' -> 'Show - Ep'. Removes every match
-    plus redundant surrounding separators. Bracketed dates are left for
-    strip_date. Returns the original if stripping would leave an empty
-    result.
+    Same date formats as strip_date, matched bare rather than inside
+    brackets: 'Show - 2025.10.02 - Ep' -> 'Show - Ep'. Only real calendar
+    dates are removed, and a date wrapped exactly in brackets is left for
+    strip_date to handle. Returns the original if stripping would leave an
+    empty result.
     """
     if not title:
         return title
-    result = _INLINE_DATE_RE.sub(" ", title).strip()
-    result = re.sub(r"^[-–—]\s*", "", result)
-    result = re.sub(r"\s*[-–—]$", "", result)
-    return result if result else title
+
+    def keep(match: re.Match) -> bool:
+        token, start, end = _date_token(match)
+        if _to_datetime(token) is None:
+            return True
+        return (
+            start > 0
+            and end < len(title)
+            and (title[start - 1], title[end]) in _BRACKET_PAIRS
+        )
+
+    return _strip_dates(title, _INLINE_DATE_RE, keep)
 
 
-# Standalone date for searching/parsing: digit lookarounds keep a match from
-# starting or ending inside a longer digit run.
-_DATE_SEARCH_RE = re.compile(rf"(?<!\d){_DATE_PATTERN}(?!\d)")
+# Standalone date for parsing: same letter/digit lookarounds as inline
+# stripping.
+_DATE_SEARCH_RE = re.compile(rf"(?<![\dA-Za-z]){_DATE_PATTERN}(?![\dA-Za-z])")
 
 
 def parse_inline_date(text: str) -> datetime | None:
@@ -127,14 +164,14 @@ def parse_inline_date(text: str) -> datetime | None:
 def _to_datetime(token: str) -> datetime | None:
     """Resolve one _DATE_PATTERN match to a datetime; None if not a real date."""
     fields = re.split(_DATE_SEP, token)
-    if len(fields) == 3 and all(f.isdigit() for f in fields):
-        if len(fields[0]) == 4:
-            year, month, day = (int(f) for f in fields)
-        else:
-            month, day, year = (int(f) for f in fields)
-            if year < 100:
-                year += 1900 if year >= 69 else 2000
+    if len(fields) == 3:
         try:
+            if len(fields[0]) == 4:
+                year, month, day = (int(f) for f in fields)
+            else:
+                month, day, year = (int(f) for f in fields)
+                if year < 100:
+                    year += 1900 if year >= 69 else 2000
             return datetime(year, month, day)
         except ValueError:
             return None
