@@ -11,7 +11,10 @@ import yaml
 
 from podcast_etl.models import Episode, Podcast, StepStatus, TorrentItem
 from podcast_etl.service import (
+    _check_feed_source,
+    _check_unit3d_pipeline,
     delete_feed,
+    episodes_for_torrent_items,
     fetch_feed,
     filter_episodes,
     filter_torrent_items,
@@ -26,7 +29,9 @@ from podcast_etl.service import (
     replace_feed,
     reset_feed_data,
     run_pipeline,
+    run_torrent_phase,
     save_config,
+    select_torrent_items,
     split_config_fields,
     validate_config,
 )
@@ -996,6 +1001,128 @@ def test_filter_torrent_items_last_applies_before_regex():
     # last=2 keeps items 1-2, then regex keeps only "Show A" (mirrors filter_episodes)
     result = filter_torrent_items(items, last=2, episode_filter=r"^Show ")
     assert [i.title for i in result] == ["Show A"]
+
+
+def test_check_feed_source_accepts_known_and_default():
+    assert _check_feed_source({"source": "rss"}) is None
+    assert _check_feed_source({"source": "unit3d"}) is None
+    assert _check_feed_source({}) is None  # defaults to rss
+
+
+def test_check_feed_source_rejects_unknown():
+    error = _check_feed_source({"source": "transmission-rss"})
+    assert "unknown source 'transmission-rss'" in error
+
+
+def test_check_unit3d_pipeline_rejects_download():
+    error = _check_unit3d_pipeline({"source": "unit3d", "pipeline": ["download", "tag"]})
+    assert "'download' step is not valid for source 'unit3d'" in error
+
+
+def test_check_unit3d_pipeline_passes_without_download():
+    assert _check_unit3d_pipeline({"source": "unit3d", "pipeline": ["tag"]}) is None
+    assert _check_unit3d_pipeline({"source": "unit3d"}) is None
+
+
+def test_check_unit3d_pipeline_ignores_rss_feeds():
+    assert _check_unit3d_pipeline({"source": "rss", "pipeline": ["download"]}) is None
+    assert _check_unit3d_pipeline({"pipeline": ["download"]}) is None
+
+
+def test_select_torrent_items_no_filters_returns_all():
+    items = [_torrent_item(i) for i in range(3)]
+    assert select_torrent_items(items) == items
+
+
+def test_select_torrent_items_keeps_in_flight_outside_window():
+    newest = _torrent_item(1, "Newest")
+    in_flight = _torrent_item(2, "Downloading", info_hash="abc123")
+    never_started = _torrent_item(3, "Never started")
+    fetched = _torrent_item(4, "Done", info_hash="def456", fetched_at="2026-01-01T00:00:00")
+    result = select_torrent_items([newest, in_flight, never_started, fetched], last=1)
+    assert [i.title for i in result] == ["Newest", "Downloading"]
+
+
+def test_select_torrent_items_in_flight_survives_episode_filter():
+    matching = _torrent_item(1, "Show A")
+    in_flight = _torrent_item(2, "Other", info_hash="abc123")
+    result = select_torrent_items([matching, in_flight], episode_filter=r"^Show ")
+    assert [i.title for i in result] == ["Show A", "Other"]
+
+
+def test_episodes_for_torrent_items_scopes_by_recorded_guids():
+    mine = Episode(
+        title="Mine", guid="hash-a:ep.mp3", published=None, audio_url=None,
+        duration=None, description=None, slug="mine",
+    )
+    other = Episode(
+        title="Other", guid="hash-b:ep.mp3", published=None, audio_url=None,
+        duration=None, description=None, slug="other",
+    )
+    item = _torrent_item(1, episode_guids=["hash-a:ep.mp3"])
+    assert episodes_for_torrent_items([mine, other], [item]) == [mine]
+    assert episodes_for_torrent_items([mine, other], []) == []
+
+
+def test_run_torrent_phase_narrowed_fetches_selection_and_scopes_episodes(tmp_path: Path):
+    episode = Episode(
+        title="Kept", guid="hash-keep:ep.mp3", published=None, audio_url=None,
+        duration=None, description=None, slug="kept",
+    )
+    stale = Episode(
+        title="Stale", guid="hash-old:ep.mp3", published=None, audio_url=None,
+        duration=None, description=None, slug="stale",
+    )
+    podcast = Podcast(title="T", url="u", description=None, image_url=None, slug="t")
+    podcast.torrent_items = [
+        _torrent_item(1, "Keep", episode_guids=["hash-keep:ep.mp3"]),
+        _torrent_item(2, "Drop", episode_guids=["hash-old:ep.mp3"]),
+    ]
+    podcast.episodes = [episode, stale]
+
+    with patch("podcast_etl.service.fetch_torrents") as mock_fetch:
+        result = run_torrent_phase(
+            podcast, tmp_path, {"source": "unit3d"}, episode_filter="^Keep"
+        )
+
+    (fetched_items, *_), _kwargs = mock_fetch.call_args
+    assert [i.title for i in fetched_items] == ["Keep"]
+    assert result == [episode]
+
+
+def test_run_torrent_phase_unnarrowed_returns_all_episodes(tmp_path: Path):
+    episode = Episode(
+        title="Any", guid="h:ep.mp3", published=None, audio_url=None,
+        duration=None, description=None, slug="any",
+    )
+    podcast = Podcast(title="T", url="u", description=None, image_url=None, slug="t")
+    podcast.episodes = [episode]
+
+    with patch("podcast_etl.service.fetch_torrents"):
+        result = run_torrent_phase(podcast, tmp_path, {"source": "unit3d"})
+
+    assert result == [episode]
+
+
+def test_run_torrent_phase_last_falls_back_to_config(tmp_path: Path):
+    podcast = Podcast(title="T", url="u", description=None, image_url=None, slug="t")
+    podcast.torrent_items = [_torrent_item(i) for i in range(5)]
+
+    with patch("podcast_etl.service.fetch_torrents") as mock_fetch:
+        run_torrent_phase(podcast, tmp_path, {"source": "unit3d", "last": 2})
+
+    (fetched_items, *_), _kwargs = mock_fetch.call_args
+    assert len(fetched_items) == 2
+
+
+def test_run_torrent_phase_step_filter_skips_fetch(tmp_path: Path):
+    podcast = Podcast(title="T", url="u", description=None, image_url=None, slug="t")
+    podcast.torrent_items = [_torrent_item(1)]
+
+    with patch("podcast_etl.service.fetch_torrents") as mock_fetch:
+        run_torrent_phase(podcast, tmp_path, {"source": "unit3d"}, step_filter="tag")
+
+    mock_fetch.assert_not_called()
 
 
 def test_run_pipeline_unit3d_runs_fetch_phase_before_pipeline(tmp_path: Path):

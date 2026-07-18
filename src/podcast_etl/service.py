@@ -89,6 +89,41 @@ def _check_ad_detection_prompt(resolved: dict) -> str | None:
     return None
 
 
+def _check_feed_source(resolved: dict) -> str | None:
+    """Return an error message if the resolved config names an unknown source."""
+    source = resolved.get("source", "rss")
+    if source not in FEED_SOURCES:
+        return f"unknown source {source!r} (expected one of {', '.join(FEED_SOURCES)})"
+    return None
+
+
+def _check_unit3d_pipeline(resolved: dict) -> str | None:
+    """Return an error message if a torrent-source feed's pipeline has 'download'.
+
+    Torrent-spawned episodes have no audio_url; with --overwrite the download
+    step would crash on every episode. Audio arrives via the torrent client,
+    so 'download' is never valid for source 'unit3d'.
+    """
+    if resolved.get("source", "rss") != "unit3d":
+        return None
+    if "download" in (resolved.get("pipeline") or []):
+        return (
+            "'download' step is not valid for source 'unit3d' "
+            "(audio arrives via the torrent client)"
+        )
+    return None
+
+
+# Checks run against each feed's resolved (defaults + feed) config.
+# Each returns an error message or None; add new source- or
+# sub-config-specific validation as another function here.
+RESOLVED_FEED_CHECKS = (
+    _check_ad_detection_prompt,
+    _check_feed_source,
+    _check_unit3d_pipeline,
+)
+
+
 def validate_config(config: dict) -> None:
     """Validate config structure and catch common errors early."""
     defaults = config.get("defaults", {})
@@ -111,23 +146,10 @@ def validate_config(config: dict) -> None:
             errors.append(f"Feed {feed_label!r}: {exc}")
             continue
 
-        prompt_error = _check_ad_detection_prompt(resolved)
-        if prompt_error:
-            errors.append(f"Feed {feed_label!r}: {prompt_error}")
-
-        source = resolved.get("source", "rss")
-        if source not in FEED_SOURCES:
-            errors.append(
-                f"Feed {feed_label!r}: unknown source {source!r} (expected one of {', '.join(FEED_SOURCES)})"
-            )
-        elif source == "unit3d" and "download" in (resolved.get("pipeline") or []):
-            # Torrent-spawned episodes have no audio_url; with --overwrite the
-            # download step would crash on every episode. Audio arrives via
-            # the torrent client, so 'download' is never valid here.
-            errors.append(
-                f"Feed {feed_label!r}: 'download' step is not valid for source 'unit3d' "
-                "(audio arrives via the torrent client)"
-            )
+        for check in RESOLVED_FEED_CHECKS:
+            error = check(resolved)
+            if error:
+                errors.append(f"Feed {feed_label!r}: {error}")
 
     for step_name in defaults.get("pipeline", []):
         if step_name not in STEP_REGISTRY:
@@ -282,6 +304,67 @@ def filter_torrent_items(
     return result
 
 
+def select_torrent_items(
+    items: list[TorrentItem],
+    last: int | None = None,
+    episode_filter: str | None = None,
+) -> list[TorrentItem]:
+    """Torrent items the fetch phase should advance this cycle.
+
+    The filtered window, plus in-flight items that fell out of it: a torrent
+    already added to the client keeps advancing even after newer entries push
+    it past `last` — finishing it costs no new tracker downloads, and it
+    would otherwise strand mid-download forever.
+    """
+    window = filter_torrent_items(items, last=last, episode_filter=episode_filter)
+    window_guids = {i.guid for i in window}
+    in_flight = [
+        i for i in items
+        if i.guid not in window_guids and i.info_hash and not i.fetched_at
+    ]
+    return window + in_flight
+
+
+def episodes_for_torrent_items(
+    episodes: list[Episode], items: list[TorrentItem]
+) -> list[Episode]:
+    """The subset of *episodes* spawned by *items* (via recorded episode guids)."""
+    guids = {g for item in items for g in item.episode_guids}
+    return [ep for ep in episodes if ep.guid in guids]
+
+
+def run_torrent_phase(
+    podcast: Podcast,
+    output_dir: Path,
+    resolved_config: dict,
+    step_filter: str | None = None,
+    last: int | None = None,
+    episode_filter: str | None = None,
+) -> list[Episode]:
+    """Run the fetch phase for a torrent-source feed; return the episodes the
+    pipeline should process.
+
+    For torrent feeds, `last`/`episode_filter` select torrents, not episodes.
+    Unlike the RSS path, `last` falls back to the feed config — an unfiltered
+    run would download every .torrent in the feed and add it to the client.
+    A narrowed run pipelines only the selected torrents' episodes, so e.g.
+    `run --last 1 --overwrite` can't re-upload the back-catalog; an
+    unnarrowed run processes every on-disk episode (skip-completed makes
+    this cheap; orphaned torrents' episodes still finish).
+    """
+    item_last = last if last is not None else resolved_config.get("last")
+    selected = select_torrent_items(
+        podcast.torrent_items, last=item_last, episode_filter=episode_filter
+    )
+    if step_filter is None:
+        # A step-scoped run is a surgical re-run over existing episodes;
+        # fetching blobs / mutating the client is a full-run concern.
+        fetch_torrents(selected, podcast, output_dir, resolved_config)
+    if item_last is not None or episode_filter is not None:
+        return episodes_for_torrent_items(podcast.episodes, selected)
+    return podcast.episodes
+
+
 def fetch_feed(url: str, output_dir: Path, resolved_config: dict) -> Podcast:
     blacklist = resolved_config.get("blacklist", [])
     title_cleaning = resolved_config.get("title_cleaning") or None
@@ -309,33 +392,10 @@ def run_pipeline(
     pipeline = Pipeline(steps=steps, context=context)
     ep_filter = episode_filter if episode_filter is not None else resolved_config.get("episode_filter")
     if resolved_config.get("source", "rss") == "unit3d":
-        # Torrent-source feeds: last/episode_filter apply at the torrent
-        # layer, and the fetch phase runs first so newly spawned episodes
-        # reach this cycle's pipeline. Unlike the RSS path, `last` falls back
-        # to the feed config here — an unfiltered run would download every
-        # .torrent in the feed and add it to the client.
-        item_last = last if last is not None else resolved_config.get("last")
-        items = filter_torrent_items(podcast.torrent_items, last=item_last, episode_filter=ep_filter)
-        # In-flight torrents that fell out of the window still finish:
-        # advancing them costs no new tracker downloads, and they would
-        # otherwise strand mid-download forever.
-        window_guids = {i.guid for i in items}
-        in_flight = [
-            i for i in podcast.torrent_items
-            if i.guid not in window_guids and i.info_hash and not i.fetched_at
-        ]
-        selected = items + in_flight
-        if step_filter is None:
-            # A step-scoped run is a surgical re-run over existing episodes;
-            # fetching blobs / mutating the client is a full-run concern.
-            fetch_torrents(selected, podcast, output_dir, resolved_config)
-        if item_last is not None or ep_filter is not None:
-            # Narrowed run: pipeline only the selected torrents' episodes, so
-            # e.g. `run --last 1 --overwrite` can't re-upload the back-catalog.
-            selected_guids = {g for item in selected for g in item.episode_guids}
-            episodes = [ep for ep in podcast.episodes if ep.guid in selected_guids]
-        else:
-            episodes = podcast.episodes
+        episodes = run_torrent_phase(
+            podcast, output_dir, resolved_config,
+            step_filter=step_filter, last=last, episode_filter=ep_filter,
+        )
         if date_range is not None:
             episodes = filter_episodes(episodes, date_range=date_range)
     else:
