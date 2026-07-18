@@ -167,10 +167,14 @@ defaults:
     min_confidence: 0.5
 
   audiobookshelf:
+    dir: /podcasts             # required: library dir to copy audio into
+    # Optional: set all three to trigger an API scan after each copy.
+    # Omit them if Audiobookshelf's folder watcher picks up new files
+    # (it does for local mounts; it is unreliable on network/FUSE mounts
+    # such as Unraid /mnt/user shares).
     url: https://abs.example.com
     api_key: your-api-key
     library_id: lib_abc123
-    dir: /podcasts
 
   client:
     url: http://localhost:8080
@@ -265,7 +269,7 @@ Steps run in the order listed in `pipeline`. Each step's result is stored per-ep
 | `torrent` | `stage` | Create `.torrent` via `mktorrent` |
 | `seed` | `torrent` | Add torrent to qBittorrent via Web API |
 | `upload` | `torrent` | Upload `.torrent` + metadata to UNIT3D tracker |
-| `audiobookshelf` | `download` | Copy audio to Audiobookshelf library and trigger scan |
+| `audiobookshelf` | `download` | Copy audio to Audiobookshelf library; optionally trigger scan |
 
 ## Docker
 
