@@ -7,6 +7,7 @@ from email.utils import parsedate_to_datetime
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
 from mutagen.id3 import COMM, ID3, TDRC, TIT2, TRCK
 
 from podcast_etl.clients import TorrentFileInfo
@@ -455,6 +456,26 @@ class TestStateMachine:
         assert item.fetched_at is not None
         assert item.episode_guids == []
         assert podcast.episodes == []
+
+    def test_copy_failure_does_not_leak_episodes(self, tmp_path):
+        """A copy failure mid-torrent must not leave audio-less episodes in
+        podcast.episodes (observed live: unreachable save_path caused 178
+        half-built episodes to hit the pipeline and fail tagging)."""
+        podcast_dir = tmp_path / "podcast"
+        save_dir = tmp_path / "downloads"
+        item = make_item(info_hash="hash1")
+        client = self._complete_client(save_dir)
+        # Second MP3's source file vanishes before the copy loop runs
+        (save_dir / "torrent1" / "ep2.mp3").unlink()
+        podcast = make_podcast()
+
+        with pytest.raises(FileNotFoundError):
+            fetch_torrent_item(item, podcast, podcast_dir, make_config(), client)
+
+        # Only the successfully-copied episode joined the podcast
+        assert [ep.guid for ep in podcast.episodes] == ["hash1:torrent1/ep1.mp3"]
+        assert (podcast_dir / "audio").exists()
+        assert item.fetched_at is None  # retried next cycle
 
     def test_partial_spawn_idempotency(self, tmp_path):
         podcast_dir = tmp_path / "podcast"

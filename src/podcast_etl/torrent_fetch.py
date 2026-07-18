@@ -96,7 +96,11 @@ def _mtime_rfc2822(path: Path) -> str:
 
 
 def _build_episode(
-    fileinfo: TorrentFileInfo, item: TorrentItem, podcast: Podcast, config: dict
+    fileinfo: TorrentFileInfo,
+    item: TorrentItem,
+    podcast: Podcast,
+    config: dict,
+    used_slugs: set[str] | None = None,
 ) -> Episode:
     id3 = _read_id3(fileinfo.absolute_path)
 
@@ -121,10 +125,12 @@ def _build_episode(
     slug = slugify(title)
     base_slug = slug
     counter = 1
-    used_slugs = {ep.slug for ep in podcast.episodes}
+    if used_slugs is None:
+        used_slugs = {ep.slug for ep in podcast.episodes}
     while slug in used_slugs:
         counter += 1
         slug = f"{base_slug}-{counter}"
+    used_slugs.add(slug)
 
     return Episode(
         title=title,
@@ -185,15 +191,14 @@ def _spawn_episodes(
     effective_title = config.get("title_override") or podcast.title
 
     episodes: list[Episode] = []
+    used_slugs = {ep.slug for ep in podcast.episodes}
     for fileinfo in mp3_files:
         guid = f"{item.info_hash}:{fileinfo.relative_path.as_posix()}"
         if guid in existing:
             # Idempotent re-run: preserve step status of already-spawned episodes
             episodes.append(existing[guid])
         else:
-            episode = _build_episode(fileinfo, item, podcast, config)
-            podcast.episodes.append(episode)
-            episodes.append(episode)
+            episodes.append(_build_episode(fileinfo, item, podcast, config, used_slugs))
 
     filenames = _destination_filenames(episodes, mp3_files, effective_title)
 
@@ -208,6 +213,11 @@ def _spawn_episodes(
                 completed_at=datetime.now().isoformat(),
                 result={"path": f"audio/{filename}", "size_bytes": size},
             )
+        # Only a successfully-copied episode joins the podcast: a copy failure
+        # mid-torrent must not leak audio-less episodes into the pipeline.
+        if episode.guid not in existing:
+            podcast.episodes.append(episode)
+            existing[episode.guid] = episode
         if episode.guid not in item.episode_guids:
             item.episode_guids.append(episode.guid)
         episode.save(podcast_dir, podcast.title)
