@@ -58,6 +58,15 @@
       </div>
 
       <div>
+        <label class="block text-sm text-gray-400 mb-1" for="source">Source</label>
+        <select id="source" name="source"
+                class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-gray-100 text-sm focus:outline-none focus:border-blue-500">
+          <option value="rss" {% if feed.get("source", "rss") == "rss" %}selected{% endif %}>rss</option>
+          <option value="unit3d" {% if feed.get("source") == "unit3d" %}selected{% endif %}>unit3d</option>
+        </select>
+      </div>
+
+      <div>
         <label class="block text-sm text-gray-400 mb-1" for="category_id">Category ID</label>
         <input id="category_id" name="category_id" type="number" min="1"
                value="{{ feed.category_id or '' }}"
