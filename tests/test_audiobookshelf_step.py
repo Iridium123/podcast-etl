@@ -1,5 +1,6 @@
 """Tests for AudiobookshelfStep."""
 
+import logging
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -210,16 +211,60 @@ class TestAudiobookshelfStep:
         episode = _make_episode()
         _create_audio_file(tmp_path, "audio/ep1.mp3")
 
-        with pytest.raises(ValueError, match="audiobookshelf.url"):
+        with pytest.raises(ValueError, match="audiobookshelf.dir"):
             AudiobookshelfStep().process(episode, context)
 
-    def test_raises_if_partial_config(self, tmp_path):
-        context = _make_context(tmp_path, abs_config={"url": "https://abs.example.com"})
+    def test_raises_if_scan_config_partial(self, tmp_path):
+        context = _make_context(
+            tmp_path,
+            abs_config={
+                "dir": str(tmp_path / "abs-podcasts"),
+                "url": "https://abs.example.com",
+            },
+        )
         episode = _make_episode()
         _create_audio_file(tmp_path, "audio/ep1.mp3")
 
         with pytest.raises(ValueError, match="audiobookshelf.api_key"):
             AudiobookshelfStep().process(episode, context)
+
+    def test_copies_without_scan_when_scan_not_configured(self, tmp_path, caplog):
+        context = _make_context(
+            tmp_path, abs_config={"dir": str(tmp_path / "abs-podcasts")}
+        )
+        episode = _make_episode()
+        _create_audio_file(tmp_path, "audio/ep1.mp3")
+
+        with patch("podcast_etl.steps.audiobookshelf.httpx.post") as mock_post:
+            with caplog.at_level(logging.INFO, logger="podcast_etl.steps.audiobookshelf"):
+                result = AudiobookshelfStep().process(episode, context)
+
+        # File was copied
+        dest = Path(result.data["path"])
+        assert dest.exists()
+        assert dest.read_bytes() == b"fake audio data"
+
+        # No scan was attempted, and the skip was logged
+        mock_post.assert_not_called()
+        assert "skipping scan" in caplog.text.lower()
+
+    def test_no_skip_log_when_nothing_copied(self, tmp_path, caplog):
+        context = _make_context(
+            tmp_path, abs_config={"dir": str(tmp_path / "abs-podcasts")}
+        )
+        episode = _make_episode()
+        _create_audio_file(tmp_path, "audio/ep1.mp3")
+
+        abs_dir = tmp_path / "abs-podcasts" / "My Podcast"
+        abs_dir.mkdir(parents=True, exist_ok=True)
+        (abs_dir / "ep1.mp3").write_bytes(b"already there")
+
+        with patch("podcast_etl.steps.audiobookshelf.httpx.post") as mock_post:
+            with caplog.at_level(logging.INFO, logger="podcast_etl.steps.audiobookshelf"):
+                AudiobookshelfStep().process(episode, context)
+
+        mock_post.assert_not_called()
+        assert "skipping scan" not in caplog.text.lower()
 
     def test_resolved_config_with_overridden_dir(self, tmp_path):
         override_dir = str(tmp_path / "abs-override")

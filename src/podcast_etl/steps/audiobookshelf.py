@@ -36,14 +36,20 @@ class AudiobookshelfStep:
 
         # Trigger a library scan so Audiobookshelf picks up the new file
         if copied:
-            base_url = abs_config["url"].rstrip("/")
-            library_id = abs_config["library_id"]
-            scan_url = f"{base_url}/api/libraries/{library_id}/scan"
-            headers = {"Authorization": f"Bearer {abs_config['api_key']}"}
+            if _scan_configured(abs_config):
+                base_url = abs_config["url"].rstrip("/")
+                library_id = abs_config["library_id"]
+                scan_url = f"{base_url}/api/libraries/{library_id}/scan"
+                headers = {"Authorization": f"Bearer {abs_config['api_key']}"}
 
-            logger.info("Triggering library scan for %s", library_id)
-            response = httpx.post(scan_url, headers=headers, timeout=30)
-            response.raise_for_status()
+                logger.info("Triggering library scan for %s", library_id)
+                response = httpx.post(scan_url, headers=headers, timeout=30)
+                response.raise_for_status()
+            else:
+                logger.info(
+                    "Audiobookshelf url/api_key/library_id not configured; "
+                    "skipping scan (relying on the folder watcher)"
+                )
 
         return StepResult(data={
             "path": str(dest),
@@ -65,10 +71,25 @@ def _resolve_audio_path(episode: Episode, context: PipelineContext) -> Path:
     )
 
 
+SCAN_KEYS = ("url", "api_key", "library_id")
+
+
+def _scan_configured(abs_config: dict) -> bool:
+    return all(abs_config.get(key) for key in SCAN_KEYS)
+
+
 def _get_abs_config(context: PipelineContext) -> dict:
-    """Return audiobookshelf config from resolved feed config."""
+    """Return audiobookshelf config from resolved feed config.
+
+    Only `dir` is required. The scan keys (url, api_key, library_id) are
+    optional as a group: all absent means skip the scan, but a partial set
+    is treated as a misconfiguration.
+    """
     merged = context.config.get("audiobookshelf", {})
-    for key in ("url", "api_key", "library_id", "dir"):
-        if not merged.get(key):
-            raise ValueError(f"audiobookshelf.{key} is not configured")
+    if not merged.get("dir"):
+        raise ValueError("audiobookshelf.dir is not configured")
+    if any(merged.get(key) for key in SCAN_KEYS):
+        for key in SCAN_KEYS:
+            if not merged.get(key):
+                raise ValueError(f"audiobookshelf.{key} is not configured")
     return merged

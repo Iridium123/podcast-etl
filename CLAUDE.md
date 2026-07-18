@@ -45,7 +45,7 @@ Tests live in `tests/` and use pytest:
 - `test_async_poller.py` -- `async_poll_loop`, `PollControl` shutdown/pause/run-now
 - `test_web.py` -- web UI routes: smoke test, dashboard, feeds CRUD, defaults editing, config form submission
 - `test_log_stream.py` -- `read_new_lines` (offset tracking, partial trailing line, truncation, missing file), `read_tail_lines` (initial dashboard population), `tail_log_events` (async SSE generator emitting HTML-escaped, div-wrapped events for new lines)
-- `test_audiobookshelf_step.py` -- `AudiobookshelfStep` copy and scan trigger, audio resolution, config merging, error cases
+- `test_audiobookshelf_step.py` -- `AudiobookshelfStep` copy and scan trigger, optional scan config (skip when unconfigured, partial-config error), audio resolution, config merging, error cases
 - `test_integration.py` -- end-to-end: parse real RSS feed, download episode, tag MP3, stage file (marked `integration`)
 - `test_integration_torrent.py` -- stage + torrent steps with real disk I/O and mktorrent binary (marked `integration`)
 
@@ -105,7 +105,7 @@ Each step implements the `Step` protocol (`name: str`, `process(episode, context
 - `torrent` -- create `.torrent` via `mktorrent`, extract `info_hash` via `torf`
 - `seed` -- add torrent to qBittorrent via Web API
 - `upload` -- upload to UNIT3D tracker; uses episode artwork as cover (500x500 JPEG), falls back to `cover_image` config; supports banner images
-- `audiobookshelf` -- copy audio to Audiobookshelf library dir and trigger scan
+- `audiobookshelf` -- copy audio to Audiobookshelf library dir; only `dir` is required. If `url`/`api_key`/`library_id` are all set, triggers a library scan via the ABS API after each copy; if all are absent, skips the scan (logged) and relies on ABS's folder watcher. A partial set of scan keys is a config error.
 
 ### External integrations
 
@@ -127,7 +127,7 @@ defaults:
   pipeline: [download, tag, detect_ads, strip_ads, stage, torrent, seed, upload]
   title_cleaning: {strip_date: false, reorder_parts: false, prepend_episode_number: false, sanitize: false}
   ad_detection: {whisper: {model: base, language: en}, llm: {provider: anthropic, model: claude-sonnet-4-20250514, prompt: default}, min_confidence: 0.5}
-  audiobookshelf: {url: ..., api_key: ..., library_id: ..., dir: /podcasts}
+  audiobookshelf: {dir: /podcasts}  # url/api_key/library_id optional (all-or-none): set to trigger API scan after copy
   client: {url: ..., username: ..., password: ..., save_path: /data}
   tracker: {url: ..., remember_cookie: ..., announce_url: ..., anonymous: 0, personal_release: 0, mod_queue_opt_in: 0}
 
