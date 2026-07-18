@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -17,15 +16,14 @@ def _make_config(*feeds: dict) -> dict:
     }
 
 
-def _make_fake_parse_feed(fetched_urls: list[str]) -> object:
-    def fake_parse_feed(url, *, output_dir, blacklist=None, title_cleaning=None):
+def _make_fake_fetch_feed(fetched_urls: list[str]) -> object:
+    def fake_fetch_feed(url, output_dir, resolved):
         fetched_urls.append(url)
         podcast = MagicMock()
-        podcast.episodes = []
         podcast.title = "Test"
         return podcast
 
-    return fake_parse_feed
+    return fake_fetch_feed
 
 
 @pytest.mark.asyncio
@@ -38,20 +36,13 @@ async def test_poll_control_shutdown(tmp_path: Path) -> None:
     fetched_urls: list[str] = []
     control = PollControl()
 
-    mock_pipeline_cls = MagicMock()
-    mock_pipeline_instance = MagicMock()
-    mock_pipeline_cls.return_value = mock_pipeline_instance
-
-    # Trigger shutdown after the first pipeline.run call
-    def run_and_shutdown(episodes, **kwargs):
+    # Trigger shutdown after the first run_pipeline call
+    def run_and_shutdown(podcast, output_dir, resolved, last=None):
         control.shutdown.set()
 
-    mock_pipeline_instance.run.side_effect = run_and_shutdown
-
     with (
-        patch("podcast_etl.poller.parse_feed", side_effect=_make_fake_parse_feed(fetched_urls)),
-        patch("podcast_etl.poller.get_step", return_value=MagicMock()),
-        patch("podcast_etl.poller.Pipeline", mock_pipeline_cls),
+        patch("podcast_etl.poller.fetch_feed", side_effect=_make_fake_fetch_feed(fetched_urls)),
+        patch("podcast_etl.poller.run_pipeline", side_effect=run_and_shutdown),
     ):
         await async_poll_loop(config, config_path, control)
 
@@ -74,9 +65,8 @@ async def test_poll_control_pause_skips_cycle(tmp_path: Path) -> None:
     control.shutdown.set()
 
     with (
-        patch("podcast_etl.poller.parse_feed", side_effect=_make_fake_parse_feed(fetched_urls)),
-        patch("podcast_etl.poller.get_step", return_value=MagicMock()),
-        patch("podcast_etl.poller.Pipeline", MagicMock()),
+        patch("podcast_etl.poller.fetch_feed", side_effect=_make_fake_fetch_feed(fetched_urls)),
+        patch("podcast_etl.poller.run_pipeline", MagicMock()),
     ):
         await async_poll_loop(config, config_path, control)
 
@@ -96,25 +86,13 @@ async def test_poll_control_run_now(tmp_path: Path) -> None:
     # Set run_now before starting — this should make the wait return immediately
     control.run_now.set()
 
-    mock_pipeline_cls = MagicMock()
-    mock_pipeline_instance = MagicMock()
-    mock_pipeline_cls.return_value = mock_pipeline_instance
-
-    # After the first cycle completes and run_now is cleared, shut down
-    call_count = 0
-
-    def run_and_maybe_shutdown(episodes, **kwargs):
-        nonlocal call_count
-        call_count += 1
+    def run_and_shutdown(podcast, output_dir, resolved, last=None):
         # Shut down so we exit the sleep phase after the first cycle
         control.shutdown.set()
 
-    mock_pipeline_instance.run.side_effect = run_and_maybe_shutdown
-
     with (
-        patch("podcast_etl.poller.parse_feed", side_effect=_make_fake_parse_feed(fetched_urls)),
-        patch("podcast_etl.poller.get_step", return_value=MagicMock()),
-        patch("podcast_etl.poller.Pipeline", mock_pipeline_cls),
+        patch("podcast_etl.poller.fetch_feed", side_effect=_make_fake_fetch_feed(fetched_urls)),
+        patch("podcast_etl.poller.run_pipeline", side_effect=run_and_shutdown),
     ):
         await async_poll_loop(config, config_path, control)
 

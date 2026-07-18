@@ -9,9 +9,8 @@ from pathlib import Path
 
 import yaml
 
-from podcast_etl.service import filter_episodes, validate_config
-from podcast_etl.feed import parse_feed
-from podcast_etl.pipeline import Pipeline, PipelineContext, get_step, resolve_feed_config
+from podcast_etl.service import fetch_feed, run_pipeline, validate_config
+from podcast_etl.pipeline import resolve_feed_config
 
 logger = logging.getLogger(__name__)
 
@@ -73,21 +72,9 @@ def run_poll_loop(config: dict, config_path: Path) -> None:
                 try:
                     logger.info("Fetching %s", url)
                     resolved = resolve_feed_config(defaults, feed_entry)
-                    blacklist = resolved.get("blacklist", [])
-                    title_cleaning = resolved.get("title_cleaning") or None
-                    podcast = parse_feed(url, output_dir=output_dir, blacklist=blacklist, title_cleaning=title_cleaning)
-                    podcast.save(output_dir)
-
-                    last = resolved.get("last")
-                    episode_filter = resolved.get("episode_filter")
-                    episodes = filter_episodes(podcast.episodes, last=last, episode_filter=episode_filter)
-
-                    feed_step_names = resolved.get("pipeline") or ["download"]
-                    steps = [get_step(name) for name in feed_step_names]
-                    context = PipelineContext(output_dir=output_dir, podcast=podcast, config=resolved)
-                    pipeline = Pipeline(steps=steps, context=context)
-                    pipeline.run(episodes)
-                    logger.info("Completed %s: %d episodes processed", podcast.title, len(episodes))
+                    podcast = fetch_feed(url, output_dir, resolved)
+                    run_pipeline(podcast, output_dir, resolved, last=resolved.get("last"))
+                    logger.info("Completed %s", podcast.title)
                 except Exception:
                     logger.exception("Error processing feed %s", url)
 
@@ -150,23 +137,11 @@ async def async_poll_loop(config: dict, config_path: Path, control: PollControl)
                     try:
                         logger.info("Fetching %s", url)
                         resolved = resolve_feed_config(defaults, feed_entry)
-                        blacklist = resolved.get("blacklist", [])
-                        title_cleaning = resolved.get("title_cleaning") or None
-                        podcast = await asyncio.to_thread(
-                            parse_feed, url, output_dir=output_dir, blacklist=blacklist, title_cleaning=title_cleaning
+                        podcast = await asyncio.to_thread(fetch_feed, url, output_dir, resolved)
+                        await asyncio.to_thread(
+                            run_pipeline, podcast, output_dir, resolved, last=resolved.get("last")
                         )
-                        await asyncio.to_thread(podcast.save, output_dir)
-
-                        last = resolved.get("last")
-                        episode_filter = resolved.get("episode_filter")
-                        episodes = filter_episodes(podcast.episodes, last=last, episode_filter=episode_filter)
-
-                        feed_step_names = resolved.get("pipeline") or ["download"]
-                        steps = [get_step(name) for name in feed_step_names]
-                        context = PipelineContext(output_dir=output_dir, podcast=podcast, config=resolved)
-                        pipeline = Pipeline(steps=steps, context=context)
-                        await asyncio.to_thread(pipeline.run, episodes)
-                        logger.info("Completed %s: %d episodes processed", podcast.title, len(episodes))
+                        logger.info("Completed %s", podcast.title)
                     except Exception:
                         logger.exception("Error processing feed %s", url)
 

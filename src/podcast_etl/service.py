@@ -12,7 +12,7 @@ from pathlib import Path
 import yaml
 
 from podcast_etl.feed import parse_feed
-from podcast_etl.models import Episode, Podcast
+from podcast_etl.models import Episode, Podcast, TorrentItem
 from podcast_etl.pipeline import (
     STEP_REGISTRY,
     Pipeline,
@@ -31,6 +31,10 @@ from podcast_etl.steps.strip_ads import StripAdsStep
 from podcast_etl.steps.tag import TagStep
 from podcast_etl.steps.torrent import TorrentStep
 from podcast_etl.steps.upload import UploadStep
+from podcast_etl.torrent_fetch import fetch_torrents
+from podcast_etl.unit3d_feed import parse_unit3d_feed
+
+FEED_SOURCES = ("rss", "unit3d")
 
 logger = logging.getLogger(__name__)
 
@@ -110,6 +114,12 @@ def validate_config(config: dict) -> None:
         prompt_error = _check_ad_detection_prompt(resolved)
         if prompt_error:
             errors.append(f"Feed {feed_label!r}: {prompt_error}")
+
+        source = resolved.get("source", "rss")
+        if source not in FEED_SOURCES:
+            errors.append(
+                f"Feed {feed_label!r}: unknown source {source!r} (expected one of {', '.join(FEED_SOURCES)})"
+            )
 
     for step_name in defaults.get("pipeline", []):
         if step_name not in STEP_REGISTRY:
@@ -247,10 +257,30 @@ def filter_episodes(
     return result
 
 
+def filter_torrent_items(
+    items: list[TorrentItem],
+    last: int | None = None,
+    episode_filter: str | None = None,
+) -> list[TorrentItem]:
+    """Filter torrent items by count and/or raw-RSS-title regex.
+
+    For torrent-source feeds the filter applies at the torrent layer —
+    once a torrent is included, all its MP3s become episodes.
+    """
+    result = items[:last] if last is not None else items
+    if episode_filter is not None:
+        pattern = re.compile(episode_filter)
+        result = [item for item in result if item.title and pattern.search(item.title)]
+    return result
+
+
 def fetch_feed(url: str, output_dir: Path, resolved_config: dict) -> Podcast:
     blacklist = resolved_config.get("blacklist", [])
     title_cleaning = resolved_config.get("title_cleaning") or None
-    podcast = parse_feed(url, output_dir=output_dir, blacklist=blacklist, title_cleaning=title_cleaning)
+    if resolved_config.get("source", "rss") == "unit3d":
+        podcast = parse_unit3d_feed(url, output_dir=output_dir, blacklist=blacklist, title_cleaning=title_cleaning)
+    else:
+        podcast = parse_feed(url, output_dir=output_dir, blacklist=blacklist, title_cleaning=title_cleaning)
     podcast.save(output_dir)
     return podcast
 
@@ -270,7 +300,15 @@ def run_pipeline(
     context = PipelineContext(output_dir=output_dir, podcast=podcast, config=resolved_config, overwrite=overwrite)
     pipeline = Pipeline(steps=steps, context=context)
     ep_filter = episode_filter if episode_filter is not None else resolved_config.get("episode_filter")
-    episodes = filter_episodes(podcast.episodes, last=last, date_range=date_range, episode_filter=ep_filter)
+    if resolved_config.get("source", "rss") == "unit3d":
+        # Torrent-source feeds: filtering applies at the torrent layer, and the
+        # fetch phase runs first so newly spawned episodes reach this cycle's
+        # pipeline. Spawned episodes are not re-filtered.
+        items = filter_torrent_items(podcast.torrent_items, last=last, episode_filter=ep_filter)
+        fetch_torrents(items, podcast, output_dir, resolved_config)
+        episodes = podcast.episodes
+    else:
+        episodes = filter_episodes(podcast.episodes, last=last, date_range=date_range, episode_filter=ep_filter)
     pipeline.run(episodes, step_filter=step_filter, overwrite=overwrite)
 
 
@@ -332,7 +370,7 @@ def get_feed_status(output_dir: Path, config: dict) -> list[dict]:
 KNOWN_FEED_FIELDS = {
     "url", "name", "enabled", "last", "episode_filter",
     "category_id", "type_id", "pipeline", "title_cleaning",
-    "title_override",
+    "title_override", "source",
 }
 
 KNOWN_DEFAULTS_FIELDS = {
