@@ -346,7 +346,7 @@ class TestStateMachine:
         client = FakeTorrentClient()
         with patch(
             "podcast_etl.torrent_fetch._fetch_blob", return_value=b"blob-bytes"
-        ), patch("podcast_etl.torrent_fetch._read_info_hash", return_value="hash1"):
+        ), patch("podcast_etl.torrent_fetch.read_info_hash", return_value="hash1"):
             fetch_torrent_item(item, make_podcast(), podcast_dir, make_config(), client)
 
         blob_path = podcast_dir / "torrent_files" / f"{guid_hash(item.guid)}.torrent"
@@ -545,7 +545,7 @@ class TestFetchTorrents:
         ), patch(
             "podcast_etl.torrent_fetch._fetch_blob", side_effect=fetch_blob
         ), patch(
-            "podcast_etl.torrent_fetch._read_info_hash", return_value="hash2"
+            "podcast_etl.torrent_fetch.read_info_hash", return_value="hash2"
         ):
             fetch_torrents([item1, item2], podcast, tmp_path, make_config())
 
@@ -633,3 +633,26 @@ class TestClientConstructionGuard:
             fetch_torrents(items, podcast, tmp_path, {})  # no client config
         assert "Cannot build torrent client" in caplog.text
         assert items[0].info_hash is None  # untouched, retried next cycle
+
+
+class TestPathTraversalGuard:
+    def test_suspicious_relative_paths_skipped(self, tmp_path, caplog):
+        """File entries with traversal segments must never be read or spawned."""
+        podcast_dir = tmp_path / "podcast"
+        save_dir = tmp_path / "downloads"
+        make_mp3(save_dir / "t1" / "good.mp3", title="Good")
+        client = FakeTorrentClient()
+        client.torrents.add("hash1")
+        client.complete.add("hash1")
+        client.files["hash1"] = [
+            make_fileinfo(save_dir / "t1" / "good.mp3", "t1/good.mp3"),
+            make_fileinfo(save_dir / ".." / "evil.mp3", "../evil.mp3"),
+            TorrentFileInfo(absolute_path=Path("/etc/evil.mp3"), relative_path=Path("/etc/evil.mp3")),
+        ]
+        item = make_item(info_hash="hash1")
+        podcast = make_podcast()
+        with caplog.at_level("WARNING"):
+            fetch_torrent_item(item, podcast, podcast_dir, make_config(), client)
+        assert "suspicious path" in caplog.text
+        assert [ep.guid for ep in podcast.episodes] == ["hash1:t1/good.mp3"]
+        assert item.fetched_at is not None

@@ -18,7 +18,12 @@ from pathlib import Path
 import httpx
 from mutagen.id3 import ID3
 
-from podcast_etl.clients import TorrentClient, TorrentFileInfo, get_torrent_client
+from podcast_etl.clients import (
+    TorrentClient,
+    TorrentFileInfo,
+    get_torrent_client,
+    read_info_hash,
+)
 from podcast_etl.models import (
     Episode,
     Podcast,
@@ -271,12 +276,6 @@ def _fetch_blob(url: str) -> bytes:
     return resp.content
 
 
-def _read_info_hash(blob_path: Path) -> str:
-    from torf import Torrent
-
-    return str(Torrent.read(blob_path).infohash)
-
-
 def fetch_torrent_item(
     item: TorrentItem,
     podcast: Podcast,
@@ -302,7 +301,7 @@ def fetch_torrent_item(
     if not item.info_hash:
         blob_path.parent.mkdir(parents=True, exist_ok=True)
         blob_path.write_bytes(_fetch_blob(item.torrent_url))
-        item.info_hash = _read_info_hash(blob_path)
+        item.info_hash = read_info_hash(blob_path)
         item.save(podcast_dir)
         logger.info("Fetched torrent blob for %s (%s)", item.title, item.info_hash)
         # Fall through -- no wasted poll cycle
@@ -318,13 +317,22 @@ def fetch_torrent_item(
     if not client.is_complete(item.info_hash):
         return
 
-    files = [
-        TorrentFileInfo(
-            absolute_path=_to_local_path(f.absolute_path, config),
-            relative_path=f.relative_path,
+    files = []
+    for f in client.get_files(item.info_hash):
+        # Defense-in-depth: the file list ultimately comes from the tracker's
+        # torrent content. Clients sanitize traversal themselves, but don't
+        # rely on it — never copy from outside the reported roots.
+        if f.relative_path.is_absolute() or ".." in f.relative_path.parts:
+            logger.warning(
+                "Skipping suspicious path in torrent %s: %s", item.info_hash, f.relative_path
+            )
+            continue
+        files.append(
+            TorrentFileInfo(
+                absolute_path=_to_local_path(f.absolute_path, config),
+                relative_path=f.relative_path,
+            )
         )
-        for f in client.get_files(item.info_hash)
-    ]
     mp3s = [f for f in files if f.relative_path.suffix.lower() == ".mp3"]
     if not mp3s:
         logger.warning(

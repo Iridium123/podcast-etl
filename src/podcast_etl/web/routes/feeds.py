@@ -270,6 +270,10 @@ async def feed_detail(request: Request, name: str):
     # Reverse to show newest first, matching RSS feed order and `last N` behavior.
     episodes.reverse()
 
+    # Torrent-item files are hash-named, so disk order is arbitrary; sort
+    # newest-first by the yyyy-mm-dd published string (undated items last).
+    torrents.sort(key=lambda t: t["published"] or "", reverse=True)
+
     # Build directory paths if we have a podcast slug
     dirs = None
     if podcast_slug is not None:

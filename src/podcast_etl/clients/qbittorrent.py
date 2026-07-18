@@ -6,7 +6,7 @@ from typing import Any
 
 import httpx
 
-from podcast_etl.clients import TorrentFileInfo
+from podcast_etl.clients import TorrentFileInfo, read_info_hash
 
 logger = logging.getLogger(__name__)
 
@@ -85,7 +85,7 @@ class QBittorrentClient:
             logger.warning("Unexpected qBittorrent response: %s", resp.text)
         if resp.text == "Fails.":
             raise RuntimeError("qBittorrent failed to add torrent")
-        return _read_info_hash(torrent_path)
+        return read_info_hash(torrent_path)
 
     @classmethod
     def from_config(cls, config: dict[str, Any]) -> "QBittorrentClient":
@@ -95,10 +95,3 @@ class QBittorrentClient:
             password=config["password"],
         )
 
-
-def _read_info_hash(torrent_path: Path) -> str:
-    """Read a .torrent file and return its SHA1 info_hash as a hex string."""
-    from torf import Torrent
-
-    t = Torrent.read(torrent_path)
-    return str(t.infohash)

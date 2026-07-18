@@ -852,3 +852,34 @@ def test_feed_detail_no_torrents_section_for_rss_feed(tmp_path: Path) -> None:
     response = client.get("/feeds/show-a")
     assert response.status_code == 200
     assert "Torrents" not in response.text
+
+
+def test_feed_detail_torrents_sorted_newest_first(tmp_path: Path) -> None:
+    """Torrent-item files are hash-named, so the table must sort by date."""
+    from podcast_etl.models import Podcast, TorrentItem
+
+    output_dir = tmp_path / "output"
+    cfg_path = _write_config(tmp_path, {
+        "feeds": [{"url": "http://t.com/rss", "name": "show-t", "source": "unit3d",
+                   "pipeline": ["tag"], "enabled": True}],
+        "defaults": {"output_dir": str(output_dir)},
+    })
+    podcast = Podcast(title="Show T", url="http://t.com/rss", description=None,
+                      image_url=None, slug="show-t")
+    for num, (title, published) in enumerate([
+        ("Oldest Item", "Tue, 05 May 2020 12:00:00 +0000"),
+        ("Newest Item", "Tue, 05 May 2026 12:00:00 +0000"),
+        ("Middle Item", "Tue, 05 May 2023 12:00:00 +0000"),
+    ]):
+        podcast.torrent_items.append(TorrentItem(
+            guid=f"g{num}", title=title, published=published,
+            description=None, torrent_url=f"http://t.com/{num}",
+        ))
+    podcast.save(output_dir)
+
+    app = create_app(cfg_path, start_poller=False)
+    client = TestClient(app)
+    resp = client.get("/feeds/show-t")
+    assert resp.status_code == 200
+    positions = [resp.text.index(t) for t in ("Newest Item", "Middle Item", "Oldest Item")]
+    assert positions == sorted(positions), "torrents not rendered newest-first"

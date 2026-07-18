@@ -29,6 +29,13 @@ class TorrentClient(Protocol):
         ...
 
 
+def read_info_hash(torrent_path: Path) -> str:
+    """Read a .torrent file and return its info hash as lowercase hex."""
+    from torf import Torrent
+
+    return str(Torrent.read(str(torrent_path)).infohash).lower()
+
+
 def get_torrent_client(client_config: dict) -> TorrentClient:
     """Build a torrent client from a ``client:`` config block."""
     if not client_config:

@@ -200,7 +200,7 @@ class TestAddTorrent:
 
         client = self._client_with_session(mock_session)
 
-        with patch("podcast_etl.clients.qbittorrent._read_info_hash", return_value="deadbeef"):
+        with patch("podcast_etl.clients.qbittorrent.read_info_hash", return_value="deadbeef"):
             result = client.add_torrent(torrent_path, "/data/podcast/episode")
 
         assert result == "deadbeef"
