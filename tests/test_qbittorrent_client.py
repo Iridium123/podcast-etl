@@ -1,5 +1,6 @@
 """Tests for QBittorrentClient."""
 
+import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -223,7 +224,7 @@ class TestAddTorrent:
                 "pending_count": 0, "success_count": 1}
         mock_session = MagicMock()
         mock_session.post.return_value.raise_for_status = MagicMock()
-        mock_session.post.return_value.text = str(body)
+        mock_session.post.return_value.text = json.dumps(body)
         mock_session.post.return_value.json.return_value = body
 
         client = self._client_with_session(mock_session)
@@ -239,7 +240,7 @@ class TestAddTorrent:
                 "pending_count": 0, "success_count": 0}
         mock_session = MagicMock()
         mock_session.post.return_value.raise_for_status = MagicMock()
-        mock_session.post.return_value.text = str(body)
+        mock_session.post.return_value.text = json.dumps(body)
         mock_session.post.return_value.json.return_value = body
 
         client = self._client_with_session(mock_session)
