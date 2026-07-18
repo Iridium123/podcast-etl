@@ -31,6 +31,15 @@ class TestStripDate:
     def test_short_month_no_comma_parens(self):
         assert strip_date("Guest Name (Mar 22 2026)") == "Guest Name"
 
+    def test_dotted_ymd_in_brackets(self):
+        assert strip_date("Guest Name [2026.03.22]") == "Guest Name"
+
+    def test_dotted_numeric_in_parens(self):
+        assert strip_date("Guest Name (3.19.26)") == "Guest Name"
+
+    def test_slash_ymd_in_brackets(self):
+        assert strip_date("Guest Name [2026/03/22]") == "Guest Name"
+
     # Brackets
     def test_numeric_brackets(self):
         assert strip_date("Guest Name [3_19_26]") == "Guest Name"

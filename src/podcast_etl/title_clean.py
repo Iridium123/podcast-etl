@@ -56,10 +56,12 @@ _BRACKETED_DATE_RE = re.compile(_BRACKETED_DATE)
 def strip_date(title: str) -> str:
     """Remove all bracketed date strings from a title.
 
-    Only matches dates inside (), [], or {}. Removes every match
-    (titles with multiple bracketed dates get all of them stripped).
-    Cleans up adjacent whitespace and dashes. Returns the original
-    if stripping would leave an empty result.
+    Only matches dates inside (), [], or {}: month-first numeric (3/19/26),
+    year-first (2026.03.22), and month-name (March 22, 2026) forms, with
+    any of / . _ - as separators. Removes every match (titles with multiple
+    bracketed dates get all of them stripped). Cleans up adjacent whitespace
+    and dashes. Returns the original if stripping would leave an empty
+    result.
     """
     if not title:
         return title
