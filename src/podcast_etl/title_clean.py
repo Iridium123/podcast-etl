@@ -74,6 +74,33 @@ def strip_date(title: str) -> str:
     return result if result else title
 
 
+# Unbracketed date with optional leading separator. Digit lookarounds keep a
+# match from starting/ending inside a longer digit run; bracket lookarounds
+# leave fully bracketed dates to strip_date.
+_INLINE_DATE_RE = re.compile(
+    r"\s*[-–—]*\s*"
+    rf"(?<![\d(\[{{]){_DATE_PATTERN}(?![\d)\]}}])"
+    r"\s*"
+)
+
+
+def strip_inline_date(title: str) -> str:
+    """Remove unbracketed date strings from a title.
+
+    Same date formats as strip_date, but matched bare rather than inside
+    brackets: 'Show - 2025.10.02 - Ep' -> 'Show - Ep'. Removes every match
+    plus redundant surrounding separators. Bracketed dates are left for
+    strip_date. Returns the original if stripping would leave an empty
+    result.
+    """
+    if not title:
+        return title
+    result = _INLINE_DATE_RE.sub(" ", title).strip()
+    result = re.sub(r"^[-–—]\s*", "", result)
+    result = re.sub(r"\s*[-–—]$", "", result)
+    return result if result else title
+
+
 # Standalone date for searching/parsing: digit lookarounds keep a match from
 # starting or ending inside a longer digit run.
 _DATE_SEARCH_RE = re.compile(rf"(?<!\d){_DATE_PATTERN}(?!\d)")
@@ -271,15 +298,17 @@ def clean_title(
 ) -> str:
     """Apply enabled title cleaning rules based on config flags.
 
-    Rules are applied in order: strip_date, reorder_parts,
-    prepend_episode_number, then sanitize.  When reorder_parts is enabled,
-    *published* and *all_entries* provide same-day sibling context for
-    intelligent part reordering.
+    Rules are applied in order: strip_date, strip_inline_date,
+    reorder_parts, prepend_episode_number, then sanitize.  When
+    reorder_parts is enabled, *published* and *all_entries* provide
+    same-day sibling context for intelligent part reordering.
     """
     if not config:
         return title
     if config.get("strip_date"):
         title = strip_date(title)
+    if config.get("strip_inline_date"):
+        title = strip_inline_date(title)
     if config.get("reorder_parts"):
         # Note: all_entries still contain original titles (before strip_date).
         # This is fine because reorder_parts strips part indicators first, and

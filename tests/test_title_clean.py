@@ -8,6 +8,7 @@ from podcast_etl.title_clean import (
     reorder_parts,
     sanitize,
     strip_date,
+    strip_inline_date,
 )
 
 
@@ -77,6 +78,53 @@ class TestStripDate:
     # Multiple dates — only bracketed dates are removed, connectors like "and" remain
     def test_multiple_dates_all_stripped(self):
         assert strip_date("Ep (1/2/26) and (3/4/26)") == "Ep and"
+
+
+class TestStripInlineDate:
+    def test_mid_title(self):
+        assert strip_inline_date("If Books Could Kill - 2025.10.02 - Sapiens") == "If Books Could Kill - Sapiens"
+
+    def test_leading(self):
+        assert strip_inline_date("2025.10.02 - Sapiens") == "Sapiens"
+
+    def test_trailing(self):
+        assert strip_inline_date("Sapiens - 2025.10.02") == "Sapiens"
+
+    def test_numeric_variant(self):
+        assert strip_inline_date("Guest Name 3_19_26") == "Guest Name"
+
+    def test_month_name_variant(self):
+        assert strip_inline_date("Guest Name March 22, 2026") == "Guest Name"
+
+    def test_bracketed_date_left_alone(self):
+        # Bracketed dates belong to strip_date; inline must not gut the brackets
+        assert strip_inline_date("Guest Name (3_19_26)") == "Guest Name (3_19_26)"
+
+    def test_multiple_dates(self):
+        assert strip_inline_date("A 1/2/26 and 3/4/26") == "A and"
+
+    def test_no_date_unchanged(self):
+        assert strip_inline_date("Just a Normal Title") == "Just a Normal Title"
+
+    def test_only_date_returns_original(self):
+        assert strip_inline_date("2025.10.02") == "2025.10.02"
+
+    def test_empty(self):
+        assert strip_inline_date("") == ""
+
+
+class TestCleanTitleInlineDate:
+    def test_flag_wiring(self):
+        assert clean_title("Show - 2025.10.02 - Ep", {"strip_inline_date": True}) == "Show - Ep"
+
+    def test_flag_off(self):
+        assert clean_title("Show - 2025.10.02 - Ep", {"strip_inline_date": False}) == "Show - 2025.10.02 - Ep"
+
+    def test_runs_after_strip_date(self):
+        assert clean_title(
+            "Show [2026-03-22] - 2025.10.02 - Ep",
+            {"strip_date": True, "strip_inline_date": True},
+        ) == "Show - Ep"
 
 
 class TestParseInlineDate:
