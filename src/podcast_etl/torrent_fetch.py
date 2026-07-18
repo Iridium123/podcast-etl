@@ -276,52 +276,54 @@ def _fetch_blob(url: str) -> bytes:
     return resp.content
 
 
-def fetch_torrent_item(
-    item: TorrentItem,
-    podcast: Podcast,
-    podcast_dir: Path,
-    config: dict,
-    client: TorrentClient,
-) -> None:
-    """Advance one torrent item through its state machine.
+def _write_blob(blob_path: Path, url: str) -> None:
+    blob_path.parent.mkdir(parents=True, exist_ok=True)
+    blob_path.write_bytes(_fetch_blob(url))
 
-    Three states, one advance per call, crash-safe:
 
-    1. No info_hash: download the .torrent blob and record the locally
-       computed info hash (never trust the client's add response) -- a
-       crash at any point just repeats byte-identically. Falls through.
-    2. Client doesn't have the torrent: add it from the stored blob
-       (re-fetching the blob if missing). This branch doubles as recovery:
-       a torrent deleted from the client gets re-added -- deletion in
-       qBittorrent is the supported retry gesture. Waits while incomplete.
-    3. Download complete: spawn one Episode per MP3 and mark fetched.
+def _record_info_hash(item: TorrentItem, blob_path: Path, podcast_dir: Path) -> None:
+    """State 1: download the .torrent blob and record its info hash.
+
+    The hash is computed locally (never trusted from the client's add
+    response), so a crash at any point just repeats byte-identically.
     """
-    blob_path = podcast_dir / "torrent_files" / f"{guid_hash(item.guid)}.torrent"
+    _write_blob(blob_path, item.torrent_url)
+    item.info_hash = read_info_hash(blob_path)
+    item.save(podcast_dir)
+    logger.info("Fetched torrent blob for %s (%s)", item.title, item.info_hash)
 
-    if not item.info_hash:
-        blob_path.parent.mkdir(parents=True, exist_ok=True)
-        blob_path.write_bytes(_fetch_blob(item.torrent_url))
-        item.info_hash = read_info_hash(blob_path)
-        item.save(podcast_dir)
-        logger.info("Fetched torrent blob for %s (%s)", item.title, item.info_hash)
-        # Fall through -- no wasted poll cycle
 
-    if not client.has_torrent(item.info_hash):
-        if not blob_path.exists():
-            blob_path.parent.mkdir(parents=True, exist_ok=True)
-            blob_path.write_bytes(_fetch_blob(item.torrent_url))
-        client.add_torrent(blob_path, config["client"]["save_path"])
-        logger.info("Added torrent %s (%s) to client", item.title, item.info_hash)
-        return
+def _ensure_in_client(
+    item: TorrentItem, blob_path: Path, client: TorrentClient, config: dict
+) -> bool:
+    """State 2: make sure the client has the torrent.
 
-    if not client.is_complete(item.info_hash):
-        return
+    Returns True if it was just added -- the download is starting, nothing
+    more to do this cycle. Doubles as recovery: a torrent deleted from the
+    client gets re-added from the stored blob (re-fetching it if missing) --
+    deletion in qBittorrent is the supported retry gesture.
+    """
+    if client.has_torrent(item.info_hash):
+        return False
+    if not blob_path.exists():
+        _write_blob(blob_path, item.torrent_url)
+    client.add_torrent(blob_path, config["client"]["save_path"])
+    logger.info("Added torrent %s (%s) to client", item.title, item.info_hash)
+    return True
 
+
+def _completed_mp3s(
+    item: TorrentItem, client: TorrentClient, config: dict
+) -> list[TorrentFileInfo]:
+    """MP3s of a completed torrent, as locally readable TorrentFileInfos.
+
+    Client-reported paths are rebased onto torrent_data_dir. Defense-in-depth:
+    the file list ultimately comes from the tracker's torrent content, and
+    while clients sanitize traversal themselves, don't rely on it -- never
+    copy from outside the reported roots.
+    """
     files = []
     for f in client.get_files(item.info_hash):
-        # Defense-in-depth: the file list ultimately comes from the tracker's
-        # torrent content. Clients sanitize traversal themselves, but don't
-        # rely on it — never copy from outside the reported roots.
         if f.relative_path.is_absolute() or ".." in f.relative_path.parts:
             logger.warning(
                 "Skipping suspicious path in torrent %s: %s", item.info_hash, f.relative_path
@@ -333,23 +335,48 @@ def fetch_torrent_item(
                 relative_path=f.relative_path,
             )
         )
-    mp3s = [f for f in files if f.relative_path.suffix.lower() == ".mp3"]
+    return [f for f in files if f.relative_path.suffix.lower() == ".mp3"]
+
+
+def fetch_torrent_item(
+    item: TorrentItem,
+    podcast: Podcast,
+    podcast_dir: Path,
+    config: dict,
+    client: TorrentClient,
+) -> None:
+    """Advance one torrent item through its state machine.
+
+    1. No info_hash: fetch the blob, record the hash. Falls through --
+       fetching and adding happen in the same call.
+    2. Client doesn't have the torrent: add it, then wait while the
+       (genuinely async) download runs across later calls.
+    3. Download complete: spawn one Episode per MP3 and mark fetched.
+       No-MP3 torrents are marked fetched with 0 episodes -- terminal,
+       not retried forever.
+    """
+    blob_path = podcast_dir / "torrent_files" / f"{guid_hash(item.guid)}.torrent"
+
+    if not item.info_hash:
+        _record_info_hash(item, blob_path, podcast_dir)
+
+    if _ensure_in_client(item, blob_path, client, config):
+        return
+    if not client.is_complete(item.info_hash):
+        return
+
+    mp3s = _completed_mp3s(item, client, config)
     if not mp3s:
         logger.warning(
             "Torrent %s (%s) contains no MP3 files; marking fetched with 0 episodes",
             item.title,
             item.info_hash,
         )
-        item.fetched_at = datetime.now().isoformat()
-        item.save(podcast_dir)
-        return
-
-    _spawn_episodes(item, mp3s, podcast, podcast_dir, config)
+    else:
+        _spawn_episodes(item, mp3s, podcast, podcast_dir, config)
+        logger.info("Torrent %s complete: spawned %d episode(s)", item.title, len(mp3s))
     item.fetched_at = datetime.now().isoformat()
     item.save(podcast_dir)
-    logger.info(
-        "Torrent %s complete: spawned %d episode(s)", item.title, len(mp3s)
-    )
 
 
 def fetch_torrents(
