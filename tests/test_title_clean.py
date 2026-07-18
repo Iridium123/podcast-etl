@@ -1,5 +1,14 @@
-"""Tests for title_clean.py: strip_date, reorder_parts, prepend_episode_number, sanitize, clean_title."""
-from podcast_etl.title_clean import clean_title, prepend_episode_number, reorder_parts, sanitize, strip_date
+"""Tests for title_clean.py: strip_date, strip_inline_date, parse_inline_date, reorder_parts, prepend_episode_number, sanitize, clean_title."""
+from datetime import datetime
+
+from podcast_etl.title_clean import (
+    clean_title,
+    parse_inline_date,
+    prepend_episode_number,
+    reorder_parts,
+    sanitize,
+    strip_date,
+)
 
 
 class TestStripDate:
@@ -59,6 +68,59 @@ class TestStripDate:
     # Multiple dates — only bracketed dates are removed, connectors like "and" remain
     def test_multiple_dates_all_stripped(self):
         assert strip_date("Ep (1/2/26) and (3/4/26)") == "Ep and"
+
+
+class TestParseInlineDate:
+    def test_year_first_dots(self):
+        assert parse_inline_date("Show - 2025.10.02 - Sapiens") == datetime(2025, 10, 2)
+
+    def test_year_first_dashes(self):
+        assert parse_inline_date("Show - 2025-10-28 - Eric Adams") == datetime(2025, 10, 28)
+
+    def test_year_first_slashes(self):
+        assert parse_inline_date("Show 2025/10/02") == datetime(2025, 10, 2)
+
+    def test_year_first_underscores(self):
+        assert parse_inline_date("Show 2025_10_02") == datetime(2025, 10, 2)
+
+    def test_numeric_month_first(self):
+        assert parse_inline_date("Guest (03/22/2026)") == datetime(2026, 3, 22)
+
+    def test_numeric_two_digit_year(self):
+        assert parse_inline_date("Guest 3.19.26") == datetime(2026, 3, 19)
+
+    def test_two_digit_year_pivot(self):
+        assert parse_inline_date("Old Show 3/19/85") == datetime(1985, 3, 19)
+
+    def test_month_name(self):
+        assert parse_inline_date("Guest (March 22, 2026)") == datetime(2026, 3, 22)
+
+    def test_month_name_abbreviated(self):
+        assert parse_inline_date("Guest Mar 22 2026") == datetime(2026, 3, 22)
+
+    def test_invalid_calendar_date_skipped(self):
+        assert parse_inline_date("Nonsense 13/45/26") is None
+
+    def test_invalid_then_valid_returns_valid(self):
+        assert parse_inline_date("13/45/26 but 2025.10.02") == datetime(2025, 10, 2)
+
+    def test_no_date(self):
+        assert parse_inline_date("Just a Normal Title") is None
+
+    def test_empty(self):
+        assert parse_inline_date("") is None
+
+    def test_first_match_wins(self):
+        assert parse_inline_date("A 2025.10.02 B 2026.01.01") == datetime(2025, 10, 2)
+
+    def test_digit_run_not_a_date(self):
+        # A 4-digit year must not be carved out of a longer digit run
+        assert parse_inline_date("id 12025.10.023 x") is None
+
+    def test_release_junk_ignored(self):
+        assert parse_inline_date(
+            "If Books Could Kill - 2025.10.02 - Title [2025_MP3-96 kbps]"
+        ) == datetime(2025, 10, 2)
 
 
 def _same_day_entries(*titles_and_dates: tuple[str, str]) -> list[dict]:

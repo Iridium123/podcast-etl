@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+from datetime import datetime
 from typing import Any
 
 from podcast_etl.models import format_date
@@ -13,22 +14,28 @@ _INVALID_FS_CHARS_RE = re.compile(r'[\\/:*?<>|\x00-\x1f]')
 # Two or more consecutive separator characters (whitespace, underscore, dashes)
 _SEPARATOR_COLLAPSE_RE = re.compile(r'[\s_\-\u2013\u2014]{2,}')
 
-# Date patterns (used inside bracket groups)
+# Date patterns. One separator class and one alternation shared by bracketed
+# stripping (strip_date), inline stripping (strip_inline_date), and filename
+# date parsing (parse_inline_date).
 _MONTH_NAMES = (
     r"(?:January|February|March|April|May|June|July|August|September|October|November|December"
     r"|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)"
 )
 
-# Numeric dates: M/D/YY, MM/DD/YYYY, etc. with /, -, _ separators.
+_DATE_SEP = r"[./_-]"
+
+# Numeric month-first dates: M/D/YY through MM/DD/YYYY with /, ., _, - separators.
 # This is intentionally loose — it may match non-date sequences like (1/2/34).
 # Acceptable trade-off for podcast titles where such patterns are rare.
-_NUMERIC_DATE = r"\d{1,2}[/_-]\d{1,2}[/_-]\d{2,4}"
-# ISO dates: YYYY-MM-DD
-_ISO_DATE = r"\d{4}-\d{2}-\d{2}"
+_NUMERIC_DATE = rf"\d{{1,2}}{_DATE_SEP}\d{{1,2}}{_DATE_SEP}\d{{2,4}}"
+# Year-first dates: 2025.10.02, 2025-10-02, 2025/10/02, 2025_10_02
+_YMD_DATE = rf"\d{{4}}{_DATE_SEP}\d{{1,2}}{_DATE_SEP}\d{{1,2}}"
 # Month name dates: March 22, 2026 or Mar 22 2026
 _MONTH_DATE = _MONTH_NAMES + r"\s+\d{1,2},?\s+\d{4}"
 
-_DATE_INTERIOR = rf"(?:{_NUMERIC_DATE}|{_ISO_DATE}|{_MONTH_DATE})"
+# Year-first before numeric so "2025.10.02" is consumed whole rather than
+# partially by the month-first pattern.
+_DATE_PATTERN = rf"(?:{_YMD_DATE}|{_NUMERIC_DATE}|{_MONTH_DATE})"
 
 # Bracketed date with optional surrounding whitespace/dashes
 # Only consume leading separator (dash before bracket) to avoid eating
@@ -36,9 +43,9 @@ _DATE_INTERIOR = rf"(?:{_NUMERIC_DATE}|{_ISO_DATE}|{_MONTH_DATE})"
 _BRACKETED_DATE = (
     r"\s*[-\u2013\u2014]*\s*"
     r"(?:"
-    rf"\({_DATE_INTERIOR}\)"
-    rf"|\[{_DATE_INTERIOR}\]"
-    rf"|\{{{_DATE_INTERIOR}\}}"
+    rf"\({_DATE_PATTERN}\)"
+    rf"|\[{_DATE_PATTERN}\]"
+    rf"|\{{{_DATE_PATTERN}\}}"
     r")"
     r"\s*"
 )
@@ -63,6 +70,51 @@ def strip_date(title: str) -> str:
     result = re.sub(r"^[-\u2013\u2014]\s*", "", result)
     result = re.sub(r"\s*[-\u2013\u2014]$", "", result)
     return result if result else title
+
+
+# Standalone date for searching/parsing: digit lookarounds keep a match from
+# starting or ending inside a longer digit run.
+_DATE_SEARCH_RE = re.compile(rf"(?<!\d){_DATE_PATTERN}(?!\d)")
+
+
+def parse_inline_date(text: str) -> datetime | None:
+    """Parse the first date found in *text* to a datetime, else None.
+
+    Recognizes the same formats as strip_date/strip_inline_date. Numeric
+    dates are year-first when the first field has 4 digits (2025.10.02),
+    otherwise US month-first (3/19/26). Two-digit years follow the POSIX
+    pivot (69 and up -> 1900s, below -> 2000s). Matches that are not real
+    calendar dates are skipped; never raises.
+    """
+    if not text:
+        return None
+    for match in _DATE_SEARCH_RE.finditer(text):
+        parsed = _to_datetime(match.group(0))
+        if parsed:
+            return parsed
+    return None
+
+
+def _to_datetime(token: str) -> datetime | None:
+    """Resolve one _DATE_PATTERN match to a datetime; None if not a real date."""
+    fields = re.split(_DATE_SEP, token)
+    if len(fields) == 3 and all(f.isdigit() for f in fields):
+        if len(fields[0]) == 4:
+            year, month, day = (int(f) for f in fields)
+        else:
+            month, day, year = (int(f) for f in fields)
+            if year < 100:
+                year += 1900 if year >= 69 else 2000
+        try:
+            return datetime(year, month, day)
+        except ValueError:
+            return None
+    for fmt in ("%B %d, %Y", "%B %d %Y", "%b %d, %Y", "%b %d %Y"):
+        try:
+            return datetime.strptime(token, fmt)
+        except ValueError:
+            continue
+    return None
 
 
 # Part indicator pattern inside brackets: Part 1, Pt. 2, Pt 3
