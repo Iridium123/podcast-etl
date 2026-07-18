@@ -1,4 +1,4 @@
-"""Tests for title_clean.py: strip_date, strip_inline_date, parse_inline_date, reorder_parts, prepend_episode_number, sanitize, clean_title."""
+"""Tests for title_clean.py: strip_date, parse_inline_date, reorder_parts, prepend_episode_number, sanitize, clean_title."""
 from datetime import datetime
 
 from podcast_etl.title_clean import (
@@ -8,7 +8,6 @@ from podcast_etl.title_clean import (
     reorder_parts,
     sanitize,
     strip_date,
-    strip_inline_date,
 )
 
 
@@ -67,10 +66,6 @@ class TestStripDate:
     def test_trailing_dash_cleaned(self):
         assert strip_date("Guest Name - (3_19_26)") == "Guest Name"
 
-    # No match cases
-    def test_bare_date_not_stripped(self):
-        assert strip_date("Guest Name 3_19_26") == "Guest Name 3_19_26"
-
     def test_no_date_unchanged(self):
         assert strip_date("Just a Normal Title") == "Just a Normal Title"
 
@@ -81,74 +76,60 @@ class TestStripDate:
     def test_date_only_returns_original(self):
         assert strip_date("(3_19_26)") == "(3_19_26)"
 
-    # Multiple dates — only bracketed dates are removed, connectors like "and" remain
+    # Multiple dates — dates are removed, connectors like "and" remain
     def test_multiple_dates_all_stripped(self):
         assert strip_date("Ep (1/2/26) and (3/4/26)") == "Ep and"
 
+    # Bare (unbracketed) dates: same formats as the bracketed forms
+    def test_bare_date_mid_title(self):
+        assert strip_date("If Books Could Kill - 2025.10.02 - Sapiens") == "If Books Could Kill - Sapiens"
 
-class TestStripInlineDate:
-    def test_mid_title(self):
-        assert strip_inline_date("If Books Could Kill - 2025.10.02 - Sapiens") == "If Books Could Kill - Sapiens"
+    def test_bare_date_leading(self):
+        assert strip_date("2025.10.02 - Sapiens") == "Sapiens"
 
-    def test_leading(self):
-        assert strip_inline_date("2025.10.02 - Sapiens") == "Sapiens"
+    def test_bare_date_trailing(self):
+        assert strip_date("Sapiens - 2025.10.02") == "Sapiens"
 
-    def test_trailing(self):
-        assert strip_inline_date("Sapiens - 2025.10.02") == "Sapiens"
+    def test_bare_numeric_date(self):
+        assert strip_date("Guest Name 3_19_26") == "Guest Name"
 
-    def test_numeric_variant(self):
-        assert strip_inline_date("Guest Name 3_19_26") == "Guest Name"
+    def test_bare_month_name_date(self):
+        assert strip_date("Guest Name March 22, 2026") == "Guest Name"
 
-    def test_month_name_variant(self):
-        assert strip_inline_date("Guest Name March 22, 2026") == "Guest Name"
+    def test_bare_multiple_dates(self):
+        assert strip_date("A 1/2/26 and 3/4/26") == "A and"
 
-    def test_bracketed_date_left_alone(self):
-        # Bracketed dates belong to strip_date; inline must not gut the brackets
-        assert strip_inline_date("Guest Name (3_19_26)") == "Guest Name (3_19_26)"
+    def test_bare_date_only_returns_original(self):
+        assert strip_date("2025.10.02") == "2025.10.02"
 
-    def test_multiple_dates(self):
-        assert strip_inline_date("A 1/2/26 and 3/4/26") == "A and"
-
-    def test_no_date_unchanged(self):
-        assert strip_inline_date("Just a Normal Title") == "Just a Normal Title"
-
-    def test_only_date_returns_original(self):
-        assert strip_inline_date("2025.10.02") == "2025.10.02"
-
-    def test_empty(self):
-        assert strip_inline_date("") == ""
+    def test_bracketed_and_bare_mixed(self):
+        assert strip_date("Show [2026-03-22] - 2025.10.02 - Ep") == "Show - Ep"
 
     def test_version_string_kept(self):
-        assert strip_inline_date("App Update v2.10.24 Discussion") == "App Update v2.10.24 Discussion"
+        assert strip_date("App Update v2.10.24 Discussion") == "App Update v2.10.24 Discussion"
 
     def test_invalid_calendar_date_kept(self):
-        assert strip_inline_date("Nonsense 13/45/26 here") == "Nonsense 13/45/26 here"
+        assert strip_date("Nonsense 13/45/26 here") == "Nonsense 13/45/26 here"
 
     def test_underscore_separators_tidied(self):
-        assert strip_inline_date("Show_2025.10.02_Ep") == "Show Ep"
+        assert strip_date("Show_2025.10.02_Ep") == "Show Ep"
 
     def test_trailing_comma_tidied(self):
-        assert strip_inline_date("Interview 3.19.26, extended cut") == "Interview extended cut"
+        assert strip_date("Interview 3.19.26, extended cut") == "Interview extended cut"
 
     def test_date_inside_larger_parenthetical_stripped(self):
-        assert strip_inline_date("Show (Live 2025.10.02) Extended") == "Show (Live) Extended"
+        assert strip_date("Show (Live 2025.10.02) Extended") == "Show (Live) Extended"
 
     def test_dotted_scene_name(self):
-        assert strip_inline_date("Show.Name.2025.10.02.Ep.Title") == "Show.Name Ep.Title"
+        assert strip_date("Show.Name.2025.10.02.Ep.Title") == "Show.Name Ep.Title"
 
 
-class TestCleanTitleInlineDate:
-    def test_flag_wiring(self):
-        assert clean_title("Show - 2025.10.02 - Ep", {"strip_inline_date": True}) == "Show - Ep"
+class TestCleanTitleStripDate:
+    def test_bare_date_flag_wiring(self):
+        assert clean_title("Show - 2025.10.02 - Ep", {"strip_date": True}) == "Show - Ep"
 
     def test_flag_off(self):
-        assert clean_title("Show - 2025.10.02 - Ep", {"strip_inline_date": False}) == "Show - 2025.10.02 - Ep"
-
-    def test_runs_after_strip_date(self):
-        assert clean_title(
-            "Show [2026-03-22] - 2025.10.02 - Ep",
-            {"strip_date": True, "strip_inline_date": True},
-        ) == "Show - Ep"
+        assert clean_title("Show - 2025.10.02 - Ep", {"strip_date": False}) == "Show - 2025.10.02 - Ep"
 
 
 class TestParseInlineDate:

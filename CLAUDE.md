@@ -41,7 +41,7 @@ Tests live in `tests/` and use pytest:
 - `test_seed_step.py` -- `SeedStep` add_torrent, idempotency, client resolution
 - `test_upload_step.py` -- `UploadStep` tracker.upload call, tracker resolution, cover image override, error cases
 - `test_images.py` -- `download_image` (caching, extension extraction, fallback), `resolve_episode_image` (episode/feed fallback, dedup, error handling), `convert_image` (resize, format conversion, no upscale)
-- `test_title_clean.py` -- `strip_date`, `strip_inline_date`, `parse_inline_date`, `reorder_parts`, `prepend_episode_number`, `sanitize`, `clean_title` (date formats, bracket types, unbracketed dates, part variants, episode number prepend, filesystem chars, separator collapsing, config flags)
+- `test_title_clean.py` -- `strip_date`, `parse_inline_date`, `reorder_parts`, `prepend_episode_number`, `sanitize`, `clean_title` (date formats, bracket types, bare dates, calendar validation, part variants, episode number prepend, filesystem chars, separator collapsing, config flags)
 - `test_text.py` -- `clean_description` (HTML, entity-encoded, CDATA, plain text), `contains_blacklisted`, `apply_blacklist`
 - `test_poller.py` -- `run_poll_loop` enabled/disabled feed filtering, `last`/`episode_filter` resolution passed to `service.run_pipeline`
 - `test_async_poller.py` -- `async_poll_loop`, `PollControl` shutdown/pause/run-now
@@ -95,7 +95,7 @@ Click commands: `add`, `fetch`, `run`, `reset`, `delete`, `status`, `poll`, `ser
 - `torrent_fetch.py` -- fetch phase for torrent-source feeds. Three-state machine per item, one advance per poll cycle: (1) fetch blob + compute info hash locally via torf (crash-safe), (2) ensure torrent in client (re-adds from stored blob if deleted -- deletion in qBittorrent is the supported retry gesture) then wait for completion, (3) spawn episodes: file paths rebased from `client.save_path` onto `torrent_data_dir` (two mounts of the same volume; inverse of the stage step's `_to_client_path`), ID3 metadata with filename/RSS/mtime fallbacks (dates: ID3 → date parsed from the filename via `parse_inline_date` → RSS item → mtime), dates normalized to RFC 2822 (TagStep requires it), collision-suffixed filenames (deterministic, deduped within the torrent AND against other torrents' recorded filenames), synthesized `download` StepStatus. Episodes join `podcast.episodes` only after their audio copy succeeds. No-MP3 torrents are terminal. Per-item failures (and a missing client config) are logged and skipped, never raised.
 - `pipeline.py` -- `Pipeline` runs registered `Step` instances over episodes, skipping completed ones. `PipelineContext` carries `output_dir`, `podcast`, and resolved config. `deep_merge` and `resolve_feed_config` handle config inheritance.
 - `poller.py` -- synchronous `run_poll_loop` (for standalone `poll` command) and async `async_poll_loop` (for `serve` command). Both reload config each cycle and delegate fetch+pipeline to `service.fetch_feed`/`service.run_pipeline`. `PollControl` dataclass provides pause/resume/run-now/shutdown via asyncio events.
-- `title_clean.py` -- `clean_title` orchestrates: `strip_date` -> `strip_inline_date` -> `reorder_parts` -> `prepend_episode_number` -> `sanitize`. One shared date pattern (numeric month-first, year-first, month-name; `/ . _ -` separators) backs bracketed stripping, unbracketed stripping, and `parse_inline_date` (first date in a string -> datetime, used by `torrent_fetch` for filename dates); all three consumers reject matches that are not real calendar dates (`_to_datetime`), so version numbers and digit junk are never treated as dates.
+- `title_clean.py` -- `clean_title` orchestrates: `strip_date` -> `reorder_parts` -> `prepend_episode_number` -> `sanitize`. One shared date pattern (numeric month-first, year-first, month-name; `/ . _ -` separators) backs `strip_date` (removes dates from titles, bracketed or bare) and `parse_inline_date` (first date in a string -> datetime, used by `torrent_fetch` for filename dates); both consumers reject matches that are not real calendar dates (`_to_datetime`), so version numbers and digit junk are never treated as dates. The two are deliberately format-identical: any date the fetch phase can infer, `strip_date` can strip.
 - `text.py` -- `clean_description` (HTML/entity/CDATA to plain text), `apply_blacklist`/`contains_blacklisted`.
 - `images.py` -- `download_image` (caching), `resolve_episode_image` (episode/feed fallback, dedup), `convert_image` (Pillow resize + JPEG).
 
@@ -133,7 +133,7 @@ defaults:
   torrent_data_dir: /torrent-data
   blacklist: ["John Doe"]
   pipeline: [download, tag, detect_ads, strip_ads, stage, torrent, seed, upload]
-  title_cleaning: {strip_date: false, strip_inline_date: false, reorder_parts: false, prepend_episode_number: false, sanitize: false}
+  title_cleaning: {strip_date: false, reorder_parts: false, prepend_episode_number: false, sanitize: false}
   ad_detection: {whisper: {model: base, language: en}, llm: {provider: anthropic, model: claude-sonnet-4-20250514, prompt: default}, min_confidence: 0.5}
   audiobookshelf: {dir: /podcasts}  # url/api_key/library_id optional (all-or-none): set to trigger API scan after copy
   client: {url: ..., username: ..., password: ..., save_path: /data}
