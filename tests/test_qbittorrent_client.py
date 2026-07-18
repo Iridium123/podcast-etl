@@ -1,5 +1,6 @@
 """Tests for QBittorrentClient."""
 
+import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -216,6 +217,51 @@ class TestAddTorrent:
 
         with pytest.raises(RuntimeError, match="failed to add torrent"):
             client.add_torrent(torrent_path, "/data")
+
+    def test_json_success_response(self, torrent_path, caplog):
+        """Newer qBittorrent returns a JSON summary instead of "Ok."."""
+        body = {"added_torrent_ids": ["deadbeef"], "failure_count": 0,
+                "pending_count": 0, "success_count": 1}
+        mock_session = MagicMock()
+        mock_session.post.return_value.raise_for_status = MagicMock()
+        mock_session.post.return_value.text = json.dumps(body)
+        mock_session.post.return_value.json.return_value = body
+
+        client = self._client_with_session(mock_session)
+
+        with patch("podcast_etl.clients.qbittorrent.read_info_hash", return_value="deadbeef"):
+            result = client.add_torrent(torrent_path, "/data")
+
+        assert result == "deadbeef"
+        assert "Unexpected qBittorrent" not in caplog.text
+
+    def test_json_failure_response_raises(self, torrent_path):
+        body = {"added_torrent_ids": [], "failure_count": 1,
+                "pending_count": 0, "success_count": 0}
+        mock_session = MagicMock()
+        mock_session.post.return_value.raise_for_status = MagicMock()
+        mock_session.post.return_value.text = json.dumps(body)
+        mock_session.post.return_value.json.return_value = body
+
+        client = self._client_with_session(mock_session)
+
+        with pytest.raises(RuntimeError, match="failed to add torrent"):
+            client.add_torrent(torrent_path, "/data")
+
+    def test_unrecognized_response_warns_and_succeeds(self, torrent_path, caplog):
+        """An unknown body must not abort the add — has_torrent re-checks next cycle."""
+        mock_session = MagicMock()
+        mock_session.post.return_value.raise_for_status = MagicMock()
+        mock_session.post.return_value.text = "something new"
+        mock_session.post.return_value.json.side_effect = ValueError("not json")
+
+        client = self._client_with_session(mock_session)
+
+        with patch("podcast_etl.clients.qbittorrent.read_info_hash", return_value="deadbeef"):
+            result = client.add_torrent(torrent_path, "/data")
+
+        assert result == "deadbeef"
+        assert "Unexpected qBittorrent add response" in caplog.text
 
 
 class TestFromConfig:

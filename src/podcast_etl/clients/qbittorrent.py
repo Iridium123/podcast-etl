@@ -11,6 +11,29 @@ from podcast_etl.clients import TorrentFileInfo, read_info_hash
 logger = logging.getLogger(__name__)
 
 
+def _add_succeeded(resp: httpx.Response) -> bool:
+    """Whether a /torrents/add response body reports success.
+
+    Older qBittorrent versions return plain text "Ok."/"Fails."; newer ones
+    return a JSON summary like {"added_torrent_ids": [...], "failure_count":
+    0, ...}. An unrecognized body is warned about and treated as success:
+    a silently failed add self-heals next poll cycle via the has_torrent
+    re-check, whereas raising would abort a possibly-fine add.
+    """
+    if resp.text == "Ok.":
+        return True
+    if resp.text == "Fails.":
+        return False
+    try:
+        data = resp.json()
+    except ValueError:
+        data = None
+    if isinstance(data, dict) and "failure_count" in data:
+        return data["failure_count"] == 0
+    logger.warning("Unexpected qBittorrent add response: %s", resp.text)
+    return True
+
+
 class QBittorrentClient:
     """qBittorrent Web API client."""
 
@@ -81,10 +104,8 @@ class QBittorrentClient:
                 files={"torrents": (torrent_path.name, f, "application/x-bittorrent")},
             )
         resp.raise_for_status()
-        if resp.text not in ("Ok.", "Fails."):
-            logger.warning("Unexpected qBittorrent response: %s", resp.text)
-        if resp.text == "Fails.":
-            raise RuntimeError("qBittorrent failed to add torrent")
+        if not _add_succeeded(resp):
+            raise RuntimeError(f"qBittorrent failed to add torrent: {resp.text}")
         return read_info_hash(torrent_path)
 
     @classmethod
