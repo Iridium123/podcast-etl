@@ -37,7 +37,7 @@ class DownloadStep:
             return StepResult(data={"path": f"audio/{filename}", "size_bytes": size})
 
         logger.info("Downloading %s -> %s", episode.audio_url, filepath)
-        headers = {"User-Agent": "python-podcast"}
+        headers = {"User-Agent": "gPodder/3.11.4"}
         with requests.get(episode.audio_url, headers=headers, stream=True, allow_redirects=True, timeout=120) as response:
             response.raise_for_status()
             with open(filepath, "wb") as f:
