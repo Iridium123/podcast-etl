@@ -303,8 +303,11 @@ def run_pipeline(
     if resolved_config.get("source", "rss") == "unit3d":
         # Torrent-source feeds: filtering applies at the torrent layer, and the
         # fetch phase runs first so newly spawned episodes reach this cycle's
-        # pipeline. Spawned episodes are not re-filtered.
-        items = filter_torrent_items(podcast.torrent_items, last=last, episode_filter=ep_filter)
+        # pipeline. Spawned episodes are not re-filtered. Unlike the RSS path,
+        # `last` falls back to the feed config here — an unfiltered run would
+        # download every .torrent in the feed and add it to the client.
+        item_last = last if last is not None else resolved_config.get("last")
+        items = filter_torrent_items(podcast.torrent_items, last=item_last, episode_filter=ep_filter)
         fetch_torrents(items, podcast, output_dir, resolved_config)
         episodes = podcast.episodes
     else:

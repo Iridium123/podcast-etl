@@ -1060,3 +1060,32 @@ def test_run_pipeline_rss_does_not_run_fetch_phase(tmp_path: Path):
     ):
         run_pipeline(podcast, tmp_path, {"pipeline": ["download"]})
     mock_fetch.assert_not_called()
+
+
+def test_run_pipeline_unit3d_last_falls_back_to_config(tmp_path: Path):
+    """A CLI run without --last must not fetch every torrent in the feed."""
+    podcast = Podcast(title="T", url="u", description=None, image_url=None, slug="t")
+    podcast.torrent_items = [_torrent_item(i) for i in range(5)]
+
+    seen_items = []
+    with (
+        patch("podcast_etl.service.fetch_torrents", side_effect=lambda items, *a: seen_items.extend(items)),
+        patch("podcast_etl.service.Pipeline", MagicMock()),
+    ):
+        run_pipeline(podcast, tmp_path, {"source": "unit3d", "pipeline": ["download"], "last": 2})
+
+    assert len(seen_items) == 2
+
+
+def test_run_pipeline_unit3d_explicit_last_overrides_config(tmp_path: Path):
+    podcast = Podcast(title="T", url="u", description=None, image_url=None, slug="t")
+    podcast.torrent_items = [_torrent_item(i) for i in range(5)]
+
+    seen_items = []
+    with (
+        patch("podcast_etl.service.fetch_torrents", side_effect=lambda items, *a: seen_items.extend(items)),
+        patch("podcast_etl.service.Pipeline", MagicMock()),
+    ):
+        run_pipeline(podcast, tmp_path, {"source": "unit3d", "pipeline": ["download"], "last": 2}, last=3)
+
+    assert len(seen_items) == 3
