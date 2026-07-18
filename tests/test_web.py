@@ -769,11 +769,14 @@ def test_feed_confirm_saves_source(tmp_path: Path) -> None:
     })
     app = create_app(cfg_path, start_poller=False)
     client = TestClient(app)
+    # A unit3d feed must override the defaults pipeline: 'download' is
+    # rejected for torrent-source feeds by validate_config.
     preview_resp = client.post("/feeds/show-a/preview", data={
         "name": "show-a",
         "url": "http://a.com/rss",
         "enabled": "on",
         "source": "unit3d",
+        "pipeline_tag": "on",
         "extra_yaml": "",
     })
     assert preview_resp.status_code == 200

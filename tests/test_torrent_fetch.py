@@ -553,3 +553,83 @@ class TestFetchTorrents:
         assert item1.info_hash is None
         assert item2.info_hash == "hash2"
         assert len(client.added) == 1
+
+
+class TestToLocalPath:
+    def test_rebases_save_path_onto_torrent_data_dir(self):
+        from podcast_etl.torrent_fetch import _to_local_path
+
+        config = {"client": {"save_path": "/data"}, "torrent_data_dir": "/torrent-data"}
+        assert _to_local_path(Path("/data/Show/ep.mp3"), config) == Path("/torrent-data/Show/ep.mp3")
+
+    def test_path_outside_save_path_unchanged(self):
+        from podcast_etl.torrent_fetch import _to_local_path
+
+        config = {"client": {"save_path": "/data"}, "torrent_data_dir": "/torrent-data"}
+        assert _to_local_path(Path("/media/other/ep.mp3"), config) == Path("/media/other/ep.mp3")
+
+    def test_missing_config_is_noop(self):
+        from podcast_etl.torrent_fetch import _to_local_path
+
+        assert _to_local_path(Path("/data/ep.mp3"), {}) == Path("/data/ep.mp3")
+        assert _to_local_path(Path("/data/ep.mp3"), {"client": {"save_path": "/data"}}) == Path("/data/ep.mp3")
+
+    def test_state3_reads_files_at_rebased_path(self, tmp_path):
+        """Client reports container-side paths; audio is read from the local mount."""
+        local_mount = tmp_path / "torrent-data"
+        make_mp3(local_mount / "t1" / "ep.mp3", title="Rebased")
+        item = make_item(info_hash="hash1")
+        client = FakeTorrentClient()
+        client.torrents.add("hash1")
+        client.complete.add("hash1")
+        # absolute_path as the qBittorrent container would report it
+        client.files["hash1"] = [
+            TorrentFileInfo(absolute_path=Path("/data/t1/ep.mp3"), relative_path=Path("t1/ep.mp3"))
+        ]
+        podcast = make_podcast()
+        config = {
+            "client": {"save_path": "/data"},
+            "torrent_data_dir": str(local_mount),
+        }
+        fetch_torrent_item(item, podcast, tmp_path / "podcast", config, client)
+
+        assert len(podcast.episodes) == 1
+        assert podcast.episodes[0].title == "Rebased"
+        assert item.fetched_at is not None
+
+
+class TestCrossTorrentFilenames:
+    def test_same_title_in_second_torrent_gets_suffix(self, tmp_path):
+        """A same-titled episode from a different torrent must not clobber or
+        silently reuse the first torrent's audio file."""
+        podcast_dir = tmp_path / "podcast"
+        save_dir = tmp_path / "downloads"
+        podcast = make_podcast()
+
+        make_mp3(save_dir / "t1" / "ep.mp3", title="Same Title", date="2026-01-01")
+        client = FakeTorrentClient()
+        client.torrents.update({"hash1", "hash2"})
+        client.complete.update({"hash1", "hash2"})
+        client.files["hash1"] = [make_fileinfo(save_dir / "t1" / "ep.mp3", "t1/ep.mp3")]
+        item1 = make_item(guid="g1", info_hash="hash1")
+        fetch_torrent_item(item1, podcast, podcast_dir, make_config(), client)
+
+        make_mp3(save_dir / "t2" / "ep.mp3", title="Same Title", date="2026-01-01")
+        client.files["hash2"] = [make_fileinfo(save_dir / "t2" / "ep.mp3", "t2/ep.mp3")]
+        item2 = make_item(guid="g2", info_hash="hash2")
+        fetch_torrent_item(item2, podcast, podcast_dir, make_config(), client)
+
+        paths = [ep.status["download"].result["path"] for ep in podcast.episodes]
+        assert len(paths) == len(set(paths)), f"filename collision across torrents: {paths}"
+        for p in paths:
+            assert (podcast_dir / p).exists()
+
+
+class TestClientConstructionGuard:
+    def test_missing_client_config_logged_not_raised(self, tmp_path, caplog):
+        podcast = make_podcast()
+        items = [make_item(guid="g1")]
+        with caplog.at_level("ERROR"):
+            fetch_torrents(items, podcast, tmp_path, {})  # no client config
+        assert "Cannot build torrent client" in caplog.text
+        assert items[0].info_hash is None  # untouched, retried next cycle

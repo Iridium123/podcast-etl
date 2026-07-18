@@ -253,14 +253,25 @@ How it works, per poll cycle:
 
 Operational notes:
 
+- The feed's `pipeline` must **not** include `download` (validation error —
+  audio arrives via the torrent client). Since the defaults pipeline usually
+  starts with `download`, give unit3d feeds their own `pipeline` override.
+- The ETL process reads downloaded files by mapping the client's
+  `client.save_path` onto its own `torrent_data_dir` — the two must be mounts
+  of the same volume (same convention the `stage`/`seed` steps already use).
 - **Retry a dead torrent** by deleting it (with data) in qBittorrent — the
   next poll re-adds it from the stored blob and starts over.
 - **Abandon a torrent** by excluding it with `episode_filter` (or wait for it
   to leave the tracker feed). Torrents that disappear from the feed are
   abandoned automatically; already-fetched episodes are kept and finished.
 - `episode_filter`/`last` select *torrents*; once a torrent is included all
-  its MP3s become episodes. A torrent with no MP3s is marked fetched with 0
+  its MP3s become episodes. A narrowed run (`last`/`episode_filter` set)
+  pipelines only the selected torrents' episodes, so `--overwrite` can't
+  re-process the back-catalog. In-flight torrents that fall out of the `last`
+  window still finish. A torrent with no MP3s is marked fetched with 0
   episodes.
+- `run --step X` re-runs just that step over existing episodes — it never
+  downloads blobs or touches the torrent client.
 - Don't re-`upload` to the same tracker the feed came from — that would
   duplicate the torrent. Configure a different `tracker` if uploading.
 

@@ -390,6 +390,38 @@ Using `httpx` mock transport:
 
 Notably unchanged: `pipeline.py`, `feed.py`, `tests/test_pipeline.py`, `tests/test_feed.py`, and every existing step.
 
+### Post-implementation amendments
+
+Live testing against real UNIT3D feeds and code review corrected the spec in
+several places; the implementation is authoritative where they differ:
+
+- **Feed shape**: real UNIT3D feeds carry the `.torrent` URL in the item's
+  plain `<link>` with a bare-id `<guid>` and no enclosure. The parser falls
+  back enclosure → `rel=enclosure` link → `entry.link`.
+- **Path rebasing**: `get_files` returns paths as the *client's* container
+  sees them. The fetch phase rebases `client.save_path` → `torrent_data_dir`
+  (two mounts of one volume; inverse of the stage step's `_to_client_path`)
+  before reading audio.
+- **One validation rule returned**: `download` in a unit3d feed's resolved
+  pipeline is a validation error after all — with `--overwrite`, the popped
+  synthesized status would send audio-url-less episodes into DownloadStep.
+  The "harmlessly skipped" claim only held for non-overwrite runs.
+- **Spawn ordering**: an episode joins `podcast.episodes` (and is saved) only
+  after its audio copy succeeds, so a mid-torrent copy failure can't leak
+  audio-less episodes into the pipeline.
+- **Filename collisions** are also checked against other torrents' recorded
+  download filenames, not just within the torrent — a same-titled episode
+  re-uploaded in a second torrent must not clobber the first one's audio.
+- **Scoping**: `last` falls back to the feed config in every entry point (an
+  unfiltered CLI run would download every blob in the feed); a narrowed run
+  pipelines only the selected torrents' episodes (so `--overwrite` can't
+  re-upload the back-catalog); `date_range` applies to episodes; in-flight
+  torrents outside the `last` window keep advancing until fetched; and
+  `run --step X` skips the fetch phase entirely.
+- **Client construction** failures inside the fetch phase are logged and
+  skipped, not raised — a misconfigured unit3d feed must not abort
+  `run --all` for the feeds after it.
+
 ### Out of scope for v1
 
 - Multiple trackers beyond UNIT3D — and with them the `FeedSource` protocol/registry abstraction; a two-way dispatch is simpler until a third source exists, and extracting a registry then is mechanical

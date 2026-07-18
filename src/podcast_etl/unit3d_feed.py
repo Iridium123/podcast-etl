@@ -3,10 +3,8 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-import feedparser
-
-from podcast_etl.models import Episode, Podcast, TorrentItem, slugify
-from podcast_etl.text import apply_blacklist, clean_description
+from podcast_etl.feed import clean_entry_description, fetch_and_check, parse_feed_head
+from podcast_etl.models import Episode, Podcast, TorrentItem
 
 logger = logging.getLogger(__name__)
 
@@ -41,15 +39,8 @@ def parse_unit3d_feed(
     Descriptions are cleaned to plain text. If *blacklist* is provided, any
     description containing a blacklisted string is blanked to null.
     """
-    feed = feedparser.parse(url)
-    if feed.bozo and not feed.entries:
-        raise ValueError(f"Failed to parse feed: {feed.bozo_exception}")
-
-    podcast_title = feed.feed.get("title", "Untitled")
-    podcast_slug = slugify(podcast_title)
-    image_url = None
-    if hasattr(feed.feed, "image") and feed.feed.image:
-        image_url = feed.feed.image.get("href")
+    feed = fetch_and_check(url)
+    podcast_title, podcast_slug, image_url, podcast_description = parse_feed_head(feed)
 
     # Load existing torrent-item state and all on-disk episodes
     existing_items: dict[str, TorrentItem] = {}
@@ -91,16 +82,11 @@ def parse_unit3d_feed(
 
         guid = entry.get("id", entry.get("link", raw_title))
 
-        description = clean_description(entry.get("summary"))
-        bl = blacklist or []
-        if bl:
-            description = apply_blacklist(description, bl)
-
         item = TorrentItem(
             guid=guid,
             title=raw_title,
             published=entry.get("published"),
-            description=description,
+            description=clean_entry_description(entry, blacklist),
             torrent_url=torrent_url,
         )
 
@@ -112,10 +98,6 @@ def parse_unit3d_feed(
             item.fetched_at = existing.fetched_at
 
         torrent_items.append(item)
-
-    podcast_description = clean_description(
-        feed.feed.get("subtitle") or feed.feed.get("summary")
-    )
 
     podcast = Podcast(
         title=podcast_title,

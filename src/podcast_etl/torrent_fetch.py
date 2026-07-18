@@ -95,6 +95,31 @@ def _mtime_rfc2822(path: Path) -> str:
     return format_datetime(datetime.fromtimestamp(path.stat().st_mtime).astimezone())
 
 
+def _episode_guid(item: TorrentItem, fileinfo: TorrentFileInfo) -> str:
+    """Stable episode identity: same torrent re-fetched yields the same guid."""
+    return f"{item.info_hash}:{fileinfo.relative_path.as_posix()}"
+
+
+def _to_local_path(path: Path, config: dict) -> Path:
+    """Rebase a client-reported path onto this process's torrent_data_dir.
+
+    Inverse of the stage step's _to_client_path: torrent_data_dir (our view)
+    and client.save_path (the client's view) are two mounts of the same
+    volume, so a file the client reports at save_path/<name> is readable
+    here at torrent_data_dir/<name>. Paths outside save_path (e.g. torrents
+    that predate this pipeline) are returned unchanged.
+    """
+    save_path = config.get("client", {}).get("save_path", "")
+    data_dir = config.get("torrent_data_dir")
+    if not save_path or not data_dir:
+        return path
+    try:
+        relative = path.relative_to(save_path)
+    except ValueError:
+        return path
+    return Path(data_dir) / relative
+
+
 def _build_episode(
     fileinfo: TorrentFileInfo,
     item: TorrentItem,
@@ -134,7 +159,7 @@ def _build_episode(
 
     return Episode(
         title=title,
-        guid=f"{item.info_hash}:{fileinfo.relative_path.as_posix()}",
+        guid=_episode_guid(item, fileinfo),
         published=published,
         audio_url=None,
         duration=None,
@@ -146,15 +171,21 @@ def _build_episode(
 
 
 def _destination_filenames(
-    episodes: list[Episode], fileinfos: list[TorrentFileInfo], effective_title: str
+    episodes: list[Episode],
+    fileinfos: list[TorrentFileInfo],
+    effective_title: str,
+    claimed: set[str] | None = None,
 ) -> list[str]:
     """Destination audio filenames for a torrent's episodes.
 
-    Colliding basenames get a short sha256 suffix derived from the file's
-    path inside the torrent -- deterministic, so the same torrent always
-    yields the same names; that's what makes interrupted-spawn retry
-    idempotent.
+    Basenames colliding within the torrent -- or with a filename already
+    claimed by another torrent's episode (*claimed*) -- get a short sha256
+    suffix derived from the file's path inside the torrent. Deterministic:
+    the same torrent always yields the same names (claimed names come from
+    persisted download statuses), which is what makes interrupted-spawn
+    retry idempotent.
     """
+    claimed = claimed or set()
     basenames = [
         episode_basename(effective_title, ep.title, ep.published) for ep in episodes
     ]
@@ -163,7 +194,7 @@ def _destination_filenames(
         counts[name] = counts.get(name, 0) + 1
     filenames = []
     for name, fi in zip(basenames, fileinfos):
-        if counts[name] > 1:
+        if counts[name] > 1 or f"{name}.mp3" in claimed:
             suffix = hashlib.sha256(fi.relative_path.as_posix().encode()).hexdigest()[:8]
             name = f"{name}-{suffix}"
         filenames.append(name + ".mp3")
@@ -193,14 +224,25 @@ def _spawn_episodes(
     episodes: list[Episode] = []
     used_slugs = {ep.slug for ep in podcast.episodes}
     for fileinfo in mp3_files:
-        guid = f"{item.info_hash}:{fileinfo.relative_path.as_posix()}"
+        guid = _episode_guid(item, fileinfo)
         if guid in existing:
             # Idempotent re-run: preserve step status of already-spawned episodes
             episodes.append(existing[guid])
         else:
             episodes.append(_build_episode(fileinfo, item, podcast, config, used_slugs))
 
-    filenames = _destination_filenames(episodes, mp3_files, effective_title)
+    # Filenames already claimed by other torrents' episodes must not be reused:
+    # a same-titled episode in a second torrent would otherwise clobber (or
+    # silently share) the first one's audio file.
+    batch_guids = {ep.guid for ep in episodes}
+    claimed = {
+        Path(ep.status["download"].result["path"]).name
+        for ep in podcast.episodes
+        if ep.guid not in batch_guids
+        and ep.status.get("download")
+        and ep.status["download"].result.get("path")
+    }
+    filenames = _destination_filenames(episodes, mp3_files, effective_title, claimed)
 
     for episode, fileinfo, filename in zip(episodes, mp3_files, filenames):
         download = episode.status.get("download")
@@ -276,7 +318,13 @@ def fetch_torrent_item(
     if not client.is_complete(item.info_hash):
         return
 
-    files = client.get_files(item.info_hash)
+    files = [
+        TorrentFileInfo(
+            absolute_path=_to_local_path(f.absolute_path, config),
+            relative_path=f.relative_path,
+        )
+        for f in client.get_files(item.info_hash)
+    ]
     mp3s = [f for f in files if f.relative_path.suffix.lower() == ".mp3"]
     if not mp3s:
         logger.warning(
@@ -304,7 +352,13 @@ def fetch_torrents(
     if not pending:
         return
     podcast_dir = podcast.podcast_dir(output_dir)
-    client = get_torrent_client(config.get("client", {}))
+    try:
+        client = get_torrent_client(config.get("client", {}))
+    except Exception:
+        # A misconfigured client must not abort the caller (e.g. `run --all`
+        # would skip every remaining feed); log and retry next cycle.
+        logger.exception("Cannot build torrent client; skipping torrent fetch")
+        return
     for item in pending:
         try:
             fetch_torrent_item(item, podcast, podcast_dir, config, client)

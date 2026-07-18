@@ -12,6 +12,33 @@ from podcast_etl.title_clean import clean_title
 logger = logging.getLogger(__name__)
 
 
+def fetch_and_check(url: str) -> feedparser.FeedParserDict:
+    """Fetch/parse a feed via feedparser, raising ValueError on garbage input."""
+    feed = feedparser.parse(url)
+    if feed.bozo and not feed.entries:
+        raise ValueError(f"Failed to parse feed: {feed.bozo_exception}")
+    return feed
+
+
+def parse_feed_head(feed: feedparser.FeedParserDict) -> tuple[str, str, str | None, str | None]:
+    """Return (title, slug, image_url, description) from a parsed feed's channel."""
+    title = feed.feed.get("title", "Untitled")
+    slug = slugify(title)
+    image_url = None
+    if hasattr(feed.feed, "image") and feed.feed.image:
+        image_url = feed.feed.image.get("href")
+    description = clean_description(feed.feed.get("subtitle") or feed.feed.get("summary"))
+    return title, slug, image_url, description
+
+
+def clean_entry_description(entry, blacklist: list[str] | None) -> str | None:
+    """Entry summary as plain text, blanked when it matches the blacklist."""
+    description = clean_description(entry.get("summary"))
+    if blacklist:
+        description = apply_blacklist(description, blacklist)
+    return description
+
+
 def parse_feed(
     url: str,
     output_dir: Path | None = None,
@@ -26,15 +53,8 @@ def parse_feed(
     Descriptions are cleaned to plain text. If *blacklist* is provided,
     any description containing a blacklisted string is blanked to null.
     """
-    feed = feedparser.parse(url)
-    if feed.bozo and not feed.entries:
-        raise ValueError(f"Failed to parse feed: {feed.bozo_exception}")
-
-    podcast_title = feed.feed.get("title", "Untitled")
-    podcast_slug = slugify(podcast_title)
-    image_url = None
-    if hasattr(feed.feed, "image") and feed.feed.image:
-        image_url = feed.feed.image.get("href")
+    feed = fetch_and_check(url)
+    podcast_title, podcast_slug, image_url, podcast_description = parse_feed_head(feed)
 
     # Load existing episode data to preserve step status
     existing_episodes: dict[str, Episode] = {}
@@ -83,10 +103,7 @@ def parse_feed(
             counter += 1
             ep_slug = f"{base_slug}-{counter}"
 
-        description = clean_description(entry.get("summary"))
-        bl = blacklist or []
-        if bl:
-            description = apply_blacklist(description, bl)
+        description = clean_entry_description(entry, blacklist)
 
         ep_image_url = None
         ep_image = entry.get("image")
@@ -111,10 +128,6 @@ def parse_feed(
             episode.status = existing_episodes[guid].status
 
         episodes.append(episode)
-
-    podcast_description = clean_description(
-        feed.feed.get("subtitle") or feed.feed.get("summary")
-    )
 
     podcast = Podcast(
         title=podcast_title,
