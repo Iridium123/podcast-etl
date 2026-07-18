@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from podcast_etl.models import Episode, Podcast, StepStatus, sanitize_filename, slugify
-from podcast_etl.models import episode_json_filename
+from podcast_etl.models import Episode, Podcast, StepStatus, TorrentItem, sanitize_filename, slugify
+from podcast_etl.models import episode_json_filename, guid_hash
 
 
 # --- slugify ---
@@ -313,3 +313,82 @@ def test_podcast_load_no_duplicates_unchanged(tmp_path: Path):
     loaded = Podcast.load(tmp_path / "my-podcast")
     assert len(loaded.episodes) == 1
     assert loaded.episodes[0].guid == "guid-123"
+
+
+# --- TorrentItem ---
+
+def _make_torrent_item(**kwargs) -> TorrentItem:
+    defaults = dict(
+        guid="torrent-guid-1",
+        title="Season 1 Pack",
+        published="Mon, 01 Jan 2024 00:00:00 +0000",
+        description="A torrent of episodes.",
+        torrent_url="https://example.com/torrent/1",
+    )
+    defaults.update(kwargs)
+    return TorrentItem(**defaults)
+
+
+def test_torrent_item_dict_roundtrip_all_fields():
+    item = _make_torrent_item(
+        info_hash="abc123def456",
+        episode_guids=["ep-guid-1", "ep-guid-2"],
+        fetched_at="2024-06-01T00:00:00",
+    )
+    assert TorrentItem.from_dict(item.to_dict()) == item
+
+
+def test_torrent_item_from_dict_required_keys_only():
+    item = TorrentItem.from_dict({
+        "guid": "torrent-guid-1",
+        "title": "Season 1 Pack",
+        "torrent_url": "https://example.com/torrent/1",
+    })
+    assert item.published is None
+    assert item.description is None
+    assert item.info_hash is None
+    assert item.episode_guids == []
+    assert item.fetched_at is None
+
+
+def test_torrent_item_save_and_load(tmp_path: Path):
+    item = _make_torrent_item(info_hash="abc123", episode_guids=["ep-1"])
+    item.save(tmp_path)
+    path = tmp_path / "torrents" / f"{guid_hash(item.guid)}.json"
+    assert path.exists()
+    loaded = TorrentItem.load(path)
+    assert loaded == item
+
+
+def test_torrent_item_save_skips_write_when_unchanged(tmp_path: Path):
+    """Saving an unchanged torrent item should not rewrite the file."""
+    item = _make_torrent_item()
+    item.save(tmp_path)
+    path = tmp_path / "torrents" / f"{guid_hash(item.guid)}.json"
+    mtime_before = path.stat().st_mtime_ns
+    item.save(tmp_path)
+    mtime_after = path.stat().st_mtime_ns
+    assert mtime_after == mtime_before
+
+
+def test_podcast_save_and_load_with_torrent_items(tmp_path: Path):
+    ep = _make_episode()
+    item = _make_torrent_item()
+    p = _make_podcast()
+    p.episodes = [ep]
+    p.torrent_items = [item]
+    p.save(tmp_path)
+
+    loaded = Podcast.load(tmp_path / "my-podcast")
+    assert len(loaded.episodes) == 1
+    assert len(loaded.torrent_items) == 1
+    assert loaded.torrent_items[0].guid == item.guid
+
+
+def test_podcast_load_no_torrents_dir(tmp_path: Path):
+    p = _make_podcast()
+    p.save(tmp_path)
+    assert not (tmp_path / "my-podcast" / "torrents").exists()
+
+    loaded = Podcast.load(tmp_path / "my-podcast")
+    assert loaded.torrent_items == []

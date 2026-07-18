@@ -217,6 +217,7 @@ async def feed_detail(request: Request, name: str):
     # Build episodes grid from disk data if available
     output_dir = get_output_dir(config)
     episodes = []
+    torrents = []
     step_names: list[str] = resolved.get("pipeline") or ["download"]
     podcast_slug = None
     if output_dir.exists():
@@ -249,11 +250,29 @@ async def feed_detail(request: Request, name: str):
                     "published": format_date(ep.published),
                     "_published_raw": ep.published or "",
                 })
+            for item in podcast.torrent_items:
+                if item.fetched_at:
+                    state = "fetched"
+                elif item.info_hash:
+                    state = "downloading"
+                else:
+                    state = "pending"
+                torrents.append({
+                    "title": item.title,
+                    "published": format_date(item.published),
+                    "info_hash": item.info_hash,
+                    "state": state,
+                    "episode_count": len(item.episode_guids),
+                })
             break
 
     # Disk order is oldest-first (date-prefixed filenames sort ascending).
     # Reverse to show newest first, matching RSS feed order and `last N` behavior.
     episodes.reverse()
+
+    # Torrent-item files are hash-named, so disk order is arbitrary; sort
+    # newest-first by the yyyy-mm-dd published string (undated items last).
+    torrents.sort(key=lambda t: t["published"] or "", reverse=True)
 
     # Build directory paths if we have a podcast slug
     dirs = None
@@ -279,6 +298,7 @@ async def feed_detail(request: Request, name: str):
             "source_map": source_map,
             "step_names": step_names,
             "episodes": episodes,
+            "torrents": torrents,
             "dirs": dirs,
         },
     )
@@ -327,7 +347,7 @@ def _parse_feed_form(form_data, all_steps: list[str]) -> tuple[dict, str | None]
         form_data,
         all_steps,
         "Full feed YAML",
-        text_fields=["url", "name", "title_override", "episode_filter"],
+        text_fields=["url", "name", "title_override", "episode_filter", "source"],
         int_fields=["last", "category_id", "type_id"],
         bool_fields=["enabled"],
     )

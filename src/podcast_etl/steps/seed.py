@@ -5,7 +5,7 @@ import logging
 from dataclasses import dataclass
 from pathlib import Path
 
-from podcast_etl.clients.qbittorrent import QBittorrentClient
+from podcast_etl.clients import get_torrent_client
 from podcast_etl.models import Episode
 from podcast_etl.pipeline import PipelineContext, StepResult
 
@@ -44,7 +44,7 @@ class SeedStep:
         if not client_path:
             raise ValueError(f"Episode {episode.slug} stage result missing 'client_path'")
 
-        client = _get_client(context)
+        client = get_torrent_client(context.config.get("client", {}))
         result_data = {"client": "qbittorrent", "hash": info_hash}
 
         if client.has_torrent(info_hash):
@@ -62,10 +62,3 @@ class SeedStep:
 
 def _checkpoint_path(context: PipelineContext, episode: Episode) -> Path:
     return context.podcast_dir / "seeds" / f"{episode.slug}.json"
-
-
-def _get_client(context: PipelineContext) -> QBittorrentClient:
-    client_config = context.config.get("client", {})
-    if not client_config:
-        raise ValueError("No torrent client configured")
-    return QBittorrentClient.from_config(client_config)

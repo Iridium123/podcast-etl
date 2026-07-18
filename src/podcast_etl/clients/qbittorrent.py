@@ -6,6 +6,8 @@ from typing import Any
 
 import httpx
 
+from podcast_etl.clients import TorrentFileInfo, read_info_hash
+
 logger = logging.getLogger(__name__)
 
 
@@ -38,6 +40,38 @@ class QBittorrentClient:
         resp.raise_for_status()
         return len(resp.json()) > 0
 
+    def _torrent_info(self, info_hash: str) -> dict[str, Any]:
+        resp = self._session().get(
+            f"{self._url}/api/v2/torrents/info",
+            params={"hashes": info_hash.lower()},
+        )
+        resp.raise_for_status()
+        torrents = resp.json()
+        if not torrents:
+            raise RuntimeError(f"Torrent not found in qBittorrent: {info_hash}")
+        return torrents[0]
+
+    def is_complete(self, info_hash: str) -> bool:
+        """True when the download has finished, judged by progress.
+
+        Deliberately not a state-name check: qBittorrent has renamed states
+        across versions (5.0 renamed paused* to stopped*), while progress is
+        stable and unambiguous.
+        """
+        return self._torrent_info(info_hash).get("progress", 0) == 1
+
+    def get_files(self, info_hash: str) -> list[TorrentFileInfo]:
+        save_path = Path(self._torrent_info(info_hash)["save_path"])
+        resp = self._session().get(
+            f"{self._url}/api/v2/torrents/files",
+            params={"hash": info_hash.lower()},
+        )
+        resp.raise_for_status()
+        return [
+            TorrentFileInfo(absolute_path=save_path / f["name"], relative_path=Path(f["name"]))
+            for f in resp.json()
+        ]
+
     def add_torrent(self, torrent_path: Path, save_path: str) -> str:
         """Upload a .torrent file and set its save path. Returns the info_hash."""
         with torrent_path.open("rb") as f:
@@ -51,7 +85,7 @@ class QBittorrentClient:
             logger.warning("Unexpected qBittorrent response: %s", resp.text)
         if resp.text == "Fails.":
             raise RuntimeError("qBittorrent failed to add torrent")
-        return _read_info_hash(torrent_path)
+        return read_info_hash(torrent_path)
 
     @classmethod
     def from_config(cls, config: dict[str, Any]) -> "QBittorrentClient":
@@ -61,10 +95,3 @@ class QBittorrentClient:
             password=config["password"],
         )
 
-
-def _read_info_hash(torrent_path: Path) -> str:
-    """Read a .torrent file and return its SHA1 info_hash as a hex string."""
-    from torf import Torrent
-
-    t = Torrent.read(torrent_path)
-    return str(t.infohash)

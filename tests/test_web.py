@@ -720,3 +720,166 @@ def test_pipeline_chips_show_checked_state(tmp_path: Path) -> None:
     assert "bg-blue-800" in response.text
     # Should have visible checkbox input (not sr-only)
     assert "sr-only" not in response.text
+
+
+def test_add_form_has_source_select(config_path: Path) -> None:
+    """The add-feed form should offer a source select with rss and unit3d options."""
+    app = create_app(config_path, start_poller=False)
+    client = TestClient(app)
+    response = client.get("/feeds/add")
+    assert response.status_code == 200
+    assert 'name="source"' in response.text
+    assert 'value="rss"' in response.text
+    assert 'value="unit3d"' in response.text
+
+
+def test_edit_form_has_source_select(tmp_path: Path) -> None:
+    cfg_path = _write_config(tmp_path, {
+        "feeds": [{"url": "http://a.com/rss", "name": "show-a"}],
+        "defaults": {"output_dir": str(tmp_path / "output"), "pipeline": ["download"]},
+    })
+    app = create_app(cfg_path, start_poller=False)
+    client = TestClient(app)
+    response = client.get("/feeds/show-a/edit")
+    assert response.status_code == 200
+    assert 'name="source"' in response.text
+    # No explicit source configured -> rss is selected by default
+    assert 'value="rss" selected' in response.text
+    assert 'value="unit3d" selected' not in response.text
+
+
+def test_edit_form_selects_unit3d_source(tmp_path: Path) -> None:
+    cfg_path = _write_config(tmp_path, {
+        "feeds": [{"url": "http://a.com/rss", "name": "show-a", "source": "unit3d"}],
+        "defaults": {"output_dir": str(tmp_path / "output"), "pipeline": ["download"]},
+    })
+    app = create_app(cfg_path, start_poller=False)
+    client = TestClient(app)
+    response = client.get("/feeds/show-a/edit")
+    assert response.status_code == 200
+    assert 'value="unit3d" selected' in response.text
+    assert 'value="rss" selected' not in response.text
+
+
+def test_feed_confirm_saves_source(tmp_path: Path) -> None:
+    """Preview then confirm with source=unit3d should persist it to the config."""
+    cfg_path = _write_config(tmp_path, {
+        "feeds": [{"url": "http://a.com/rss", "name": "show-a", "enabled": True}],
+        "defaults": {"output_dir": str(tmp_path / "output"), "pipeline": ["download"]},
+    })
+    app = create_app(cfg_path, start_poller=False)
+    client = TestClient(app)
+    # A unit3d feed must override the defaults pipeline: 'download' is
+    # rejected for torrent-source feeds by validate_config.
+    preview_resp = client.post("/feeds/show-a/preview", data={
+        "name": "show-a",
+        "url": "http://a.com/rss",
+        "enabled": "on",
+        "source": "unit3d",
+        "pipeline_tag": "on",
+        "extra_yaml": "",
+    })
+    assert preview_resp.status_code == 200
+    assert "confirm" in preview_resp.text.lower()
+    import re
+    token_match = re.search(r'<input type="hidden" name="token" value="([^"]+)"', preview_resp.text)
+    assert token_match, "Token not found in preview response"
+    token = token_match.group(1)
+    response = client.post("/feeds/show-a/confirm", data={"token": token}, follow_redirects=False)
+    assert response.status_code == 303
+    saved = yaml.safe_load(cfg_path.read_text())
+    feed = next(f for f in saved["feeds"] if f["name"] == "show-a")
+    assert feed["source"] == "unit3d"
+
+
+def test_feed_detail_shows_torrents_table(tmp_path: Path) -> None:
+    """Detail page should render a Torrents table with derived per-item state."""
+    from podcast_etl.models import Podcast, TorrentItem
+
+    output_dir = tmp_path / "output"
+    podcast = Podcast(
+        title="Show A", url="http://a.com/rss",
+        description=None, image_url=None, slug="show-a-slug",
+    )
+    podcast.save(output_dir)
+    podcast_dir = output_dir / "show-a-slug"
+    TorrentItem(
+        guid="t-1", title="Torrent One", published="2026-01-05", description=None,
+        torrent_url="http://a.com/t/1.torrent",
+        info_hash="aabbccdd00112233445566778899aabbccdd0011",
+        episode_guids=["ep-1", "ep-2"],
+        fetched_at="2026-01-06T00:00:00",
+    ).save(podcast_dir)
+    TorrentItem(
+        guid="t-2", title="Torrent Two", published="2026-01-07", description=None,
+        torrent_url="http://a.com/t/2.torrent",
+        info_hash="ffee00112233445566778899aabbccddeeff0011",
+    ).save(podcast_dir)
+    TorrentItem(
+        guid="t-3", title="Torrent Three", published="2026-01-09", description=None,
+        torrent_url="http://a.com/t/3.torrent",
+    ).save(podcast_dir)
+
+    cfg_path = _write_config(tmp_path, {
+        "feeds": [{"url": "http://a.com/rss", "name": "show-a", "source": "unit3d"}],
+        "defaults": {"output_dir": str(output_dir), "pipeline": ["download"]},
+    })
+    app = create_app(cfg_path, start_poller=False)
+    client = TestClient(app)
+    response = client.get("/feeds/show-a")
+    assert response.status_code == 200
+    assert "Torrents" in response.text
+    assert "Torrent One" in response.text
+    assert "Torrent Two" in response.text
+    assert "Torrent Three" in response.text
+    # Derived states: fetched_at -> fetched, info_hash only -> downloading, neither -> pending
+    assert "fetched" in response.text
+    assert "downloading" in response.text
+    assert "pending" in response.text
+    # Info hash display is truncated to 8 chars, full hash in the title attribute
+    assert 'title="aabbccdd00112233445566778899aabbccdd0011"' in response.text
+    assert ">aabbccdd</span>" in response.text
+
+
+def test_feed_detail_no_torrents_section_for_rss_feed(tmp_path: Path) -> None:
+    """A plain RSS feed with no torrents dir should not render the Torrents section."""
+    cfg_path = _write_config(tmp_path, {
+        "feeds": [{"url": "http://a.com/rss", "name": "show-a"}],
+        "defaults": {"output_dir": str(tmp_path / "output"), "pipeline": ["download"]},
+    })
+    app = create_app(cfg_path, start_poller=False)
+    client = TestClient(app)
+    response = client.get("/feeds/show-a")
+    assert response.status_code == 200
+    assert "Torrents" not in response.text
+
+
+def test_feed_detail_torrents_sorted_newest_first(tmp_path: Path) -> None:
+    """Torrent-item files are hash-named, so the table must sort by date."""
+    from podcast_etl.models import Podcast, TorrentItem
+
+    output_dir = tmp_path / "output"
+    cfg_path = _write_config(tmp_path, {
+        "feeds": [{"url": "http://t.com/rss", "name": "show-t", "source": "unit3d",
+                   "pipeline": ["tag"], "enabled": True}],
+        "defaults": {"output_dir": str(output_dir)},
+    })
+    podcast = Podcast(title="Show T", url="http://t.com/rss", description=None,
+                      image_url=None, slug="show-t")
+    for num, (title, published) in enumerate([
+        ("Oldest Item", "Tue, 05 May 2020 12:00:00 +0000"),
+        ("Newest Item", "Tue, 05 May 2026 12:00:00 +0000"),
+        ("Middle Item", "Tue, 05 May 2023 12:00:00 +0000"),
+    ]):
+        podcast.torrent_items.append(TorrentItem(
+            guid=f"g{num}", title=title, published=published,
+            description=None, torrent_url=f"http://t.com/{num}",
+        ))
+    podcast.save(output_dir)
+
+    app = create_app(cfg_path, start_poller=False)
+    client = TestClient(app)
+    resp = client.get("/feeds/show-t")
+    assert resp.status_code == 200
+    positions = [resp.text.index(t) for t in ("Newest Item", "Middle Item", "Oldest Item")]
+    assert positions == sorted(positions), "torrents not rendered newest-first"

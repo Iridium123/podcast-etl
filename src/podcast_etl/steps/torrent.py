@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from podcast_etl.clients import read_info_hash
 from podcast_etl.models import Episode, episode_basename
 from podcast_etl.pipeline import PipelineContext, StepResult
 
@@ -46,7 +47,7 @@ class TorrentStep:
             source: str | None = tracker_config.get("source") or None
             _run_mktorrent(audio_path, torrent_path, announce_url, comment, private=private, source=source)
 
-        info_hash = _read_info_hash(torrent_path)
+        info_hash = read_info_hash(torrent_path)
 
         return StepResult(data={
             "torrent_path": str(torrent_path),
@@ -79,8 +80,3 @@ def _run_mktorrent(audio_path: Path, torrent_path: Path, announce_url: str, comm
     if result.returncode != 0:
         raise RuntimeError(f"mktorrent failed (exit {result.returncode}): {result.stderr.strip()}")
 
-
-def _read_info_hash(torrent_path: Path) -> str:
-    import torf
-    t = torf.Torrent.read(str(torrent_path))
-    return str(t.infohash).lower()

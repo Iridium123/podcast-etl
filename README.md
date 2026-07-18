@@ -220,7 +220,60 @@ Key config behaviors:
 
 - **`enabled`** defaults to `false`. Only `true` feeds are processed during poll/serve. Explicit `--feed` runs ignore this flag.
 - **`last`** and **`episode_filter`** limit which episodes are processed during poll. They can also appear in `defaults`.
+- **`source`** defaults to `rss`. Set `source: unit3d` for torrent-source feeds (see below).
 - **Per-feed overrides** are deep-merged with `defaults`, so `tracker: {mod_queue_opt_in: 1}` only overrides that one key.
+
+### Torrent-Source Feeds (UNIT3D)
+
+Besides normal podcast RSS, a feed can ingest from a UNIT3D tracker RSS whose
+enclosures are `.torrent` files. Audio arrives via qBittorrent; once on disk,
+episodes flow through the regular pipeline (tag, strip ads, Audiobookshelf,
+re-upload to a *different* tracker, any combination).
+
+```yaml
+feeds:
+  - url: https://tracker.example.com/rss/98.yourrsskey
+    name: archived-show
+    source: unit3d
+    enabled: true
+    episode_filter: "^The Daily - "     # applies to torrent titles
+    pipeline: [tag, audiobookshelf]     # episode steps only; fetching is implied by source
+```
+
+How it works, per poll cycle:
+
+1. Each RSS entry becomes a torrent item (visible on the feed detail page).
+   The `.torrent` blob is downloaded and kept under `torrent_files/`, and the
+   torrent is added to qBittorrent (the `client.save_path` config).
+2. While qBittorrent downloads, the item shows as "downloading" and is
+   re-checked each cycle.
+3. On completion, every MP3 inside the torrent becomes an episode: metadata
+   from ID3 tags (falling back to filename/RSS/mtime), audio copied into the
+   podcast's `audio/` dir, then the configured pipeline runs as usual.
+
+Operational notes:
+
+- The feed's `pipeline` must **not** include `download` (validation error —
+  audio arrives via the torrent client). Since the defaults pipeline usually
+  starts with `download`, give unit3d feeds their own `pipeline` override.
+- The ETL process reads downloaded files by mapping the client's
+  `client.save_path` onto its own `torrent_data_dir` — the two must be mounts
+  of the same volume (same convention the `stage`/`seed` steps already use).
+- **Retry a dead torrent** by deleting it (with data) in qBittorrent — the
+  next poll re-adds it from the stored blob and starts over.
+- **Abandon a torrent** by excluding it with `episode_filter` (or wait for it
+  to leave the tracker feed). Torrents that disappear from the feed are
+  abandoned automatically; already-fetched episodes are kept and finished.
+- `episode_filter`/`last` select *torrents*; once a torrent is included all
+  its MP3s become episodes. A narrowed run (`last`/`episode_filter` set)
+  pipelines only the selected torrents' episodes, so `--overwrite` can't
+  re-process the back-catalog. In-flight torrents that fall out of the `last`
+  window still finish. A torrent with no MP3s is marked fetched with 0
+  episodes.
+- `run --step X` re-runs just that step over existing episodes — it never
+  downloads blobs or touches the torrent client.
+- Don't re-`upload` to the same tracker the feed came from — that would
+  duplicate the torrent. Configure a different `tracker` if uploading.
 
 ### Title Cleaning
 

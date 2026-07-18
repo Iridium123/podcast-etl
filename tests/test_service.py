@@ -4,14 +4,20 @@ get_feed_status, split_config_fields, merge_config_fields,
 and get_resolved_config_with_sources."""
 from datetime import date
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pytest
 import yaml
 
-from podcast_etl.models import Episode, Podcast, StepStatus
+from podcast_etl.models import Episode, Podcast, StepStatus, TorrentItem
 from podcast_etl.service import (
+    _check_feed_source,
+    _check_unit3d_pipeline,
     delete_feed,
+    episodes_for_torrent_items,
+    fetch_feed,
     filter_episodes,
+    filter_torrent_items,
     find_feed_config,
     find_podcast_dir,
     get_feed_status,
@@ -22,7 +28,10 @@ from podcast_etl.service import (
     merge_config_fields,
     replace_feed,
     reset_feed_data,
+    run_pipeline,
+    run_torrent_phase,
     save_config,
+    select_torrent_items,
     split_config_fields,
     validate_config,
 )
@@ -902,3 +911,431 @@ def test_delete_feed_leaves_other_feeds(tmp_path: Path) -> None:
     reloaded = load_config(cfg_file)
     assert len(reloaded["feeds"]) == 1
     assert reloaded["feeds"][0]["name"] == "show-b"
+
+
+# ---------------------------------------------------------------------------
+# source: torrent-feed ingestion (validation, dispatch, filtering, fetch phase)
+# ---------------------------------------------------------------------------
+
+def _torrent_item(num: int, title: str | None = None, **kwargs) -> TorrentItem:
+    return TorrentItem(
+        guid=f"https://tracker.example/torrents/{num}",
+        title=title or f"Item {num}",
+        published=None,
+        description=None,
+        torrent_url=f"https://tracker.example/download/{num}",
+        **kwargs,
+    )
+
+
+def test_validate_config_accepts_known_sources():
+    config = {
+        "feeds": [
+            {"url": "https://a.com/rss", "source": "rss"},
+            {"url": "https://b.com/rss", "source": "unit3d"},
+            {"url": "https://c.com/rss"},  # default
+        ],
+    }
+    validate_config(config)  # should not raise
+
+
+def test_validate_config_rejects_unknown_source():
+    config = {"feeds": [{"url": "https://a.com/rss", "source": "transmission-rss"}]}
+    with pytest.raises(SystemExit, match="unknown source 'transmission-rss'"):
+        validate_config(config)
+
+
+def test_validate_config_source_from_defaults_is_resolved():
+    config = {
+        "feeds": [{"url": "https://a.com/rss"}],
+        "defaults": {"source": "bogus"},
+    }
+    with pytest.raises(SystemExit, match="unknown source 'bogus'"):
+        validate_config(config)
+
+
+def test_fetch_feed_dispatches_to_rss_by_default(tmp_path: Path):
+    podcast = MagicMock()
+    with (
+        patch("podcast_etl.service.parse_feed", return_value=podcast) as mock_rss,
+        patch("podcast_etl.service.parse_unit3d_feed") as mock_unit3d,
+    ):
+        result = fetch_feed("https://a.com/rss", tmp_path, {})
+    assert result is podcast
+    mock_rss.assert_called_once()
+    mock_unit3d.assert_not_called()
+    podcast.save.assert_called_once_with(tmp_path)
+
+
+def test_fetch_feed_dispatches_to_unit3d(tmp_path: Path):
+    podcast = MagicMock()
+    with (
+        patch("podcast_etl.service.parse_feed") as mock_rss,
+        patch("podcast_etl.service.parse_unit3d_feed", return_value=podcast) as mock_unit3d,
+    ):
+        result = fetch_feed("https://a.com/rss", tmp_path, {"source": "unit3d"})
+    assert result is podcast
+    mock_unit3d.assert_called_once()
+    mock_rss.assert_not_called()
+    podcast.save.assert_called_once_with(tmp_path)
+
+
+def test_filter_torrent_items_no_filters_returns_all():
+    items = [_torrent_item(i) for i in range(3)]
+    assert filter_torrent_items(items) == items
+
+
+def test_filter_torrent_items_last():
+    items = [_torrent_item(i) for i in range(5)]
+    assert filter_torrent_items(items, last=2) == items[:2]
+
+
+def test_filter_torrent_items_regex_on_raw_title():
+    items = [_torrent_item(1, "Show S01E01"), _torrent_item(2, "Other Thing")]
+    result = filter_torrent_items(items, episode_filter=r"^Show ")
+    assert [i.title for i in result] == ["Show S01E01"]
+
+
+def test_filter_torrent_items_last_applies_before_regex():
+    items = [_torrent_item(1, "Show A"), _torrent_item(2, "Other"), _torrent_item(3, "Show B")]
+    # last=2 keeps items 1-2, then regex keeps only "Show A" (mirrors filter_episodes)
+    result = filter_torrent_items(items, last=2, episode_filter=r"^Show ")
+    assert [i.title for i in result] == ["Show A"]
+
+
+def test_check_feed_source_accepts_known_and_default():
+    assert _check_feed_source({"source": "rss"}) is None
+    assert _check_feed_source({"source": "unit3d"}) is None
+    assert _check_feed_source({}) is None  # defaults to rss
+
+
+def test_check_feed_source_rejects_unknown():
+    error = _check_feed_source({"source": "transmission-rss"})
+    assert "unknown source 'transmission-rss'" in error
+
+
+def test_check_unit3d_pipeline_rejects_download():
+    error = _check_unit3d_pipeline({"source": "unit3d", "pipeline": ["download", "tag"]})
+    assert "'download' step is not valid for source 'unit3d'" in error
+
+
+def test_check_unit3d_pipeline_passes_without_download():
+    assert _check_unit3d_pipeline({"source": "unit3d", "pipeline": ["tag"]}) is None
+    assert _check_unit3d_pipeline({"source": "unit3d"}) is None
+
+
+def test_check_unit3d_pipeline_ignores_rss_feeds():
+    assert _check_unit3d_pipeline({"source": "rss", "pipeline": ["download"]}) is None
+    assert _check_unit3d_pipeline({"pipeline": ["download"]}) is None
+
+
+def test_select_torrent_items_no_filters_returns_all():
+    items = [_torrent_item(i) for i in range(3)]
+    assert select_torrent_items(items) == items
+
+
+def test_select_torrent_items_keeps_in_flight_outside_window():
+    newest = _torrent_item(1, "Newest")
+    in_flight = _torrent_item(2, "Downloading", info_hash="abc123")
+    never_started = _torrent_item(3, "Never started")
+    fetched = _torrent_item(4, "Done", info_hash="def456", fetched_at="2026-01-01T00:00:00")
+    result = select_torrent_items([newest, in_flight, never_started, fetched], last=1)
+    assert [i.title for i in result] == ["Newest", "Downloading"]
+
+
+def test_select_torrent_items_in_flight_survives_episode_filter():
+    matching = _torrent_item(1, "Show A")
+    in_flight = _torrent_item(2, "Other", info_hash="abc123")
+    result = select_torrent_items([matching, in_flight], episode_filter=r"^Show ")
+    assert [i.title for i in result] == ["Show A", "Other"]
+
+
+def test_episodes_for_torrent_items_scopes_by_recorded_guids():
+    mine = Episode(
+        title="Mine", guid="hash-a:ep.mp3", published=None, audio_url=None,
+        duration=None, description=None, slug="mine",
+    )
+    other = Episode(
+        title="Other", guid="hash-b:ep.mp3", published=None, audio_url=None,
+        duration=None, description=None, slug="other",
+    )
+    item = _torrent_item(1, episode_guids=["hash-a:ep.mp3"])
+    assert episodes_for_torrent_items([mine, other], [item]) == [mine]
+    assert episodes_for_torrent_items([mine, other], []) == []
+
+
+def test_run_torrent_phase_narrowed_fetches_selection_and_scopes_episodes(tmp_path: Path):
+    episode = Episode(
+        title="Kept", guid="hash-keep:ep.mp3", published=None, audio_url=None,
+        duration=None, description=None, slug="kept",
+    )
+    stale = Episode(
+        title="Stale", guid="hash-old:ep.mp3", published=None, audio_url=None,
+        duration=None, description=None, slug="stale",
+    )
+    podcast = Podcast(title="T", url="u", description=None, image_url=None, slug="t")
+    podcast.torrent_items = [
+        _torrent_item(1, "Keep", episode_guids=["hash-keep:ep.mp3"]),
+        _torrent_item(2, "Drop", episode_guids=["hash-old:ep.mp3"]),
+    ]
+    podcast.episodes = [episode, stale]
+
+    with patch("podcast_etl.service.fetch_torrents") as mock_fetch:
+        result = run_torrent_phase(
+            podcast, tmp_path, {"source": "unit3d"}, episode_filter="^Keep"
+        )
+
+    (fetched_items, *_), _kwargs = mock_fetch.call_args
+    assert [i.title for i in fetched_items] == ["Keep"]
+    assert result == [episode]
+
+
+def test_run_torrent_phase_unnarrowed_returns_all_episodes(tmp_path: Path):
+    episode = Episode(
+        title="Any", guid="h:ep.mp3", published=None, audio_url=None,
+        duration=None, description=None, slug="any",
+    )
+    podcast = Podcast(title="T", url="u", description=None, image_url=None, slug="t")
+    podcast.episodes = [episode]
+
+    with patch("podcast_etl.service.fetch_torrents"):
+        result = run_torrent_phase(podcast, tmp_path, {"source": "unit3d"})
+
+    assert result == [episode]
+
+
+def test_run_torrent_phase_last_falls_back_to_config(tmp_path: Path):
+    podcast = Podcast(title="T", url="u", description=None, image_url=None, slug="t")
+    podcast.torrent_items = [_torrent_item(i) for i in range(5)]
+
+    with patch("podcast_etl.service.fetch_torrents") as mock_fetch:
+        run_torrent_phase(podcast, tmp_path, {"source": "unit3d", "last": 2})
+
+    (fetched_items, *_), _kwargs = mock_fetch.call_args
+    assert len(fetched_items) == 2
+
+
+def test_run_torrent_phase_step_filter_skips_fetch(tmp_path: Path):
+    podcast = Podcast(title="T", url="u", description=None, image_url=None, slug="t")
+    podcast.torrent_items = [_torrent_item(1)]
+
+    with patch("podcast_etl.service.fetch_torrents") as mock_fetch:
+        run_torrent_phase(podcast, tmp_path, {"source": "unit3d"}, step_filter="tag")
+
+    mock_fetch.assert_not_called()
+
+
+def test_run_pipeline_unit3d_runs_fetch_phase_before_pipeline(tmp_path: Path):
+    """Episodes spawned by the fetch phase must reach the same cycle's pipeline."""
+    podcast = Podcast(title="T", url="u", description=None, image_url=None, slug="t")
+    podcast.torrent_items = [_torrent_item(1)]
+    spawned = Episode(
+        title="Spawned", guid="h:ep.mp3", published=None, audio_url=None,
+        duration=None, description=None, slug="spawned",
+    )
+
+    def fake_fetch(items, pc, output_dir, config):
+        pc.episodes.append(spawned)
+
+    run_calls = []
+    mock_pipeline = MagicMock()
+    mock_pipeline.return_value.run.side_effect = lambda eps, **kw: run_calls.append(list(eps))
+
+    with (
+        patch("podcast_etl.service.fetch_torrents", side_effect=fake_fetch) as mock_fetch,
+        patch("podcast_etl.service.Pipeline", mock_pipeline),
+    ):
+        run_pipeline(podcast, tmp_path, {"source": "unit3d", "pipeline": ["download"]})
+
+    mock_fetch.assert_called_once()
+    assert run_calls == [[spawned]]
+
+
+def test_run_pipeline_unit3d_filters_torrent_items_and_scopes_episodes(tmp_path: Path):
+    """episode_filter applies to torrent items (by raw title), and a narrowed
+    run pipelines only the selected torrents' episodes — never the back-catalog."""
+    kept_episode = Episode(
+        title="Kept ep", guid="hash-keep:ep.mp3", published=None, audio_url=None,
+        duration=None, description=None, slug="kept-ep",
+    )
+    old_episode = Episode(
+        title="Old ep", guid="hash-old:ep.mp3", published=None, audio_url=None,
+        duration=None, description=None, slug="old-ep",
+    )
+    podcast = Podcast(title="T", url="u", description=None, image_url=None, slug="t")
+    podcast.torrent_items = [
+        _torrent_item(1, "Keep this", episode_guids=["hash-keep:ep.mp3"]),
+        _torrent_item(2, "Drop this", episode_guids=["hash-old:ep.mp3"]),
+    ]
+    podcast.episodes = [kept_episode, old_episode]
+
+    seen_items = []
+    run_calls = []
+    mock_pipeline = MagicMock()
+    mock_pipeline.return_value.run.side_effect = lambda eps, **kw: run_calls.append(list(eps))
+
+    with (
+        patch("podcast_etl.service.fetch_torrents", side_effect=lambda items, *a: seen_items.extend(items)),
+        patch("podcast_etl.service.Pipeline", mock_pipeline),
+    ):
+        run_pipeline(
+            podcast, tmp_path,
+            {"source": "unit3d", "pipeline": ["tag"], "episode_filter": "^Keep"},
+        )
+
+    assert [i.title for i in seen_items] == ["Keep this"]
+    assert run_calls == [[kept_episode]]
+
+
+def test_run_pipeline_unit3d_unnarrowed_runs_all_episodes(tmp_path: Path):
+    """Without last/episode_filter every on-disk episode reaches the pipeline
+    (skip-completed makes this cheap; orphaned torrents' episodes still finish)."""
+    episode = Episode(
+        title="Any", guid="h:ep.mp3", published=None, audio_url=None,
+        duration=None, description=None, slug="any",
+    )
+    podcast = Podcast(title="T", url="u", description=None, image_url=None, slug="t")
+    podcast.episodes = [episode]
+
+    run_calls = []
+    mock_pipeline = MagicMock()
+    mock_pipeline.return_value.run.side_effect = lambda eps, **kw: run_calls.append(list(eps))
+
+    with (
+        patch("podcast_etl.service.fetch_torrents"),
+        patch("podcast_etl.service.Pipeline", mock_pipeline),
+    ):
+        run_pipeline(podcast, tmp_path, {"source": "unit3d", "pipeline": ["tag"]})
+
+    assert run_calls == [[episode]]
+
+
+def test_run_pipeline_unit3d_in_flight_item_outside_window_still_fetched(tmp_path: Path):
+    """A torrent already added to the client must keep advancing even after
+    newer entries push it out of the `last` window."""
+    podcast = Podcast(title="T", url="u", description=None, image_url=None, slug="t")
+    newest = _torrent_item(1, "Newest")
+    in_flight = _torrent_item(2, "Older but downloading", info_hash="abc123")
+    never_started = _torrent_item(3, "Older, never started")
+    podcast.torrent_items = [newest, in_flight, never_started]
+
+    seen_items = []
+    with (
+        patch("podcast_etl.service.fetch_torrents", side_effect=lambda items, *a: seen_items.extend(items)),
+        patch("podcast_etl.service.Pipeline", MagicMock()),
+    ):
+        run_pipeline(podcast, tmp_path, {"source": "unit3d", "pipeline": ["tag"], "last": 1})
+
+    assert [i.title for i in seen_items] == ["Newest", "Older but downloading"]
+
+
+def test_run_pipeline_unit3d_step_filter_skips_fetch_phase(tmp_path: Path):
+    """`run --step tag` must not download blobs or mutate the torrent client."""
+    podcast = Podcast(title="T", url="u", description=None, image_url=None, slug="t")
+    podcast.torrent_items = [_torrent_item(1)]
+
+    with (
+        patch("podcast_etl.service.fetch_torrents") as mock_fetch,
+        patch("podcast_etl.service.Pipeline", MagicMock()),
+    ):
+        run_pipeline(podcast, tmp_path, {"source": "unit3d", "pipeline": ["tag"]}, step_filter="tag")
+
+    mock_fetch.assert_not_called()
+
+
+def test_run_pipeline_unit3d_date_range_applies_to_episodes(tmp_path: Path):
+    in_range = Episode(
+        title="In", guid="h:a.mp3", published="Tue, 05 May 2026 12:00:00 +0000",
+        audio_url=None, duration=None, description=None, slug="in",
+    )
+    out_of_range = Episode(
+        title="Out", guid="h:b.mp3", published="Tue, 05 May 2020 12:00:00 +0000",
+        audio_url=None, duration=None, description=None, slug="out",
+    )
+    podcast = Podcast(title="T", url="u", description=None, image_url=None, slug="t")
+    podcast.episodes = [in_range, out_of_range]
+
+    run_calls = []
+    mock_pipeline = MagicMock()
+    mock_pipeline.return_value.run.side_effect = lambda eps, **kw: run_calls.append(list(eps))
+
+    with (
+        patch("podcast_etl.service.fetch_torrents"),
+        patch("podcast_etl.service.Pipeline", mock_pipeline),
+    ):
+        run_pipeline(
+            podcast, tmp_path, {"source": "unit3d", "pipeline": ["tag"]},
+            date_range=(date(2026, 1, 1), None),
+        )
+
+    assert run_calls == [[in_range]]
+
+
+def test_validate_config_rejects_download_in_unit3d_pipeline():
+    config = {
+        "feeds": [{"url": "https://a.com/rss", "source": "unit3d"}],
+        "defaults": {"pipeline": ["download", "tag"]},
+    }
+    with pytest.raises(SystemExit, match="'download' step is not valid for source 'unit3d'"):
+        validate_config(config)
+
+
+def test_run_pipeline_rss_applies_last_and_filter_to_episodes(tmp_path: Path):
+    """End-to-end: the RSS branch really narrows the episodes reaching Pipeline.run."""
+    episodes = [
+        Episode(title=f"Episode {i}", guid=f"g{i}", published=None, audio_url=None,
+                duration=None, description=None, slug=f"e{i}")
+        for i in range(1, 11)
+    ]
+    podcast = Podcast(title="T", url="u", description=None, image_url=None, slug="t")
+    podcast.episodes = episodes
+
+    run_calls = []
+    mock_pipeline = MagicMock()
+    mock_pipeline.return_value.run.side_effect = lambda eps, **kw: run_calls.append(list(eps))
+
+    with patch("podcast_etl.service.Pipeline", mock_pipeline):
+        run_pipeline(podcast, tmp_path, {"pipeline": ["download"]}, last=3)
+        run_pipeline(podcast, tmp_path, {"pipeline": ["download"], "episode_filter": r"Episode [12]$"})
+
+    assert run_calls[0] == episodes[:3]
+    assert [ep.title for ep in run_calls[1]] == ["Episode 1", "Episode 2"]
+
+
+def test_run_pipeline_rss_does_not_run_fetch_phase(tmp_path: Path):
+    podcast = Podcast(title="T", url="u", description=None, image_url=None, slug="t")
+    with (
+        patch("podcast_etl.service.fetch_torrents") as mock_fetch,
+        patch("podcast_etl.service.Pipeline", MagicMock()),
+    ):
+        run_pipeline(podcast, tmp_path, {"pipeline": ["download"]})
+    mock_fetch.assert_not_called()
+
+
+def test_run_pipeline_unit3d_last_falls_back_to_config(tmp_path: Path):
+    """A CLI run without --last must not fetch every torrent in the feed."""
+    podcast = Podcast(title="T", url="u", description=None, image_url=None, slug="t")
+    podcast.torrent_items = [_torrent_item(i) for i in range(5)]
+
+    seen_items = []
+    with (
+        patch("podcast_etl.service.fetch_torrents", side_effect=lambda items, *a: seen_items.extend(items)),
+        patch("podcast_etl.service.Pipeline", MagicMock()),
+    ):
+        run_pipeline(podcast, tmp_path, {"source": "unit3d", "pipeline": ["download"], "last": 2})
+
+    assert len(seen_items) == 2
+
+
+def test_run_pipeline_unit3d_explicit_last_overrides_config(tmp_path: Path):
+    podcast = Podcast(title="T", url="u", description=None, image_url=None, slug="t")
+    podcast.torrent_items = [_torrent_item(i) for i in range(5)]
+
+    seen_items = []
+    with (
+        patch("podcast_etl.service.fetch_torrents", side_effect=lambda items, *a: seen_items.extend(items)),
+        patch("podcast_etl.service.Pipeline", MagicMock()),
+    ):
+        run_pipeline(podcast, tmp_path, {"source": "unit3d", "pipeline": ["download"], "last": 2}, last=3)
+
+    assert len(seen_items) == 3
