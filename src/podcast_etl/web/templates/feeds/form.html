@@ -124,6 +124,13 @@
       </label>
 
       <label class="flex items-center gap-3 cursor-pointer">
+        <input type="checkbox" name="title_strip_inline_date"
+               {% if tc.get("strip_inline_date") %}checked{% endif %}
+               class="w-4 h-4 rounded accent-blue-500">
+        <span class="text-sm text-gray-300">Strip inline date — remove unbracketed dates from titles</span>
+      </label>
+
+      <label class="flex items-center gap-3 cursor-pointer">
         <input type="checkbox" name="title_reorder_parts"
                {% if tc.get("reorder_parts") %}checked{% endif %}
                class="w-4 h-4 rounded accent-blue-500">

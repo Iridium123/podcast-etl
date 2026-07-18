@@ -207,6 +207,7 @@ def test_parse_pipeline_checkboxes_empty_when_none_checked():
 def test_parse_title_cleaning_checkboxes_all_on():
     form = {
         "title_strip_date": "on",
+        "title_strip_inline_date": "on",
         "title_reorder_parts": "on",
         "title_prepend_episode_number": "on",
         "title_sanitize": "on",
@@ -214,6 +215,7 @@ def test_parse_title_cleaning_checkboxes_all_on():
     result = parse_title_cleaning_checkboxes(form)
     assert result == {
         "strip_date": True,
+        "strip_inline_date": True,
         "reorder_parts": True,
         "prepend_episode_number": True,
         "sanitize": True,
@@ -225,6 +227,7 @@ def test_parse_title_cleaning_checkboxes_all_off():
     result = parse_title_cleaning_checkboxes(form)
     assert result == {
         "strip_date": False,
+        "strip_inline_date": False,
         "reorder_parts": False,
         "prepend_episode_number": False,
         "sanitize": False,

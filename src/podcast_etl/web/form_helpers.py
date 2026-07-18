@@ -168,6 +168,7 @@ def parse_title_cleaning_checkboxes(form_data: Any) -> dict[str, bool]:
     """Collect title_cleaning flags from checkbox form data."""
     return {
         "strip_date": form_data.get("title_strip_date") == "on",
+        "strip_inline_date": form_data.get("title_strip_inline_date") == "on",
         "reorder_parts": form_data.get("title_reorder_parts") == "on",
         "prepend_episode_number": form_data.get("title_prepend_episode_number") == "on",
         "sanitize": form_data.get("title_sanitize") == "on",
