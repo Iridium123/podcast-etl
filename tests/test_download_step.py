@@ -179,6 +179,26 @@ def test_process_result_path_is_relative_to_podcast_dir(tmp_path: Path):
     assert result.data["path"].startswith("audio/")
 
 
+def test_process_sends_podcast_client_user_agent(tmp_path: Path):
+    """Buzzsprout's WAF returns 403 for user agents containing 'python'."""
+    ctx = _make_context(tmp_path)
+    ep = _make_episode(audio_url="https://example.com/ep.mp3")
+
+    captured = {}
+    inner = _mock_requests_get([b"data"])
+
+    def _capture(*args, **kwargs):
+        captured.update(kwargs)
+        return inner(*args, **kwargs)
+
+    with patch("podcast_etl.steps.download.requests.get", _capture):
+        DownloadStep().process(ep, ctx)
+
+    user_agent = captured["headers"]["User-Agent"]
+    assert user_agent == "gPodder/3.11.4"
+    assert "python" not in user_agent.lower()
+
+
 # ---------------------------------------------------------------------------
 # process — error cases
 # ---------------------------------------------------------------------------
