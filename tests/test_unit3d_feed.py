@@ -68,14 +68,49 @@ def test_fresh_items_have_no_lifecycle_state():
     assert item.fetched_at is None
 
 
-def test_entry_without_enclosure_skipped():
+def test_entry_without_enclosure_falls_back_to_permalink_guid():
+    """An enclosure-less item still resolves a torrent URL via its link
+    (feedparser promotes a permalink guid to entry.link)."""
     podcast = parse_unit3d_feed(_rss(_item(1), _item(2, enclosure=False), _item(3)))
+
+    assert len(podcast.torrent_items) == 3
+    assert podcast.torrent_items[1].torrent_url == "https://tracker.example/torrents/2"
+
+
+def test_entry_without_any_torrent_link_skipped():
+    no_link_item = """<item>
+<title>No Link Here</title>
+<guid isPermaLink="false">bare-id-7</guid>
+<pubDate>Tue, 05 May 2026 12:00:00 +0000</pubDate>
+<description>orphan entry</description>
+</item>"""
+    podcast = parse_unit3d_feed(_rss(_item(1), no_link_item, _item(3)))
 
     assert len(podcast.torrent_items) == 2
     assert [i.guid for i in podcast.torrent_items] == [
         "https://tracker.example/torrents/1",
         "https://tracker.example/torrents/3",
     ]
+
+
+def test_unit3d_link_only_item():
+    """Real UNIT3D feeds carry the .torrent URL in <link> with a bare-id guid
+    and no enclosure at all."""
+    link_only = """<item>
+<title>Serious Trouble (Substack) [2026-01-16 - 2026-04-24/MP3-128kbps]</title>
+<category>News and Politics</category>
+<link>https://tracker.example/torrent/download/5030.rsskey</link>
+<guid>5030</guid>
+<description>real-world shape</description>
+<pubDate>Fri, 24 Apr 2026 22:33:37 +0000</pubDate>
+</item>"""
+    podcast = parse_unit3d_feed(_rss(link_only))
+
+    assert len(podcast.torrent_items) == 1
+    item = podcast.torrent_items[0]
+    assert item.torrent_url == "https://tracker.example/torrent/download/5030.rsskey"
+    assert item.guid == "5030"
+    assert item.title.startswith("Serious Trouble")
 
 
 def test_malformed_feed_raises():

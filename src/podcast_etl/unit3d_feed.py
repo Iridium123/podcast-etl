@@ -81,7 +81,12 @@ def parse_unit3d_feed(
                     torrent_url = link.get("href")
                     break
         if not torrent_url:
-            logger.warning("Skipping entry with no torrent enclosure: %s", raw_title)
+            # UNIT3D feeds put the .torrent download URL in the item's plain
+            # <link> element (no enclosure at all) — e.g.
+            # https://tracker/torrent/download/<id>.<rsskey>
+            torrent_url = entry.get("link")
+        if not torrent_url:
+            logger.warning("Skipping entry with no torrent link: %s", raw_title)
             continue
 
         guid = entry.get("id", entry.get("link", raw_title))
