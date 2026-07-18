@@ -43,16 +43,18 @@ class TorrentItem:
     published: str | None                                # from RSS <pubDate>
     description: str | None
     torrent_url: str                                     # URL to fetch the .torrent blob
-    info_hash: str | None = None                         # set after .torrent is downloaded + added
+    info_hash: str | None = None                         # computed locally from the blob via torf
     episode_guids: list[str] = field(default_factory=list)  # set when fetch completes
     fetched_at: str | None = None                        # set when all episodes are spawned
 ```
 
 There is no `status: dict[str, StepStatus]` — a `TorrentItem` has exactly one job, and its lifecycle state is fully derivable from its own fields:
 
-- `info_hash is None` → the `.torrent` blob has not been fetched/added yet
-- `info_hash` set, `fetched_at is None` → qBittorrent is downloading (or spawn was interrupted)
+- `info_hash is None` → the `.torrent` blob has not been fetched yet
+- `info_hash` set, `fetched_at is None` → in the client (downloading), awaiting (re-)add, or spawn was interrupted
 - `fetched_at` set → done; skipped on subsequent cycles
+
+`info_hash` is computed **locally** from the blob (`torf.Torrent.read(blob_path).infohash` — `torf` is already a dependency of the `torrent` step) rather than taken from the client's add response. This makes State 1 crash-safe: the hash is a pure function of the blob on disk, so no client interaction can be lost between "added" and "persisted."
 
 Persists to `<podcast-slug>/torrents/<guid-hash>.json` via a `save(podcast_dir, podcast_title)` method that mirrors `Episode.save`. `Podcast.load(podcast_dir)` is extended to also enumerate `torrents/*.json` and populate `Podcast.torrent_items` so a restart of the web server / poll loop fully reconstructs torrent-feed state from disk.
 
@@ -117,7 +119,7 @@ def get_files(self, info_hash: str) -> list[TorrentFileInfo]: ...
 
 `QBittorrentClient` implements both:
 
-- `is_complete` queries `/api/v2/torrents/info?hashes=<hash>` and returns `progress == 1` (equivalently `amount_left == 0`). **Deliberately not a state-name allowlist**: qBittorrent has renamed states across versions (5.0 renamed `pausedUP`/`pausedDL` to `stoppedUP`/`stoppedDL`), so enumerating "done" states is a per-version maintenance liability, while `progress` is stable and unambiguous. Raises if the torrent is unknown to qBittorrent.
+- `is_complete` queries `/api/v2/torrents/info?hashes=<hash>` and returns `progress == 1` (equivalently `amount_left == 0`). **Deliberately not a state-name allowlist**: qBittorrent has renamed states across versions (5.0 renamed `pausedUP`/`pausedDL` to `stoppedUP`/`stoppedDL`), so enumerating "done" states is a per-version maintenance liability, while `progress` is stable and unambiguous. Raises if the torrent is unknown to qBittorrent — defensive only, since the fetch phase checks `has_torrent` first (a raise can only surface on a race with a concurrent deletion, and resolves next cycle via the re-add path).
 - `get_files` queries `/api/v2/torrents/info` for the `save_path`, then `/api/v2/torrents/files?hash=<hash>` for the file list. For each entry it returns `TorrentFileInfo(absolute_path=Path(save_path)/f["name"], relative_path=Path(f["name"]))`. The `name` field from the qBittorrent files API is the path relative to `save_path`, which equals the file's path inside the torrent.
 
 These methods are added to the `TorrentClient` Protocol so any future client (Transmission, Deluge) implements them too.
@@ -131,24 +133,33 @@ Client construction: the seed step's private `_get_client(context)` is hoisted t
 ```python
 def fetch_torrent_item(item: TorrentItem, podcast: Podcast, podcast_dir: Path, config: dict) -> None:
     client = get_torrent_client(config["client"])
+    blob_path = podcast_dir / "torrent_files" / f"{guid_hash(item.guid)}.torrent"
 
-    # State 1: first call — fetch .torrent, hand to qBittorrent
+    # State 1: fetch the .torrent blob; compute its info hash locally
     if not item.info_hash:
-        blob_path = podcast_dir / "torrent_files" / f"{guid_hash(item.guid)}.torrent"
         blob_path.parent.mkdir(parents=True, exist_ok=True)
         blob_path.write_bytes(_fetch_blob(item.torrent_url))
-        item.info_hash = client.add_torrent(blob_path, config["client"]["save_path"])
+        item.info_hash = torf.Torrent.read(blob_path).infohash
         item.save(podcast_dir, podcast.title)
-        return  # still incomplete; retried next cycle
+        # falls through — no reason to wait a cycle before adding
 
-    # State 2: still downloading
+    # State 2: ensure the torrent is in the client, then wait for completion
+    if not client.has_torrent(item.info_hash):
+        if not blob_path.exists():
+            blob_path.write_bytes(_fetch_blob(item.torrent_url))
+        client.add_torrent(blob_path, config["client"]["save_path"])
+        return  # freshly (re-)added; check progress next cycle
     if not client.is_complete(item.info_hash):
-        return  # retried next cycle
+        return  # still downloading; retried next cycle
 
     # State 3: complete — spawn Episodes from each MP3
     mp3_files = [f for f in client.get_files(item.info_hash) if f.absolute_path.suffix.lower() == ".mp3"]
     if not mp3_files:
-        raise ValueError(f"Torrent {item.info_hash} contains no MP3 files")
+        # Permanent condition — retrying cannot grow MP3s. Warn once, mark done.
+        logger.warning("Torrent %s (%s) contains no MP3 files; marking fetched with 0 episodes", item.info_hash, item.title)
+        item.fetched_at = datetime.now().isoformat()
+        item.save(podcast_dir, podcast.title)
+        return
 
     for fileinfo in mp3_files:
         ep = _build_episode_from_mp3(fileinfo, item, podcast, config)
@@ -162,10 +173,31 @@ def fetch_torrent_item(item: TorrentItem, podcast: Podcast, podcast_dir: Path, c
     item.save(podcast_dir, podcast.title)
 ```
 
-Failure modes:
-- State 1 throws (HTTP failure fetching `.torrent`, qBittorrent rejects add) → `info_hash` stays unset → State 1 retried on next cycle.
-- State 2 throws (qBittorrent unreachable) → `fetched_at` stays unset → State 2 retried.
-- State 3 throws (e.g., disk full mid-copy) → `fetched_at` stays unset; partially-spawned Episodes have already been saved with their stable GUIDs → next cycle re-enters State 3 and resumes from where it stopped. Idempotency comes from two facts: (1) each Episode's JSON filename is derived from its stable `<info_hash>:<relative_path>` GUID, so re-spawning loads the existing JSON via `Episode.load` and preserves any pre-existing step status; (2) the destination audio filename is deterministic (see `_copy_to_audio_dir` below), so the same filename is produced on every run and the size-match check skips redundant copies.
+Two properties of the state machine do most of the work:
+
+1. **`info_hash` is computed locally from the blob, before any client interaction.** State 1 is a pure download-and-hash; a crash at any point inside it just repeats it, byte-identical, next cycle.
+2. **State 2 is "ensure present, then wait" rather than "wait."** The `has_torrent` guard makes the add idempotent *and* doubles as the recovery path: any way the client can lose the torrent (user deletion, client reinstall, wiped state) is healed by re-adding from the stored blob. This is the mechanism that makes the kept `.torrent` blob earn its disk space.
+
+#### Failure scenarios
+
+Every scenario below either self-heals on a later poll cycle or terminates in a state visible in the web UI with a documented operator gesture. Nothing requires editing JSON on disk.
+
+| Scenario | Behavior | Path to resolution |
+|---|---|---|
+| Tracker RSS unreachable / malformed | Feed fetch fails; cycle logs and skips this feed | Self-heals when the tracker recovers (next poll) |
+| Blob HTTP fetch fails (State 1) | Per-item exception logged; `info_hash` stays unset | Retried from State 1 next cycle |
+| Tracker serves an unparseable blob | `torf` raises; blob is overwritten on the next attempt | Self-heals if the tracker recovers; if permanent, filter the item out (see "Abandoning a torrent") |
+| Crash between blob write and `item.save` | Blob re-downloaded, hash recomputed — identical result | Self-heals next cycle; no duplicate client state possible |
+| qBittorrent unreachable | Per-item exception logged; other items unaffected | Retried next cycle |
+| `add_torrent` rejected by client | Per-item exception logged | Retried next cycle (blob and hash already persisted) |
+| **Torrent deleted from the client** | `has_torrent` returns False → re-added from the stored blob; download restarts | **This is the supported retry gesture**: delete a dead torrent (with its data) in qBittorrent and the next poll re-attempts it from scratch |
+| Stored blob missing at re-add time | Re-fetched from `torrent_url` | Self-heals; if the tracker no longer serves it, logs each cycle until the item is filtered out or leaves the feed |
+| Torrent stalled (no seeders) or errored (`missingFiles` etc.) | `progress` never reaches 1; item stays in "downloading", visible in the web UI torrents table | Operator decides: delete it in qBittorrent to restart from scratch, or filter it out to abandon |
+| Torrent contains no MP3s | Warn once, set `fetched_at` with zero `episode_guids` — a permanent condition is not retried | Terminal; shows as fetched / 0 episodes in the UI |
+| ID3 tags unreadable on an MP3 | Treated as absent tags — the fallback chain (filename stem, RSS metadata, mtime) applies; never fatal | Episode spawns with fallback metadata |
+| Crash / disk full mid-spawn (State 3) | `fetched_at` stays unset; already-spawned Episodes persisted with stable GUIDs | State 3 re-entered next cycle and resumes: stable `<info_hash>:<relative_path>` GUIDs mean re-spawning loads existing JSON (preserving step status), and deterministic filenames + the size-match check prevent duplicate copies |
+
+**Abandoning a torrent** — to permanently skip an item that keeps failing, exclude it with `episode_filter` (or wait for it to age out of the feed). Deleting its JSON from `torrents/` does *not* abandon it: the next parse recreates the item with fresh state and the fetch starts over. This asymmetry is deliberate — every automatic path retries, and only an explicit config change gives up.
 
 ### MP3 → Episode construction
 
@@ -181,6 +213,8 @@ Failure modes:
 - `raw_title` = the raw ID3 title (or filename stem) before cleaning
 - `title` (final) = result of `clean_title(raw_title, config.get("title_cleaning"), ...)`, same path as the existing RSS feed parser
 - `slug` = `slugify(title)`, deduplicated against other Episodes already on this podcast (existing pattern from `feed.py`)
+
+ID3 read errors (missing header, corrupt tags — anything mutagen raises) are treated as "no tags present": every field falls through its chain to the filename/RSS/mtime fallbacks. A torrent whose audio has broken metadata still spawns Episodes; it never wedges the fetch.
 
 Title cleaning still applies — same `title_cleaning` config block, same `clean_title()` function. Blacklist still applies to descriptions.
 
@@ -259,7 +293,7 @@ The existing config-form / raw-YAML split, diff preview, and confirmation flows 
 ### Idempotency / resumability
 
 - A `TorrentItem` with `fetched_at` set is skipped by the fetch phase on subsequent runs.
-- The `.torrent` blob at `<podcast-slug>/torrent_files/<guid-hash>.torrent` is kept on disk so a torrent can be re-added if qBittorrent loses its state.
+- The `.torrent` blob at `<podcast-slug>/torrent_files/<guid-hash>.torrent` is kept on disk and actively used: State 2's `has_torrent` guard re-adds from it whenever qBittorrent loses the torrent (user deletion, reinstall, wiped state).
 - Spawned `Episode` GUIDs are `<info_hash>:<relative_path>`, stable across re-fetches. Reset and re-run preserves step status.
 - A `TorrentItem` whose RSS entry disappears in a later poll cycle becomes an orphan JSON; not cleaned up automatically (mirrors existing Episode behavior).
 
@@ -276,10 +310,14 @@ Given fixture RSS payloads:
 #### `tests/test_torrent_fetch.py` (new)
 
 Parameterized over the three states using a fake `TorrentClient`:
-- State 1 (no `info_hash`): fetches `.torrent` (mocked HTTP), calls `client.add_torrent`, persists `info_hash` on the `TorrentItem`, leaves `fetched_at` unset. The `.torrent` blob lands at `torrent_files/<guid-hash>.torrent`.
-- State 2 (`info_hash` set, `client.is_complete` returns False): returns without spawning Episodes, `fetched_at` unset.
-- State 3 (`is_complete` returns True): for one MP3 spawns one Episode; for N MP3s spawns N Episodes; non-MP3 files in the torrent are skipped; empty MP3 list raises `ValueError`; `fetched_at` is set. Episode GUIDs are `<info_hash>:<relative_path>`.
-- An item with `fetched_at` set is skipped entirely.
+- State 1 (no `info_hash`): fetches `.torrent` (mocked HTTP), computes `info_hash` locally from the blob via `torf` (no client call involved), persists it, and proceeds to the add in the same invocation. The `.torrent` blob lands at `torrent_files/<guid-hash>.torrent`.
+- State 2, not in client (`has_torrent` returns False): `add_torrent` is called with the stored blob; no Episodes spawned. Covers both the first add and re-add-after-deletion — the fake client's torrent is removed between calls and the item recovers.
+- State 2, blob missing at re-add: the blob is re-fetched from `torrent_url` before adding.
+- State 2, downloading (`has_torrent` True, `is_complete` False): returns without spawning Episodes, `fetched_at` unset, `add_torrent` NOT called again.
+- State 3 (`is_complete` returns True): for one MP3 spawns one Episode; for N MP3s spawns N Episodes; non-MP3 files in the torrent are skipped. Episode GUIDs are `<info_hash>:<relative_path>`.
+- A torrent with no MP3s logs a warning and sets `fetched_at` with zero `episode_guids` — it is not retried on the next cycle.
+- Unreadable ID3 tags (mutagen raises) fall back to filename/RSS metadata instead of failing the spawn.
+- An item with `fetched_at` set is skipped entirely — no client calls at all.
 - A per-item exception doesn't prevent other items from being processed.
 - ID3 extraction precedence: title fallback chain (`TIT2` → filename → torrent name); date fallback chain (`TDRC`/`TDRL` → RSS pubDate → file mtime).
 - `published` is RFC 2822-formatted regardless of which source in the fallback chain produced it (ID3 ISO dates and mtimes are normalized).
