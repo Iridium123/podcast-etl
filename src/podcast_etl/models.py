@@ -68,6 +68,11 @@ def episode_json_filename(guid: str, raw_title: str | None, published: str | Non
     return f"{date_prefix}-{guid_hash}"
 
 
+def guid_hash(guid: str) -> str:
+    """Return a filesystem-safe 16-char hash of a GUID (torrent-item filenames)."""
+    return hashlib.sha256(guid.encode()).hexdigest()[:16]
+
+
 @dataclass
 class StepStatus:
     completed_at: str
@@ -149,6 +154,63 @@ class Episode:
 
 
 @dataclass
+class TorrentItem:
+    """One RSS entry from a torrent-source feed. One torrent may yield many Episodes.
+
+    Lifecycle state is derived from fields: no info_hash -> blob not fetched;
+    info_hash without fetched_at -> in client / downloading; fetched_at set -> done.
+    """
+
+    guid: str
+    title: str
+    published: str | None
+    description: str | None
+    torrent_url: str
+    info_hash: str | None = None
+    episode_guids: list[str] = field(default_factory=list)
+    fetched_at: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "guid": self.guid,
+            "title": self.title,
+            "published": self.published,
+            "description": self.description,
+            "torrent_url": self.torrent_url,
+            "info_hash": self.info_hash,
+            "episode_guids": self.episode_guids,
+            "fetched_at": self.fetched_at,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> TorrentItem:
+        return cls(
+            guid=data["guid"],
+            title=data["title"],
+            published=data.get("published"),
+            description=data.get("description"),
+            torrent_url=data["torrent_url"],
+            info_hash=data.get("info_hash"),
+            episode_guids=data.get("episode_guids", []),
+            fetched_at=data.get("fetched_at"),
+        )
+
+    def save(self, podcast_dir: Path) -> None:
+        torrents_dir = podcast_dir / "torrents"
+        torrents_dir.mkdir(parents=True, exist_ok=True)
+        path = torrents_dir / f"{guid_hash(self.guid)}.json"
+        content = json.dumps(self.to_dict(), indent=2) + "\n"
+        if path.exists() and path.read_text(encoding="utf-8") == content:
+            return
+        path.write_text(content, encoding="utf-8")
+
+    @classmethod
+    def load(cls, path: Path) -> TorrentItem:
+        data = json.loads(path.read_text())
+        return cls.from_dict(data)
+
+
+@dataclass
 class Podcast:
     title: str
     url: str
@@ -157,6 +219,7 @@ class Podcast:
     slug: str
     last_fetched: str | None = None
     episodes: list[Episode] = field(default_factory=list)
+    torrent_items: list[TorrentItem] = field(default_factory=list)  # torrent-source feeds only
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -190,6 +253,8 @@ class Podcast:
         path.write_text(json.dumps(self.to_dict(), indent=2) + "\n")
         for episode in self.episodes:
             episode.save(podcast_dir, self.title)
+        for item in self.torrent_items:
+            item.save(podcast_dir)
 
     @classmethod
     def load(cls, podcast_dir: Path) -> Podcast:
@@ -199,5 +264,9 @@ class Podcast:
         if episodes_dir.exists():
             for ep_path in sorted(episodes_dir.glob("*.json")):
                 podcast.episodes.append(Episode.load(ep_path))
+        torrents_dir = podcast_dir / "torrents"
+        if torrents_dir.exists():
+            for item_path in sorted(torrents_dir.glob("*.json")):
+                podcast.torrent_items.append(TorrentItem.load(item_path))
         return podcast
 

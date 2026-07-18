@@ -78,7 +78,7 @@ class TestSeedStep:
         mock_client = MagicMock()
         mock_client.has_torrent.return_value = False
 
-        with patch("podcast_etl.steps.seed.QBittorrentClient.from_config", return_value=mock_client):
+        with patch("podcast_etl.steps.seed.get_torrent_client", return_value=mock_client):
             result = SeedStep().process(episode, context)
 
         mock_client.add_torrent.assert_called_once_with(
@@ -95,7 +95,7 @@ class TestSeedStep:
         mock_client = MagicMock()
         mock_client.has_torrent.return_value = True
 
-        with patch("podcast_etl.steps.seed.QBittorrentClient.from_config", return_value=mock_client):
+        with patch("podcast_etl.steps.seed.get_torrent_client", return_value=mock_client):
             result = SeedStep().process(episode, context)
 
         mock_client.add_torrent.assert_not_called()
@@ -135,7 +135,7 @@ class TestSeedStep:
         mock_client.has_torrent.return_value = False
         mock_client.add_torrent.side_effect = RuntimeError("connection refused")
 
-        with patch("podcast_etl.steps.seed.QBittorrentClient.from_config", return_value=mock_client):
+        with patch("podcast_etl.steps.seed.get_torrent_client", return_value=mock_client):
             with pytest.raises(RuntimeError, match="connection refused"):
                 SeedStep().process(episode, context)
 
@@ -149,7 +149,7 @@ class TestSeedStep:
         mock_client = MagicMock()
         mock_client.has_torrent.return_value = False
 
-        with patch("podcast_etl.steps.seed.QBittorrentClient.from_config", return_value=mock_client):
+        with patch("podcast_etl.steps.seed.get_torrent_client", return_value=mock_client):
             SeedStep().process(episode, context)
 
         checkpoint = context.podcast_dir / "seeds" / f"{episode.slug}.json"
@@ -166,10 +166,10 @@ class TestSeedStep:
         checkpoint.parent.mkdir(parents=True, exist_ok=True)
         checkpoint.write_text(json.dumps({"client": "qbittorrent", "hash": INFO_HASH}))
 
-        with patch("podcast_etl.steps.seed.QBittorrentClient.from_config") as mock_from_config:
+        with patch("podcast_etl.steps.seed.get_torrent_client") as mock_get_client:
             result = SeedStep().process(episode, context)
 
-        mock_from_config.assert_not_called()
+        mock_get_client.assert_not_called()
         assert result.data["hash"] == INFO_HASH
 
     def test_checkpoint_ignored_when_overwrite_true(self, tmp_path):
@@ -184,7 +184,7 @@ class TestSeedStep:
         mock_client = MagicMock()
         mock_client.has_torrent.return_value = False
 
-        with patch("podcast_etl.steps.seed.QBittorrentClient.from_config", return_value=mock_client):
+        with patch("podcast_etl.steps.seed.get_torrent_client", return_value=mock_client):
             result = SeedStep().process(episode, context)
 
         mock_client.add_torrent.assert_called_once()
@@ -201,7 +201,7 @@ class TestSeedStep:
         mock_client = MagicMock()
         mock_client.has_torrent.return_value = False
 
-        with patch("podcast_etl.steps.seed.QBittorrentClient.from_config", return_value=mock_client):
+        with patch("podcast_etl.steps.seed.get_torrent_client", return_value=mock_client):
             result = SeedStep().process(episode, context)
 
         mock_client.add_torrent.assert_called_once()
