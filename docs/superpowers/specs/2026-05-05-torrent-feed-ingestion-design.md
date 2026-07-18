@@ -89,7 +89,9 @@ For torrent-source feeds, `Episode.guid` is `<info_hash>:<relative_path_inside_t
 No `feeds/` package, no `FeedSource` protocol, no registry for v1. With exactly two sources — one of them the default — a two-line dispatch is simpler than an abstraction layer, and `feed.py` (plus its tests and git history) stays untouched. Extracting a registry is a mechanical refactor we can do if a third source ever appears.
 
 - `src/podcast_etl/feed.py` — unchanged. Existing `parse_feed(url, output_dir, blacklist, title_cleaning)`.
-- `src/podcast_etl/unit3d_feed.py` — NEW. `parse_unit3d_feed(url, output_dir=None, blacklist=None, title_cleaning=None) -> Podcast`, mirroring `parse_feed`'s signature. Reads `.torrent` enclosures (`type="application/x-bittorrent"`), builds `TorrentItem`s, populates `Podcast.torrent_items`, leaves freshly-parsed `Podcast.episodes` empty (existing on-disk episodes are still restored, as `parse_feed` does today).
+- `src/podcast_etl/unit3d_feed.py` — NEW. `parse_unit3d_feed(url, output_dir=None, blacklist=None, title_cleaning=None) -> Podcast`, mirroring `parse_feed`'s signature. Reads `.torrent` enclosures (`type="application/x-bittorrent"`), builds `TorrentItem`s, populates `Podcast.torrent_items`.
+
+One deliberate divergence from `parse_feed`: **the unit3d parser loads *all* on-disk `episodes/*.json` into `Podcast.episodes`**, not just feed-present ones. `parse_feed` builds episodes from current feed entries and uses disk state only to preserve step status — orphans are excluded. That model can't work here: torrent-spawned episodes never appear in the RSS feed (their parent torrent does), so feed presence says nothing about an episode's liveness. Loading all of them is what lets in-progress pipelines resume on later cycles and keeps already-fetched episodes alive after their torrent leaves the feed. `TorrentItem`s, by contrast, *do* follow the feed-presence model — see the failure-scenarios table for what happens when a torrent disappears from the feed mid-lifecycle.
 
 Dispatch lives in `service.fetch_feed`:
 
@@ -193,6 +195,8 @@ Every scenario below either self-heals on a later poll cycle or terminates in a 
 | **Torrent deleted from the client** | `has_torrent` returns False → re-added from the stored blob; download restarts | **This is the supported retry gesture**: delete a dead torrent (with its data) in qBittorrent and the next poll re-attempts it from scratch |
 | Stored blob missing at re-add time | Re-fetched from `torrent_url` | Self-heals; if the tracker no longer serves it, logs each cycle until the item is filtered out or leaves the feed |
 | Torrent stalled (no seeders) or errored (`missingFiles` etc.) | `progress` never reaches 1; item stays in "downloading", visible in the web UI torrents table | Operator decides: delete it in qBittorrent to restart from scratch, or filter it out to abandon |
+| Tracker deletes the torrent (entry leaves the RSS) before fetch completes | The next parse yields no `TorrentItem` for it; the fetch phase stops advancing it. Its JSON becomes an orphan on disk; if already added to the client, the download stalls there (private tracker — announces fail after deletion) | Deliberate abandonment — no episodes are ever spawned. The stalled client entry is operator cleanup, same as any manually-added torrent |
+| Tracker deletes the torrent after episodes were spawned | Nothing — spawned Episodes live in `episodes/` independent of the `TorrentItem`, and the parser loads all on-disk episodes each cycle | Pipeline completes them normally; already-copied audio in `audio/` is kept. A tracker deletion never destroys files already fetched |
 | Torrent contains no MP3s | Warn once, set `fetched_at` with zero `episode_guids` — a permanent condition is not retried | Terminal; shows as fetched / 0 episodes in the UI |
 | ID3 tags unreadable on an MP3 | Treated as absent tags — the fallback chain (filename stem, RSS metadata, mtime) applies; never fatal | Episode spawns with fallback metadata |
 | Crash / disk full mid-spawn (State 3) | `fetched_at` stays unset; already-spawned Episodes persisted with stable GUIDs | State 3 re-entered next cycle and resumes: stable `<info_hash>:<relative_path>` GUIDs mean re-spawning loads existing JSON (preserving step status), and deterministic filenames + the size-match check prevent duplicate copies |
@@ -295,7 +299,7 @@ The existing config-form / raw-YAML split, diff preview, and confirmation flows 
 - A `TorrentItem` with `fetched_at` set is skipped by the fetch phase on subsequent runs.
 - The `.torrent` blob at `<podcast-slug>/torrent_files/<guid-hash>.torrent` is kept on disk and actively used: State 2's `has_torrent` guard re-adds from it whenever qBittorrent loses the torrent (user deletion, reinstall, wiped state).
 - Spawned `Episode` GUIDs are `<info_hash>:<relative_path>`, stable across re-fetches. Reset and re-run preserves step status.
-- A `TorrentItem` whose RSS entry disappears in a later poll cycle becomes an orphan JSON; not cleaned up automatically (mirrors existing Episode behavior).
+- A `TorrentItem` whose RSS entry disappears in a later poll cycle becomes an orphan JSON — no longer processed, not cleaned up automatically. This is the abandonment semantics for tracker-deleted torrents; episodes already spawned from it are unaffected (see the failure-scenarios table).
 
 ### Tests
 
@@ -305,6 +309,8 @@ Given fixture RSS payloads:
 - Each `<item>` produces one `TorrentItem` with correct `guid`, `title` (raw, untouched), `published`, `description`, `torrent_url` extracted from `<enclosure type="application/x-bittorrent">`.
 - Empty / malformed feed → `ValueError`.
 - Existing `TorrentItem` JSONs on disk preserve `info_hash`, `episode_guids`, and `fetched_at` across re-parse (parallels existing Episode preservation behavior in `feed.py`).
+- A `TorrentItem` JSON on disk whose entry is absent from the feed is NOT included in `Podcast.torrent_items` (orphan; no longer processed).
+- All on-disk `episodes/*.json` are loaded into `Podcast.episodes` even though the feed contains no episode entries — including episodes whose parent torrent is no longer in the feed.
 - `episode_filter` filters `torrent_items` by raw RSS title.
 
 #### `tests/test_torrent_fetch.py` (new)
