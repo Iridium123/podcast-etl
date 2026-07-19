@@ -25,9 +25,10 @@ _MONTH_NAMES = (
 _DATE_SEP = r"[./_-]"
 
 # Numeric month-first dates: M/D/YY or MM/DD/YYYY with /, ., _, - separators.
-# The regex alone is loose (it can still match date-shaped junk like 1/2/34);
-# the strip and parse consumers below only act on matches that _to_datetime
-# accepts as real calendar dates.
+# The regex alone is loose (it can still match date-shaped junk like 1/2/34):
+# strip_date removes such matches anyway (the flag is opt-in), while
+# parse_inline_date only accepts matches _to_datetime validates as real
+# calendar dates.
 _NUMERIC_DATE = rf"\d{{1,2}}{_DATE_SEP}\d{{1,2}}{_DATE_SEP}(?:\d{{4}}|\d{{2}})"
 # Year-first dates: 2025.10.02, 2025-10-02, 2025/10/02, 2025_10_02
 _YMD_DATE = rf"\d{{4}}{_DATE_SEP}\d{{1,2}}{_DATE_SEP}\d{{1,2}}"
