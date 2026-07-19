@@ -25,9 +25,6 @@ _MONTH_NAMES = (
 _DATE_SEP = r"[./_-]"
 
 # Numeric month-first dates: M/D/YY or MM/DD/YYYY with /, ., _, - separators.
-# The regex alone is loose (it can still match date-shaped junk like
-# 2026-15-43); every consumer — strip_date and parse_inline_date alike —
-# only acts on matches _to_datetime accepts as real calendar dates.
 _NUMERIC_DATE = rf"\d{{1,2}}{_DATE_SEP}\d{{1,2}}{_DATE_SEP}(?:\d{{4}}|\d{{2}})"
 # Year-first dates: 2025.10.02, 2025-10-02, 2025/10/02, 2025_10_02
 _YMD_DATE = rf"\d{{4}}{_DATE_SEP}\d{{1,2}}{_DATE_SEP}\d{{1,2}}"
@@ -35,7 +32,9 @@ _YMD_DATE = rf"\d{{4}}{_DATE_SEP}\d{{1,2}}{_DATE_SEP}\d{{1,2}}"
 _MONTH_DATE = _MONTH_NAMES + r"\s+\d{1,2},?\s+\d{4}"
 
 # Year-first before numeric so "2025.10.02" is consumed whole rather than
-# partially by the month-first pattern.
+# partially by the month-first pattern. The pattern alone is loose (it can
+# still match date-shaped junk like 2026-15-43); every consumer only acts
+# on matches _to_datetime accepts as real calendar dates.
 _DATE_PATTERN = rf"(?:{_YMD_DATE}|{_NUMERIC_DATE}|{_MONTH_DATE})"
 
 # Bracketed date with optional surrounding whitespace/dashes
@@ -50,6 +49,59 @@ _BRACKETED_DATE_RE = re.compile(
     r")"
     r"\s*"
 )
+
+
+# Bare date with optional leading/trailing separators. Letter/digit
+# lookarounds keep a match from starting or ending inside a longer word or
+# digit run (v1.2.34, 320kbps).
+_INLINE_DATE_RE = re.compile(
+    r"[\s_.\-\u2013\u2014]*"
+    rf"(?<![\dA-Za-z]){_DATE_PATTERN}(?![\dA-Za-z])"
+    r"[.,_]*\s*"
+)
+
+# The date alone, for searching/parsing: same lookarounds as above.
+_DATE_SEARCH_RE = re.compile(rf"(?<![\dA-Za-z]){_DATE_PATTERN}(?![\dA-Za-z])")
+
+
+def _to_datetime(token: str) -> datetime | None:
+    """Resolve one _DATE_PATTERN match to a datetime; None if not a real date."""
+    fields = re.split(_DATE_SEP, token)
+    if len(fields) == 3:
+        try:
+            if len(fields[0]) == 4:
+                year, month, day = (int(f) for f in fields)
+            else:
+                month, day, year = (int(f) for f in fields)
+                if year < 100:
+                    year += 1900 if year >= 69 else 2000
+            return datetime(year, month, day)
+        except ValueError:
+            return None
+    for fmt in ("%B %d, %Y", "%B %d %Y", "%b %d, %Y", "%b %d %Y"):
+        try:
+            return datetime.strptime(token, fmt)
+        except ValueError:
+            continue
+    return None
+
+
+def parse_inline_date(text: str) -> datetime | None:
+    """Parse the first date found in *text* to a datetime, else None.
+
+    Recognizes the same date formats as strip_date. Numeric dates are
+    year-first when the first field has 4 digits (2025.10.02), otherwise
+    US month-first (3/19/26). Two-digit years follow the POSIX pivot
+    (69 and up -> 1900s, below -> 2000s). Matches that are not real
+    calendar dates are skipped; never raises.
+    """
+    if not text:
+        return None
+    for match in _DATE_SEARCH_RE.finditer(text):
+        parsed = _to_datetime(match.group(0))
+        if parsed:
+            return parsed
+    return None
 
 
 def _date_repl(match: re.Match) -> str:
@@ -90,61 +142,6 @@ def strip_date(title: str) -> str:
     result = re.sub(r"([(\[{])\s+", r"\1", result)
     result = re.sub(r"\s+([)\]}])", r"\1", result)
     return result if result else title
-
-
-# Unbracketed date with optional leading/trailing separators. Letter/digit
-# lookarounds keep a match from starting or ending inside a longer word or
-# digit run (v1.2.34, 320kbps).
-_INLINE_DATE_RE = re.compile(
-    r"[\s_.\-–—]*"
-    rf"(?<![\dA-Za-z]){_DATE_PATTERN}(?![\dA-Za-z])"
-    r"[.,_]*\s*"
-)
-
-
-# Standalone date for parsing: same letter/digit lookarounds as bare-date
-# stripping.
-_DATE_SEARCH_RE = re.compile(rf"(?<![\dA-Za-z]){_DATE_PATTERN}(?![\dA-Za-z])")
-
-
-def parse_inline_date(text: str) -> datetime | None:
-    """Parse the first date found in *text* to a datetime, else None.
-
-    Recognizes the same formats as strip_date. Numeric
-    dates are year-first when the first field has 4 digits (2025.10.02),
-    otherwise US month-first (3/19/26). Two-digit years follow the POSIX
-    pivot (69 and up -> 1900s, below -> 2000s). Matches that are not real
-    calendar dates are skipped; never raises.
-    """
-    if not text:
-        return None
-    for match in _DATE_SEARCH_RE.finditer(text):
-        parsed = _to_datetime(match.group(0))
-        if parsed:
-            return parsed
-    return None
-
-
-def _to_datetime(token: str) -> datetime | None:
-    """Resolve one _DATE_PATTERN match to a datetime; None if not a real date."""
-    fields = re.split(_DATE_SEP, token)
-    if len(fields) == 3:
-        try:
-            if len(fields[0]) == 4:
-                year, month, day = (int(f) for f in fields)
-            else:
-                month, day, year = (int(f) for f in fields)
-                if year < 100:
-                    year += 1900 if year >= 69 else 2000
-            return datetime(year, month, day)
-        except ValueError:
-            return None
-    for fmt in ("%B %d, %Y", "%B %d %Y", "%b %d, %Y", "%b %d %Y"):
-        try:
-            return datetime.strptime(token, fmt)
-        except ValueError:
-            continue
-    return None
 
 
 # Part indicator pattern inside brackets: Part 1, Pt. 2, Pt 3
