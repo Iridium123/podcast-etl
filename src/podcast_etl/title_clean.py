@@ -53,12 +53,10 @@ _BRACKETED_DATE_RE = re.compile(
 
 
 def _date_repl(match: re.Match) -> str:
-    """Substitution for a date match: a space, unless the date isn't a real
-    calendar date (2026-15-43) -- those stay. The same _to_datetime check
-    parse_inline_date uses, so stripping and inference accept identical
-    dates."""
-    token = _DATE_SEARCH_RE.search(match.group(0))
-    if token and _to_datetime(token.group(0)):
+    """Substitution for a date match: a space if parse_inline_date reads a
+    real date in the matched text, else the match unchanged (2026-15-43
+    stays)."""
+    if parse_inline_date(match.group(0)):
         return " "
     return match.group(0)
 
