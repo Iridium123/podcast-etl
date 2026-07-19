@@ -44,34 +44,34 @@ _DATE_PATTERN = rf"(?:{_YMD_DATE}|{_NUMERIC_DATE}|{_MONTH_DATE})"
 _BRACKETED_DATE_RE = re.compile(
     r"\s*[-\u2013\u2014]*\s*"
     r"(?:"
-    rf"\(({_DATE_PATTERN})\)"
-    rf"|\[({_DATE_PATTERN})\]"
-    rf"|\{{({_DATE_PATTERN})\}}"
+    rf"\({_DATE_PATTERN}\)"
+    rf"|\[{_DATE_PATTERN}\]"
+    rf"|\{{{_DATE_PATTERN}\}}"
     r")"
     r"\s*"
 )
 
-_BRACKET_PAIRS = {("(", ")"), ("[", "]"), ("{", "}")}
 
+def strip_date(title: str) -> str:
+    """Remove date strings from a title, bracketed or bare.
 
-def _date_token(match: re.Match) -> tuple[str, int, int]:
-    """Text and span of whichever date group of the regex matched."""
-    for i, group in enumerate(match.groups(), 1):
-        if group is not None:
-            return group, match.start(i), match.end(i)
-    raise ValueError("regex has no matching date group")
-
-
-def _strip_dates(title: str, regex: re.Pattern, keep) -> str:
-    """Replace matches of *regex* with a space and tidy leftover separators.
-
-    Matches for which *keep* returns True are left untouched. Returns the
-    original title if nothing was stripped or stripping would leave an
-    empty result.
+    Recognizes exactly the formats parse_inline_date reads: month-first
+    numeric (3/19/26), year-first (2026.03.22), and month-name
+    (March 22, 2026), with any of / . _ - as separators. A bracketed date
+    loses its brackets too: 'Guest (3/19/26)' -> 'Guest'. Tokens embedded
+    in words (v2.10.24, 320kbps) never match, but stripping is regex-shaped,
+    not calendar-validated -- the rule is opt-in, so feeds whose titles
+    carry date-like junk simply shouldn't enable it. Removes every match,
+    cleans up adjacent separators, and returns the original if stripping
+    would leave an empty result.
     """
+    if not title:
+        return title
     # Replace with space (not empty) so surrounding words don't merge;
-    # the regexes already consume adjacent whitespace.
-    result = regex.sub(lambda m: m.group(0) if keep(m) else " ", title)
+    # the regexes already consume adjacent whitespace. Bracketed dates go
+    # first (brackets and all), then bare dates.
+    result = _BRACKETED_DATE_RE.sub(" ", title)
+    result = _INLINE_DATE_RE.sub(" ", result)
     if result == title:
         return title
     result = result.strip()
@@ -84,51 +84,12 @@ def _strip_dates(title: str, regex: re.Pattern, keep) -> str:
     return result if result else title
 
 
-def _is_not_date(match: re.Match) -> bool:
-    return _to_datetime(_date_token(match)[0]) is None
-
-
-def _keep_bare(match: re.Match) -> bool:
-    """Keep non-dates and dates still wrapped exactly in brackets.
-
-    A date left inside brackets after the bracketed pass was deliberately
-    kept there (the empty-result guard); gutting the brackets around it
-    would leave '()'.
-    """
-    token, start, end = _date_token(match)
-    if _to_datetime(token) is None:
-        return True
-    text = match.string
-    return (
-        start > 0
-        and end < len(text)
-        and (text[start - 1], text[end]) in _BRACKET_PAIRS
-    )
-
-
-def strip_date(title: str) -> str:
-    """Remove date strings from a title, bracketed or bare.
-
-    Recognizes exactly the formats parse_inline_date reads: month-first
-    numeric (3/19/26), year-first (2026.03.22), and month-name
-    (March 22, 2026), with any of / . _ - as separators. Only real
-    calendar dates are removed, so version-like tokens (v2.10.24) stay.
-    A bracketed date loses its brackets too: 'Guest (3/19/26)' -> 'Guest'.
-    Removes every match, cleans up adjacent separators, and returns the
-    original if stripping would leave an empty result.
-    """
-    if not title:
-        return title
-    result = _strip_dates(title, _BRACKETED_DATE_RE, keep=_is_not_date)
-    return _strip_dates(result, _INLINE_DATE_RE, keep=_keep_bare)
-
-
 # Unbracketed date with optional leading/trailing separators. Letter/digit
 # lookarounds keep a match from starting or ending inside a longer word or
 # digit run (v1.2.34, 320kbps).
 _INLINE_DATE_RE = re.compile(
     r"[\s_.\-–—]*"
-    rf"(?<![\dA-Za-z])({_DATE_PATTERN})(?![\dA-Za-z])"
+    rf"(?<![\dA-Za-z]){_DATE_PATTERN}(?![\dA-Za-z])"
     r"[.,_]*\s*"
 )
 
