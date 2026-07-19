@@ -34,7 +34,7 @@ from podcast_etl.models import (
     slugify,
 )
 from podcast_etl.text import apply_blacklist
-from podcast_etl.title_clean import clean_title
+from podcast_etl.title_clean import clean_title, parse_inline_date
 
 logger = logging.getLogger(__name__)
 
@@ -100,6 +100,12 @@ def _mtime_rfc2822(path: Path) -> str:
     return format_datetime(datetime.fromtimestamp(path.stat().st_mtime).astimezone())
 
 
+def _filename_date(stem: str) -> str | None:
+    """RFC 2822 date parsed from a filename stem, or None."""
+    parsed = parse_inline_date(stem)
+    return format_datetime(parsed) if parsed else None
+
+
 def _episode_guid(item: TorrentItem, fileinfo: TorrentFileInfo) -> str:
     """Stable episode identity: same torrent re-fetched yields the same guid."""
     return f"{item.info_hash}:{fileinfo.relative_path.as_posix()}"
@@ -137,6 +143,7 @@ def _build_episode(
     raw_title = id3.get("title") or fileinfo.relative_path.stem or item.title
     published = (
         to_rfc2822(id3.get("date"))
+        or _filename_date(fileinfo.relative_path.stem)
         or to_rfc2822(item.published)
         or _mtime_rfc2822(fileinfo.absolute_path)
     )

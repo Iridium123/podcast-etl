@@ -211,6 +211,36 @@ class TestBuildEpisode:
         assert ep.raw_title == "Great Episode Name"
         assert ep.title == "Great Episode Name"
 
+    def test_published_from_filename_beats_item(self, tmp_path):
+        path = tmp_path / "Show - 2025.10.02 - Sapiens [2025_MP3-96 kbps].mp3"
+        make_mp3(path, title="T")  # no ID3 date
+        item = make_item(info_hash="hash1", published="Mon, 04 May 2026 10:00:00 +0000")
+        ep = _build_episode(
+            make_fileinfo(path, path.name), item, make_podcast(), make_config()
+        )
+        parsed = parsedate_to_datetime(ep.published)
+        assert (parsed.year, parsed.month, parsed.day) == (2025, 10, 2)
+
+    def test_id3_date_beats_filename(self, tmp_path):
+        path = tmp_path / "Show - 2025.10.02 - Sapiens.mp3"
+        make_mp3(path, title="T", date="2026-05-05")
+        item = make_item(info_hash="hash1")
+        ep = _build_episode(
+            make_fileinfo(path, path.name), item, make_podcast(), make_config()
+        )
+        parsed = parsedate_to_datetime(ep.published)
+        assert (parsed.year, parsed.month, parsed.day) == (2026, 5, 5)
+
+    def test_dateless_filename_falls_back_to_item(self, tmp_path):
+        path = tmp_path / "Show - Sapiens.mp3"
+        make_mp3(path, title="T")
+        item = make_item(info_hash="hash1", published="Mon, 04 May 2026 10:00:00 +0000")
+        ep = _build_episode(
+            make_fileinfo(path, path.name), item, make_podcast(), make_config()
+        )
+        parsed = parsedate_to_datetime(ep.published)
+        assert (parsed.year, parsed.month, parsed.day) == (2026, 5, 4)
+
     def test_published_falls_back_to_item(self, tmp_path):
         path = tmp_path / "file.mp3"
         make_mp3(path, title="T")

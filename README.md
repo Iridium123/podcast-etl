@@ -248,7 +248,9 @@ How it works, per poll cycle:
 2. While qBittorrent downloads, the item shows as "downloading" and is
    re-checked each cycle.
 3. On completion, every MP3 inside the torrent becomes an episode: metadata
-   from ID3 tags (falling back to filename/RSS/mtime), audio copied into the
+   from ID3 tags (dates fall back to a date parsed from the filename, e.g.
+   `Show - 2025.10.02 - Title.mp3`, then the RSS item, then file mtime;
+   titles fall back to filename/RSS), audio copied into the
    podcast's `audio/` dir, then the configured pipeline runs as usual.
 
 Operational notes:
@@ -279,7 +281,7 @@ Operational notes:
 
 Optional rules applied at feed parse time. All off by default; enable globally or per-feed.
 
-- **`strip_date`** -- removes dates in brackets: `(3/19/26)`, `[2026-03-22]`, `(March 22, 2026)`, etc.
+- **`strip_date`** -- removes dates from titles, bracketed or bare: `(3/19/26)`, `[2026-03-22]`, `(March 22, 2026)`, and `Show - 2025.10.02 - Ep` becomes `Show - Ep`. Numeric dates accept `/`, `.`, `_`, `-` separators, month-first or year-first -- exactly the formats the torrent fetch phase parses from filenames. Tokens embedded in words (`v2.10.24`, `320kbps`) never match, and only real calendar dates are stripped (`2026-15-43`, `[1080/60/2]` stay) -- the identical validation the filename date inference uses.
 - **`reorder_parts`** -- moves `(Part N)` after the common series prefix so multi-part same-day episodes sort correctly.
 - **`prepend_episode_number`** -- prepends `itunes:episode` number: `"Rise of the Mongols"` becomes `"123 - Rise of the Mongols"`.
 - **`sanitize`** -- replaces filesystem-invalid characters with `_`, collapses separator sequences to ` - `.
