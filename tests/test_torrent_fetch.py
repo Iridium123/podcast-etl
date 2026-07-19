@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 from datetime import datetime
 from email.utils import parsedate_to_datetime
 from pathlib import Path
@@ -487,6 +488,27 @@ class TestStateMachine:
         assert item.episode_guids == []
         assert podcast.episodes == []
 
+    def test_missing_source_logged_and_skipped(self, tmp_path, caplog):
+        """A source file this process cannot see (unmounted path, e.g. a
+        pre-existing torrent saved outside client.save_path) must produce a
+        clear actionable error, not a FileNotFoundError traceback, and must
+        not spawn any episodes."""
+        podcast_dir = tmp_path / "podcast"
+        save_dir = tmp_path / "downloads"
+        item = make_item(info_hash="hash1")
+        client = self._complete_client(save_dir)
+        missing_path = save_dir / "torrent1" / "ep2.mp3"
+        missing_path.unlink()
+        podcast = make_podcast()
+
+        with caplog.at_level("ERROR"):
+            fetch_torrent_item(item, podcast, podcast_dir, make_config(), client)
+
+        assert "not visible to this process" in caplog.text
+        assert str(missing_path) in caplog.text
+        assert podcast.episodes == []
+        assert item.fetched_at is None  # retried next cycle
+
     def test_copy_failure_does_not_leak_episodes(self, tmp_path):
         """A copy failure mid-torrent must not leave audio-less episodes in
         podcast.episodes (observed live: unreachable save_path caused 178
@@ -495,12 +517,20 @@ class TestStateMachine:
         save_dir = tmp_path / "downloads"
         item = make_item(info_hash="hash1")
         client = self._complete_client(save_dir)
-        # Second MP3's source file vanishes before the copy loop runs
-        (save_dir / "torrent1" / "ep2.mp3").unlink()
         podcast = make_podcast()
 
-        with pytest.raises(FileNotFoundError):
-            fetch_torrent_item(item, podcast, podcast_dir, make_config(), client)
+        # Second MP3's copy fails mid-loop (sources exist, so the upfront
+        # visibility check passes)
+        real_copyfile = shutil.copyfile
+
+        def failing_copyfile(src, dest, **kwargs):
+            if Path(src).name == "ep2.mp3":
+                raise OSError("disk full")
+            return real_copyfile(src, dest, **kwargs)
+
+        with patch("podcast_etl.torrent_fetch.shutil.copyfile", failing_copyfile):
+            with pytest.raises(OSError):
+                fetch_torrent_item(item, podcast, podcast_dir, make_config(), client)
 
         # Only the successfully-copied episode joined the podcast
         assert [ep.guid for ep in podcast.episodes] == ["hash1:torrent1/ep1.mp3"]
