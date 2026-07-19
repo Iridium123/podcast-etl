@@ -40,12 +40,14 @@ class TestStripDate:
     def test_slash_ymd_in_brackets(self):
         assert strip_date("Guest Name [2026/03/22]") == "Guest Name"
 
-    # Stripping is regex-shaped, not calendar-validated: the flag is opt-in,
-    # so date-shaped junk is the feed owner's problem
-    def test_invalid_calendar_triple_stripped(self):
-        assert strip_date("App Review [1080/60/2]") == "App Review"
+    # Only real calendar dates are stripped — same validation as
+    # parse_inline_date
+    def test_invalid_calendar_triple_kept(self):
+        assert strip_date("App Review [1080/60/2]") == "App Review [1080/60/2]"
 
-    # But the year field is exactly 2 or 4 digits, so this never matches
+    def test_out_of_range_month_day_kept(self):
+        assert strip_date("Show 2026-15-43 Ep") == "Show 2026-15-43 Ep"
+
     def test_three_digit_year_kept(self):
         assert strip_date("Mix [12.13.320]") == "Mix [12.13.320]"
 
@@ -111,8 +113,8 @@ class TestStripDate:
     def test_version_string_kept(self):
         assert strip_date("App Update v2.10.24 Discussion") == "App Update v2.10.24 Discussion"
 
-    def test_invalid_calendar_date_stripped(self):
-        assert strip_date("Nonsense 13/45/26 here") == "Nonsense here"
+    def test_invalid_calendar_date_kept(self):
+        assert strip_date("Nonsense 13/45/26 here") == "Nonsense 13/45/26 here"
 
     def test_underscore_separators_tidied(self):
         assert strip_date("Show_2025.10.02_Ep") == "Show Ep"
@@ -165,6 +167,9 @@ class TestParseInlineDate:
 
     def test_invalid_calendar_date_skipped(self):
         assert parse_inline_date("Nonsense 13/45/26") is None
+
+    def test_out_of_range_month_day_skipped(self):
+        assert parse_inline_date("Show 2026-15-43 Ep") is None
 
     def test_invalid_then_valid_returns_valid(self):
         assert parse_inline_date("13/45/26 but 2025.10.02") == datetime(2025, 10, 2)

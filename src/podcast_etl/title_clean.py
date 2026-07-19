@@ -25,10 +25,9 @@ _MONTH_NAMES = (
 _DATE_SEP = r"[./_-]"
 
 # Numeric month-first dates: M/D/YY or MM/DD/YYYY with /, ., _, - separators.
-# The regex alone is loose (it can still match date-shaped junk like 1/2/34):
-# strip_date removes such matches anyway (the flag is opt-in), while
-# parse_inline_date only accepts matches _to_datetime validates as real
-# calendar dates.
+# The regex alone is loose (it can still match date-shaped junk like
+# 2026-15-43); every consumer — strip_date and parse_inline_date alike —
+# only acts on matches _to_datetime accepts as real calendar dates.
 _NUMERIC_DATE = rf"\d{{1,2}}{_DATE_SEP}\d{{1,2}}{_DATE_SEP}(?:\d{{4}}|\d{{2}})"
 # Year-first dates: 2025.10.02, 2025-10-02, 2025/10/02, 2025_10_02
 _YMD_DATE = rf"\d{{4}}{_DATE_SEP}\d{{1,2}}{_DATE_SEP}\d{{1,2}}"
@@ -53,26 +52,36 @@ _BRACKETED_DATE_RE = re.compile(
 )
 
 
+def _date_repl(match: re.Match) -> str:
+    """Substitution for a date match: a space, unless the date isn't a real
+    calendar date (2026-15-43) -- those stay. The same _to_datetime check
+    parse_inline_date uses, so stripping and inference accept identical
+    dates."""
+    token = _DATE_SEARCH_RE.search(match.group(0))
+    if token and _to_datetime(token.group(0)):
+        return " "
+    return match.group(0)
+
+
 def strip_date(title: str) -> str:
     """Remove date strings from a title, bracketed or bare.
 
-    Recognizes exactly the formats parse_inline_date reads: month-first
+    Recognizes exactly the dates parse_inline_date reads: month-first
     numeric (3/19/26), year-first (2026.03.22), and month-name
-    (March 22, 2026), with any of / . _ - as separators. A bracketed date
-    loses its brackets too: 'Guest (3/19/26)' -> 'Guest'. Tokens embedded
-    in words (v2.10.24, 320kbps) never match, but stripping is regex-shaped,
-    not calendar-validated -- the rule is opt-in, so feeds whose titles
-    carry date-like junk simply shouldn't enable it. Removes every match,
-    cleans up adjacent separators, and returns the original if stripping
-    would leave an empty result.
+    (March 22, 2026) forms, with any of / . _ - as separators, validated
+    as real calendar dates. A bracketed date loses its brackets too:
+    'Guest (3/19/26)' -> 'Guest'. Tokens embedded in words (v2.10.24,
+    320kbps) never match. Removes every match, cleans up adjacent
+    separators, and returns the original if stripping would leave an
+    empty result.
     """
     if not title:
         return title
     # Replace with space (not empty) so surrounding words don't merge;
     # the regexes already consume adjacent whitespace. Bracketed dates go
     # first (brackets and all), then bare dates.
-    result = _BRACKETED_DATE_RE.sub(" ", title)
-    result = _INLINE_DATE_RE.sub(" ", result)
+    result = _BRACKETED_DATE_RE.sub(_date_repl, title)
+    result = _INLINE_DATE_RE.sub(_date_repl, result)
     if result == title:
         return title
     result = result.strip()
