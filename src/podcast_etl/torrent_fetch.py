@@ -373,6 +373,23 @@ def fetch_torrent_item(
         return
 
     mp3s = _completed_mp3s(item, client, config)
+    missing = [f.absolute_path for f in mp3s if not f.absolute_path.exists()]
+    if missing:
+        # Typically a pre-existing torrent the client stores outside
+        # client.save_path: its paths pass through _to_local_path unchanged
+        # and refer to a filesystem this process doesn't mount.
+        logger.error(
+            "Torrent %s (%s): %d of %d MP3 source file(s) not visible to this "
+            "process (e.g. %s); mount that path into this container, or check "
+            "that client.save_path and torrent_data_dir match your mounts. "
+            "Will retry next cycle.",
+            item.title,
+            item.info_hash,
+            len(missing),
+            len(mp3s),
+            missing[0],
+        )
+        return
     if not mp3s:
         logger.warning(
             "Torrent %s (%s) contains no MP3 files; marking fetched with 0 episodes",

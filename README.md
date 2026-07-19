@@ -261,6 +261,12 @@ Operational notes:
 - The ETL process reads downloaded files by mapping the client's
   `client.save_path` onto its own `torrent_data_dir` — the two must be mounts
   of the same volume (same convention the `stage`/`seed` steps already use).
+- **Torrents you already seed** (added to qBittorrent before the feed) keep
+  their original save location, which is typically outside `client.save_path`;
+  their paths pass through unmapped. If the ETL container can't read such a
+  path, the item is skipped with an error naming the missing path — mount
+  that location into the container (at the same path qBittorrent reports)
+  and it will pick up on the next cycle.
 - **Retry a dead torrent** by deleting it (with data) in qBittorrent — the
   next poll re-adds it from the stored blob and starts over.
 - **Abandon a torrent** by excluding it with `episode_filter` (or wait for it
