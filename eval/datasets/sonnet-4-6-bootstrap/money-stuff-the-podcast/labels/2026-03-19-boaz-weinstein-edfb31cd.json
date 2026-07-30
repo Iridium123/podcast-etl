@@ -1,0 +1,135 @@
+{
+  "episode_ref": {
+    "podcast_slug": "money-stuff-the-podcast",
+    "episode_json": "2026-03-19-boaz-weinstein-edfb31cd.json"
+  },
+  "audio_duration": 3724.303673469388,
+  "segments": [
+    {
+      "start": 0.0,
+      "end": 34.6,
+      "confidence": 1.0,
+      "detector": "gold",
+      "label": "Pre-roll ad for TastyTrade",
+      "notes": ""
+    },
+    {
+      "start": 34.6,
+      "end": 95.0,
+      "confidence": 1.0,
+      "detector": "gold",
+      "label": "Pre-roll ad for Cincinnati Insurance",
+      "notes": ""
+    },
+    {
+      "start": 95.8,
+      "end": 125.2,
+      "confidence": 1.0,
+      "detector": "gold",
+      "label": "Pre-roll ad for IBM",
+      "notes": ""
+    },
+    {
+      "start": 788.3,
+      "end": 828.2,
+      "confidence": 1.0,
+      "detector": "gold",
+      "label": "Mid-roll ad for TastyTrade",
+      "notes": ""
+    },
+    {
+      "start": 828.2,
+      "end": 887.0,
+      "confidence": 1.0,
+      "detector": "gold",
+      "label": "Mid-roll ad for Public.com",
+      "notes": ""
+    },
+    {
+      "start": 887.0,
+      "end": 944.2,
+      "confidence": 1.0,
+      "detector": "gold",
+      "label": "Mid-roll ad for Chase for Business",
+      "notes": ""
+    },
+    {
+      "start": 1543.1,
+      "end": 1602.1,
+      "confidence": 1.0,
+      "detector": "gold",
+      "label": "Mid-roll ad for Public.com",
+      "notes": ""
+    },
+    {
+      "start": 1602.1,
+      "end": 1661.1,
+      "confidence": 1.0,
+      "detector": "gold",
+      "label": "Mid-roll ad for Chase for Business",
+      "notes": ""
+    },
+    {
+      "start": 1661.1,
+      "end": 1718.1,
+      "confidence": 1.0,
+      "detector": "gold",
+      "label": "Mid-roll ad for 4imprint",
+      "notes": ""
+    },
+    {
+      "start": 2607.1,
+      "end": 2665.1,
+      "confidence": 1.0,
+      "detector": "gold",
+      "label": "Mid-roll ad for Public.com",
+      "notes": ""
+    },
+    {
+      "start": 2665.1,
+      "end": 2724.1,
+      "confidence": 1.0,
+      "detector": "gold",
+      "label": "Mid-roll ad for Chase for Business",
+      "notes": ""
+    },
+    {
+      "start": 2724.1,
+      "end": 2782.1,
+      "confidence": 1.0,
+      "detector": "gold",
+      "label": "Mid-roll ad for 4imprint",
+      "notes": ""
+    },
+    {
+      "start": 3597.1,
+      "end": 3657.1,
+      "confidence": 1.0,
+      "detector": "gold",
+      "label": "Post-roll ad for Cincinnati Insurance",
+      "notes": ""
+    },
+    {
+      "start": 3658.1,
+      "end": 3693.1,
+      "confidence": 1.0,
+      "detector": "gold",
+      "label": "Post-roll ad for Cynesta Travel Pass",
+      "notes": ""
+    },
+    {
+      "start": 3693.1,
+      "end": 3724.0,
+      "confidence": 1.0,
+      "detector": "gold",
+      "label": "Post-roll ad for Okta",
+      "notes": ""
+    }
+  ],
+  "provenance": {
+    "whisper": {},
+    "llm": {},
+    "annotator": "claude-sonnet-4-6",
+    "created_at": "2026-05-30T21:07:21.089016"
+  }
+}

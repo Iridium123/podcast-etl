@@ -1,0 +1,29 @@
+# Example eval matrix config for `podcast-etl eval run` (or `uv run python eval/run.py`).
+#
+# Copy this to eval/eval_config.yaml and edit. The runner labels each config's
+# predictions into eval/datasets/_runs/<name>, then scores every config against
+# the single `gold` dataset. Gold defines the episode set: only episodes present
+# in gold (and matching `allowed_annotators`) are scored.
+
+output_dir: ./output            # production output dir (episode JSON + audio)
+gold: gold                      # dataset under eval/datasets/, or "output", or a path
+allowed_annotators: ["human"]   # score only gold whose provenance.annotator is in this list; [] = all
+
+# Configs sharing identical `whisper` settings transcribe each episode only once
+# (a single transcript cache is shared across the whole run).
+configs:
+  - name: haiku-default
+    whisper: {model: base, language: en}
+    llm: {provider: anthropic, model: claude-haiku-4-5-20251001}
+    prompt: default
+    min_confidence: 0.5
+  - name: sonnet-default
+    whisper: {model: base, language: en}
+    llm: {provider: anthropic, model: claude-sonnet-4-20250514}
+    prompt: default
+    min_confidence: 0.5
+
+# Tip: the migrated `sonnet-4-6-bootstrap` dataset can be used as gold by setting
+#   gold: sonnet-4-6-bootstrap
+#   allowed_annotators: ["claude-sonnet-4-6"]
+# to score against model-bootstrapped labels instead of human ones.

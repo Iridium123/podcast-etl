@@ -14,6 +14,7 @@ from pathlib import Path
 
 import click
 
+from podcast_etl.eval_cli import eval_group
 from podcast_etl.models import Podcast
 from podcast_etl.pipeline import resolve_feed_config
 from podcast_etl.service import (
@@ -361,3 +362,8 @@ def status(ctx: click.Context, feed_url: str | None) -> None:
                     statuses.append("pending")
             title_display = ep.title[:38] + ".." if len(ep.title) > 40 else ep.title
             click.echo(f"  {title_display:<40} " + " ".join(f"{s:<12}" for s in statuses))
+
+
+# Register the eval harness CLI group (dev tool; see eval_cli.py for the
+# sys.path / lazy-import handling that lets it run from the repo root).
+main.add_command(eval_group, name="eval")
