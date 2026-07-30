@@ -19,3 +19,7 @@ feeds.yaml
 .claude/worktrees/
 .worktrees/
 .superpowers/
+
+# Eval outputs
+eval/results/
+eval/transcripts/

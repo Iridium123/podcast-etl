@@ -1,0 +1,35 @@
+# Eval run configuration
+# Copy to eval_config.yaml and customize for your setup.
+
+output_dir: ./output
+
+# Only score annotations whose `annotator` field is in this list. Default
+# ["human", "claude-sonnet-4-6"] accepts both hand-corrected gold and
+# sonnet-bootstrapped annotations as gold standards. Use an empty list ([])
+# to accept all annotators. When evaluating sonnet-4-6 itself, override to
+# ["human"] to avoid scoring the model against its own bootstrapped predictions.
+allowed_annotators: ["human", "claude-sonnet-4-6"]
+
+configs:
+  - name: haiku-sentence-level
+    whisper:
+      model: base
+      language: en
+    llm:
+      provider: anthropic
+      model: claude-haiku-4-5-20251001
+    prompt: default
+
+  # Uses haiku (not sonnet-4-6) so this example doesn't score a model against
+  # its own bootstrapped annotations — the three shipped annotation files are
+  # annotated by claude-sonnet-4-6. To evaluate sonnet-4-6 itself, add a sonnet
+  # config here AND set allowed_annotators: ["human"] above (see note there).
+  - name: haiku-word-level
+    whisper:
+      model: base
+      language: en
+      word_timestamps: true
+    llm:
+      provider: anthropic
+      model: claude-haiku-4-5-20251001
+    prompt: default

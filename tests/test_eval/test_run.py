@@ -1,0 +1,456 @@
+"""Tests for the eval runner."""
+
+import json
+from unittest.mock import patch
+
+import pytest
+
+from podcast_etl.detectors import AdSegment
+
+from eval.models import Annotation, EpisodeRef
+from eval.run import (
+    EvalConfig,
+    RunConfig,
+    group_configs_by_whisper,
+    load_prompt,
+    load_run_config,
+    run_eval,
+)
+
+
+def _setup_annotation(tmp_path):
+    """Create a minimal annotation file and matching episode on disk."""
+    # Annotation
+    ann_dir = tmp_path / "annotations"
+    ann_dir.mkdir()
+    ann = Annotation(
+        episode_ref=EpisodeRef(podcast_slug="my-podcast", episode_json="ep.json"),
+        audio_duration=120.0,
+        segments=[{"start": 0.0, "end": 30.0, "label": "Pre-roll", "notes": ""}],
+        annotator="human",
+        created_at="2026-04-12T10:00:00",
+    )
+    ann.save(ann_dir / "ep-ann.json")
+
+    # Episode on disk
+    output_dir = tmp_path / "output"
+    podcast_dir = output_dir / "my-podcast"
+    podcast_dir.mkdir(parents=True)
+    (podcast_dir / "podcast.json").write_text(json.dumps({
+        "title": "My Podcast", "url": "https://example.com",
+        "description": None, "image_url": None, "slug": "my-podcast",
+    }))
+    episodes_dir = podcast_dir / "episodes"
+    episodes_dir.mkdir()
+    (episodes_dir / "ep.json").write_text(json.dumps({
+        "title": "Ep 1", "guid": "g1", "published": "2024-01-15",
+        "audio_url": "https://example.com/ep.mp3", "duration": "120",
+        "description": "ep", "slug": "ep-1",
+        "status": {"download": {"completed_at": "2024-01-15T10:00:00",
+                                 "result": {"path": "audio/ep.mp3"}}},
+    }))
+    audio_dir = podcast_dir / "audio"
+    audio_dir.mkdir()
+    (audio_dir / "ep.mp3").write_bytes(b"fake audio")
+
+    return ann_dir, output_dir
+
+
+class TestGroupConfigsByWhisper:
+    def test_groups_by_whisper_settings(self):
+        configs = [
+            EvalConfig(name="a", whisper={"model": "base"}, llm={}, prompt="default"),
+            EvalConfig(name="b", whisper={"model": "base"}, llm={}, prompt="alt"),
+            EvalConfig(name="c", whisper={"model": "large"}, llm={}, prompt="default"),
+        ]
+        groups = group_configs_by_whisper(configs)
+        # "a" and "b" share whisper config, "c" is separate
+        assert len(groups) == 2
+        group_sizes = sorted(len(v) for v in groups.values())
+        assert group_sizes == [1, 2]
+
+    def test_normalizes_keys_so_irrelevant_fields_share_cache(self):
+        """api_key and device differ but don't affect transcript content — should share a cache slot."""
+        configs = [
+            EvalConfig(name="a", whisper={"model": "base", "language": "en", "api_key": "k1"},
+                       llm={}, prompt="default"),
+            EvalConfig(name="b", whisper={"model": "base", "language": "en", "device": "cuda"},
+                       llm={}, prompt="default"),
+        ]
+        groups = group_configs_by_whisper(configs)
+        assert len(groups) == 1, "configs differing only in non-content fields must group together"
+
+
+class TestLoadPrompt:
+    def test_loads_prompt_file(self, tmp_path):
+        prompts_dir = tmp_path / "prompts"
+        prompts_dir.mkdir()
+        (prompts_dir / "custom.txt").write_text("Find the ads.\n\nTranscript:\n")
+
+        text = load_prompt("custom", prompts_dir)
+        assert text == "Find the ads.\n\nTranscript:\n"
+
+    def test_raises_on_missing_prompt(self, tmp_path):
+        prompts_dir = tmp_path / "prompts"
+        prompts_dir.mkdir()
+        with pytest.raises(FileNotFoundError, match="Prompt file not found"):
+            load_prompt("missing", prompts_dir)
+
+
+class TestLoadRunConfig:
+    def test_loads_yaml(self, tmp_path):
+        config_path = tmp_path / "eval_config.yaml"
+        config_path.write_text("""
+output_dir: ./output
+configs:
+  - name: test-config
+    whisper:
+      model: base
+      language: en
+    llm:
+      provider: anthropic
+      model: claude-haiku-4-5-20251001
+    prompt: default
+""")
+        run_config = load_run_config(config_path)
+        assert run_config.output_dir == "./output"
+        assert len(run_config.configs) == 1
+        assert run_config.configs[0].name == "test-config"
+        # Default when allowed_annotators is not in the YAML
+        assert run_config.allowed_annotators == ["human", "claude-sonnet-4-6"]
+
+    def test_loads_allowed_annotators(self, tmp_path):
+        config_path = tmp_path / "eval_config.yaml"
+        config_path.write_text("""
+output_dir: ./output
+allowed_annotators: ["human", "claude-opus-4-7"]
+configs:
+  - name: c
+    whisper: {model: base}
+    llm: {model: x}
+    prompt: default
+""")
+        run_config = load_run_config(config_path)
+        assert run_config.allowed_annotators == ["human", "claude-opus-4-7"]
+
+    def test_loads_empty_allowed_annotators(self, tmp_path):
+        config_path = tmp_path / "eval_config.yaml"
+        config_path.write_text("""
+output_dir: ./output
+allowed_annotators: []
+configs:
+  - name: c
+    whisper: {model: base}
+    llm: {model: x}
+    prompt: default
+""")
+        run_config = load_run_config(config_path)
+        assert run_config.allowed_annotators == []
+
+
+class TestRunEval:
+    def test_runs_eval_and_returns_scores(self, tmp_path):
+        ann_dir, output_dir = _setup_annotation(tmp_path)
+
+        prompts_dir = tmp_path / "prompts"
+        prompts_dir.mkdir()
+        (prompts_dir / "default.txt").write_text("Find ads.\n\nTranscript:\n")
+
+        transcript_segments = [
+            {"start": 0.0, "end": 10.0, "text": "Ad content"},
+            {"start": 10.0, "end": 30.0, "text": "More ad"},
+            {"start": 30.0, "end": 120.0, "text": "Main content"},
+        ]
+        predicted_ads = [
+            AdSegment(start=0.0, end=30.0, confidence=0.9, detector="transcription", label="Pre-roll"),
+        ]
+
+        configs = [
+            EvalConfig(name="test", whisper={"model": "base"}, llm={"provider": "anthropic", "model": "test"},
+                       prompt="default"),
+        ]
+
+        with patch("eval.run.transcribe", return_value=transcript_segments):
+            with patch("eval.run.classify_with_prompt", return_value=predicted_ads):
+                results = run_eval(
+                    configs=configs,
+                    annotations_dir=ann_dir,
+                    output_dir=output_dir,
+                    prompts_dir=prompts_dir,
+                    results_dir=tmp_path / "results",
+                )
+
+        assert "test" in results
+        assert results["test"].total_tp == 1
+        assert results["test"].total_fp == 0
+        assert results["test"].total_fn == 0
+
+    def test_reuses_transcript_for_configs_with_same_whisper(self, tmp_path):
+        """Two configs sharing whisper settings should call transcribe only once per episode."""
+        ann_dir, output_dir = _setup_annotation(tmp_path)
+
+        prompts_dir = tmp_path / "prompts"
+        prompts_dir.mkdir()
+        (prompts_dir / "p1.txt").write_text("Find ads.\n\nTranscript:\n")
+        (prompts_dir / "p2.txt").write_text("Identify ads.\n\nTranscript:\n")
+
+        transcript_segments = [
+            {"start": 0.0, "end": 30.0, "text": "Ad"},
+            {"start": 30.0, "end": 120.0, "text": "Content"},
+        ]
+        predicted_ads = [
+            AdSegment(start=0.0, end=30.0, confidence=0.9, detector="transcription", label="Ad"),
+        ]
+
+        # Two configs with identical whisper settings, different prompts
+        configs = [
+            EvalConfig(name="a", whisper={"model": "base", "language": "en"},
+                       llm={"provider": "anthropic", "model": "test"},
+                       prompt="p1"),
+            EvalConfig(name="b", whisper={"model": "base", "language": "en"},
+                       llm={"provider": "anthropic", "model": "test"},
+                       prompt="p2"),
+        ]
+
+        with patch("eval.run.transcribe", return_value=transcript_segments) as mock_transcribe:
+            with patch("eval.run.classify_with_prompt", return_value=predicted_ads):
+                results = run_eval(
+                    configs=configs,
+                    annotations_dir=ann_dir,
+                    output_dir=output_dir,
+                    prompts_dir=prompts_dir,
+                    results_dir=tmp_path / "results",
+                )
+
+        # transcribe should be called exactly once (same whisper config, single episode)
+        assert mock_transcribe.call_count == 1
+        # Both configs should have results
+        assert "a" in results
+        assert "b" in results
+        assert results["a"].total_tp == 1
+        assert results["b"].total_tp == 1
+
+    def test_raises_on_duplicate_config_names(self, tmp_path):
+        """Duplicate config names must raise — silently collapsing scores would produce wrong results."""
+        ann_dir, output_dir = _setup_annotation(tmp_path)
+
+        prompts_dir = tmp_path / "prompts"
+        prompts_dir.mkdir()
+        (prompts_dir / "default.txt").write_text("Find ads.\n\nTranscript:\n")
+
+        configs = [
+            EvalConfig(name="dup", whisper={"model": "base"}, llm={}, prompt="default"),
+            EvalConfig(name="dup", whisper={"model": "large"}, llm={}, prompt="default"),
+        ]
+
+        with pytest.raises(ValueError, match="Duplicate config names"):
+            run_eval(
+                configs=configs,
+                annotations_dir=ann_dir,
+                output_dir=output_dir,
+                prompts_dir=prompts_dir,
+                results_dir=tmp_path / "results",
+            )
+
+    def test_skips_non_human_annotations_by_default(self, tmp_path):
+        """Default `allowed_annotators` filters out model-bootstrapped annotations
+        so a model is never evaluated against its own predictions."""
+        ann_dir, output_dir = _setup_annotation(tmp_path)
+
+        # Replace the human annotation with a model-annotated one (same episode)
+        ann = Annotation(
+            episode_ref=EpisodeRef(podcast_slug="my-podcast", episode_json="ep.json"),
+            audio_duration=120.0,
+            segments=[{"start": 0.0, "end": 30.0, "label": "Pre-roll", "notes": ""}],
+            annotator="claude-sonnet-4-20250514",
+            created_at="2026-04-12T10:00:00",
+        )
+        ann.save(ann_dir / "ep-ann.json")
+
+        prompts_dir = tmp_path / "prompts"
+        prompts_dir.mkdir()
+        (prompts_dir / "default.txt").write_text("Find ads.\n\nTranscript:\n")
+
+        configs = [
+            EvalConfig(name="t", whisper={"model": "base"}, llm={"provider": "anthropic", "model": "x"},
+                       prompt="default"),
+        ]
+
+        with patch("eval.run.transcribe") as mock_transcribe:
+            with patch("eval.run.classify_with_prompt") as mock_classify:
+                results = run_eval(
+                    configs=configs,
+                    annotations_dir=ann_dir,
+                    output_dir=output_dir,
+                    prompts_dir=prompts_dir,
+                    results_dir=tmp_path / "results",
+                )
+
+        # No annotation passed the filter, no calls were made, episode_count is zero
+        assert mock_transcribe.call_count == 0
+        assert mock_classify.call_count == 0
+        assert results["t"].episode_count == 0
+
+    def test_allowed_annotators_explicit_list(self, tmp_path):
+        """Explicit allowed_annotators list lets through matching annotators."""
+        ann_dir, output_dir = _setup_annotation(tmp_path)
+
+        ann = Annotation(
+            episode_ref=EpisodeRef(podcast_slug="my-podcast", episode_json="ep.json"),
+            audio_duration=120.0,
+            segments=[{"start": 0.0, "end": 30.0, "label": "Pre-roll", "notes": ""}],
+            annotator="claude-opus-4-7",
+            created_at="2026-04-12T10:00:00",
+        )
+        ann.save(ann_dir / "ep-ann.json")
+
+        prompts_dir = tmp_path / "prompts"
+        prompts_dir.mkdir()
+        (prompts_dir / "default.txt").write_text("Find ads.\n\nTranscript:\n")
+
+        predicted_ads = [
+            AdSegment(start=0.0, end=30.0, confidence=0.9, detector="transcription", label="Ad"),
+        ]
+        configs = [
+            EvalConfig(name="t", whisper={"model": "base"}, llm={"provider": "anthropic", "model": "x"},
+                       prompt="default"),
+        ]
+
+        with patch("eval.run.transcribe", return_value=[]):
+            with patch("eval.run.classify_with_prompt", return_value=predicted_ads):
+                results = run_eval(
+                    configs=configs,
+                    annotations_dir=ann_dir,
+                    output_dir=output_dir,
+                    prompts_dir=prompts_dir,
+                    results_dir=tmp_path / "results",
+                    allowed_annotators=["claude-opus-4-7"],
+                )
+
+        assert results["t"].episode_count == 1
+
+    def test_empty_allowed_annotators_accepts_all(self, tmp_path):
+        """Passing an empty list disables the annotator filter (legacy behavior)."""
+        ann_dir, output_dir = _setup_annotation(tmp_path)
+
+        # Add a model-annotated entry next to the existing human one
+        ann = Annotation(
+            episode_ref=EpisodeRef(podcast_slug="my-podcast", episode_json="ep.json"),
+            audio_duration=120.0,
+            segments=[{"start": 0.0, "end": 30.0, "label": "Pre-roll", "notes": ""}],
+            annotator="some-model",
+            created_at="2026-04-12T10:00:00",
+        )
+        ann.save(ann_dir / "ep-model.json")
+
+        prompts_dir = tmp_path / "prompts"
+        prompts_dir.mkdir()
+        (prompts_dir / "default.txt").write_text("Find ads.\n\nTranscript:\n")
+
+        predicted_ads = [
+            AdSegment(start=0.0, end=30.0, confidence=0.9, detector="transcription", label="Ad"),
+        ]
+        configs = [
+            EvalConfig(name="t", whisper={"model": "base"}, llm={"provider": "anthropic", "model": "x"},
+                       prompt="default"),
+        ]
+
+        with patch("eval.run.transcribe", return_value=[]):
+            with patch("eval.run.classify_with_prompt", return_value=predicted_ads):
+                results = run_eval(
+                    configs=configs,
+                    annotations_dir=ann_dir,
+                    output_dir=output_dir,
+                    prompts_dir=prompts_dir,
+                    results_dir=tmp_path / "results",
+                    allowed_annotators=[],
+                )
+
+        # Both the human and the model annotation should be scored
+        assert results["t"].episode_count == 2
+
+
+class TestReuseProductionTranscript:
+    """The eval runner should skip whisper transcription when an on-disk
+    transcript was produced by a matching whisper config."""
+
+    def _setup_with_recorded_whisper(self, tmp_path, recorded_whisper):
+        ann_dir, output_dir = _setup_annotation(tmp_path)
+        ep_path = output_dir / "my-podcast" / "episodes" / "ep.json"
+        ep_data = json.loads(ep_path.read_text())
+        ep_data["status"]["detect_ads"] = {
+            "completed_at": "2024-01-15T10:05:00",
+            "result": {
+                "whisper": recorded_whisper,
+                "segments": [],
+            },
+        }
+        ep_path.write_text(json.dumps(ep_data))
+        transcripts_dir = output_dir / "my-podcast" / "transcripts"
+        transcripts_dir.mkdir(parents=True, exist_ok=True)
+        (transcripts_dir / "ep.json").write_text(json.dumps([
+            {"start": 0.0, "end": 30.0, "text": "production transcript content"},
+        ]))
+        return ann_dir, output_dir
+
+    def _common(self, tmp_path):
+        prompts_dir = tmp_path / "prompts"
+        prompts_dir.mkdir()
+        (prompts_dir / "default.txt").write_text("Find ads.\n\nTranscript:\n")
+        return prompts_dir
+
+    def test_reuses_transcript_when_whisper_matches(self, tmp_path):
+        ann_dir, output_dir = self._setup_with_recorded_whisper(
+            tmp_path, {"model": "base", "language": "en"},
+        )
+        prompts_dir = self._common(tmp_path)
+        configs = [
+            EvalConfig(name="t", whisper={"model": "base", "language": "en"},
+                       llm={"provider": "anthropic", "model": "x"},
+                       prompt="default"),
+        ]
+        with patch("eval.run.transcribe") as mock_transcribe:
+            with patch("eval.run.classify_with_prompt", return_value=[]):
+                run_eval(
+                    configs=configs, annotations_dir=ann_dir, output_dir=output_dir,
+                    prompts_dir=prompts_dir, results_dir=tmp_path / "results",
+                )
+        mock_transcribe.assert_not_called()
+
+    def test_falls_through_to_transcribe_when_whisper_differs(self, tmp_path):
+        ann_dir, output_dir = self._setup_with_recorded_whisper(
+            tmp_path, {"model": "base", "language": "en"},
+        )
+        prompts_dir = self._common(tmp_path)
+        configs = [
+            EvalConfig(name="t", whisper={"model": "large", "language": "en"},
+                       llm={"provider": "anthropic", "model": "x"},
+                       prompt="default"),
+        ]
+        with patch("eval.run.transcribe", return_value=[]) as mock_transcribe:
+            with patch("eval.run.classify_with_prompt", return_value=[]):
+                run_eval(
+                    configs=configs, annotations_dir=ann_dir, output_dir=output_dir,
+                    prompts_dir=prompts_dir, results_dir=tmp_path / "results",
+                )
+        mock_transcribe.assert_called_once()
+
+    def test_falls_through_when_no_recorded_provenance(self, tmp_path):
+        """Legacy detect_ads results lack the whisper field — don't risk a stale match."""
+        ann_dir, output_dir = _setup_annotation(tmp_path)
+        transcripts_dir = output_dir / "my-podcast" / "transcripts"
+        transcripts_dir.mkdir(parents=True, exist_ok=True)
+        (transcripts_dir / "ep.json").write_text("[]")
+        prompts_dir = self._common(tmp_path)
+        configs = [
+            EvalConfig(name="t", whisper={"model": "base"},
+                       llm={"provider": "anthropic", "model": "x"},
+                       prompt="default"),
+        ]
+        with patch("eval.run.transcribe", return_value=[]) as mock_transcribe:
+            with patch("eval.run.classify_with_prompt", return_value=[]):
+                run_eval(
+                    configs=configs, annotations_dir=ann_dir, output_dir=output_dir,
+                    prompts_dir=prompts_dir, results_dir=tmp_path / "results",
+                )
+        mock_transcribe.assert_called_once()

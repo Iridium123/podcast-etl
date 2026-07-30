@@ -37,6 +37,22 @@ def load_prompt(name: str, prompts_dir: Path | None = None) -> str:
     return path.read_text(encoding="utf-8")
 
 
+# Fields that affect transcript content. Used to key transcript caches and to
+# decide whether an on-disk transcript can be safely reused for a new config.
+# Excludes auth (api_key) and runtime-only knobs (device, compute_type) — those
+# affect speed or numerical precision but are accepted as cache hits in practice.
+TRANSCRIPT_CONTENT_KEYS = ("url", "model", "language", "word_timestamps")
+
+
+def normalize_whisper_config(whisper: dict[str, Any]) -> dict[str, Any]:
+    """Return only the whisper-config fields that affect transcript content.
+
+    Two whisper configs that normalize equal will produce equivalent transcripts
+    and can share a cached transcript.
+    """
+    return {k: whisper[k] for k in TRANSCRIPT_CONTENT_KEYS if k in whisper}
+
+
 def transcribe(audio_path: Path, config: dict[str, Any]) -> list[dict[str, Any]]:
     """Transcribe audio, using local faster-whisper or a remote API."""
     whisper_config = config.get("whisper", {})
@@ -116,7 +132,7 @@ def _transcribe_remote(audio_path: Path, whisper_config: dict[str, Any]) -> list
     return data.get("segments", [])
 
 
-def _format_transcript(segments: list[dict[str, Any]]) -> str:
+def format_transcript(segments: list[dict[str, Any]]) -> str:
     """Format whisper segments into a readable timestamped transcript."""
     lines = []
     for seg in segments:
@@ -169,7 +185,7 @@ def classify(
 
         client = anthropic.Anthropic(api_key=llm_config.get("api_key") or None)
 
-    formatted = _format_transcript(transcript)
+    formatted = format_transcript(transcript)
 
     logger.info("Classifying ads via Anthropic (%s)", model)
     message = client.messages.create(
@@ -181,7 +197,7 @@ def classify(
 
     if not message.content or not hasattr(message.content[0], "text"):
         raise ValueError(f"Unexpected Anthropic response content: {message.content!r}")
-    return _parse_llm_response(message.content[0].text)
+    return parse_llm_response(message.content[0].text)
 
 
 @dataclass
@@ -200,7 +216,7 @@ class AnthropicProvider:
         return classify(transcript, prompt_text, llm_config, client=client)
 
 
-def _parse_llm_response(response_text: str) -> list[AdSegment]:
+def parse_llm_response(response_text: str) -> list[AdSegment]:
     """Parse the LLM JSON response into AdSegment objects."""
     try:
         text = response_text.strip()

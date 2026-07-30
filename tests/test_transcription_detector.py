@@ -10,9 +10,9 @@ from podcast_etl.detectors import AdSegment, resolve_overlaps
 from podcast_etl.detectors.transcription import (
     AnthropicProvider,
     TranscriptionDetector,
-    _format_transcript,
+    format_transcript,
     _get_whisper_model,
-    _parse_llm_response,
+    parse_llm_response,
     _transcribe_local,
     build_llm_client,
     classify,
@@ -165,7 +165,7 @@ class TestTranscribeLocal:
 
 
 # ---------------------------------------------------------------------------
-# _format_transcript
+# format_transcript
 # ---------------------------------------------------------------------------
 
 class TestFormatTranscript:
@@ -174,16 +174,16 @@ class TestFormatTranscript:
             {"start": 0.0, "end": 5.0, "text": "Hello world"},
             {"start": 5.0, "end": 10.0, "text": "Goodbye world"},
         ]
-        result = _format_transcript(segments)
+        result = format_transcript(segments)
         assert "[0.0s - 5.0s] Hello world" in result
         assert "[5.0s - 10.0s] Goodbye world" in result
 
     def test_handles_empty_segments(self):
-        assert _format_transcript([]) == ""
+        assert format_transcript([]) == ""
 
 
 # ---------------------------------------------------------------------------
-# _parse_llm_response
+# parse_llm_response
 # ---------------------------------------------------------------------------
 
 class TestParseLlmResponse:
@@ -191,7 +191,7 @@ class TestParseLlmResponse:
         response = _llm_response_json([
             {"start": 0.0, "end": 45.0, "confidence": 0.9, "label": "Ad for Acme"},
         ])
-        result = _parse_llm_response(response)
+        result = parse_llm_response(response)
         assert len(result) == 1
         assert result[0].start == 0.0
         assert result[0].end == 45.0
@@ -201,20 +201,20 @@ class TestParseLlmResponse:
 
     def test_parses_empty_segments(self):
         response = _llm_response_json([])
-        assert _parse_llm_response(response) == []
+        assert parse_llm_response(response) == []
 
     def test_defaults_confidence_to_0_8(self):
         response = _llm_response_json([{"start": 0.0, "end": 10.0}])
-        result = _parse_llm_response(response)
+        result = parse_llm_response(response)
         assert result[0].confidence == 0.8
 
     def test_raises_on_invalid_json(self):
         with pytest.raises(ValueError, match="LLM returned invalid JSON"):
-            _parse_llm_response("not json")
+            parse_llm_response("not json")
 
     def test_strips_markdown_fences(self):
         fenced = '```json\n{"segments": [{"start": 0.0, "end": 10.0, "confidence": 0.9, "label": "Ad"}]}\n```'
-        result = _parse_llm_response(fenced)
+        result = parse_llm_response(fenced)
         assert len(result) == 1
         assert result[0].start == 0.0
 

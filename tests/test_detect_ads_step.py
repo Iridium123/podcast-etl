@@ -254,6 +254,60 @@ class TestDetectAdsStep:
         mock_transcribe.assert_not_called()
         assert result.data["transcript_path"] == "transcripts/episode.json"
 
+    def test_result_records_whisper_and_llm_provenance(self, tmp_path):
+        context = _make_context(tmp_path, ad_detection_config={
+            "whisper": {"model": "base", "language": "en", "api_key": "secret"},
+            "llm": {"provider": "anthropic", "model": "claude-haiku-4-5-20251001", "api_key": "secret"},
+        })
+        episode = _make_episode()
+        _create_audio_file(context)
+
+        with patch("podcast_etl.steps.detect_ads.transcribe", return_value=[{"start": 0.0, "end": 10.0, "text": "Hi"}]):
+            with patch.object(
+                __import__("podcast_etl.detectors.transcription", fromlist=["TranscriptionDetector"]).TranscriptionDetector,
+                "classify_transcript",
+                return_value=[],
+            ):
+                with patch("podcast_etl.steps.detect_ads._get_audio_duration", return_value=600.0):
+                    result = DetectAdsStep().process(episode, context)
+
+        # Whisper provenance is normalized (api_key dropped)
+        assert result.data["whisper"] == {"model": "base", "language": "en"}
+        # LLM records provider + model + prompt — never api_key
+        assert result.data["llm"] == {
+            "provider": "anthropic",
+            "model": "claude-haiku-4-5-20251001",
+            "prompt": "default",
+        }
+
+    def test_reuses_legacy_transcript_without_recorded_whisper(self, tmp_path):
+        """Older detect_ads results have no whisper field; we still reuse the on-disk transcript."""
+        context = _make_context(tmp_path, ad_detection_config={
+            "whisper": {"model": "base", "language": "en"},
+            "llm": {"provider": "anthropic", "model": "x"},
+        })
+        episode = _make_episode()
+        # Legacy: prior result has no "whisper" key
+        episode.status["detect_ads"] = StepStatus(
+            completed_at="2024-01-15T10:00:00",
+            result={"segments": []},
+        )
+        _create_audio_file(context)
+        transcripts_dir = context.podcast_dir / "transcripts"
+        transcripts_dir.mkdir(parents=True, exist_ok=True)
+        (transcripts_dir / "episode.json").write_text(json.dumps([{"start": 0.0, "end": 10.0, "text": "Hi"}]))
+
+        with patch("podcast_etl.steps.detect_ads.transcribe") as mock_transcribe:
+            with patch.object(
+                __import__("podcast_etl.detectors.transcription", fromlist=["TranscriptionDetector"]).TranscriptionDetector,
+                "classify_transcript",
+                return_value=[],
+            ):
+                with patch("podcast_etl.steps.detect_ads._get_audio_duration", return_value=600.0):
+                    DetectAdsStep().process(episode, context)
+
+        mock_transcribe.assert_not_called()
+
     def test_retranscribes_when_overwrite_true(self, tmp_path):
         context = _make_context(tmp_path, ad_detection_config={
             "whisper": {"url": "http://localhost:9000"},

@@ -372,6 +372,57 @@ docker build --target test -t podcast-etl-test . && docker run --rm podcast-etl-
 2. Register it in `service.py` with `register_step(YourStep())`
 3. Add `your_step` to the `pipeline` list in `feeds.yaml`
 
+## Ad Detection Evaluation
+
+A standalone harness in `eval/` measures ad detection quality against human-annotated gold-standard episodes. It is decoupled from the main pipeline — it imports `podcast_etl` for episode resolution and transcription but does not modify it.
+
+### Layout
+
+- `eval/annotations/` — version-controlled JSON files with gold-standard ad segments
+- `eval/prompts/` — named LLM prompt variants (`default.txt` mirrors the production prompt)
+- `eval/results/` — per-run scoring output (gitignored)
+- `eval/transcripts/` — eval-specific transcript cache (gitignored)
+- `eval/eval_config.yaml.example` — copy to `eval_config.yaml` and customize
+
+### Annotation format
+
+Each annotation references an episode by `(podcast_slug, episode_json_filename)` and lists ad segments with start/end times, label, and free-form notes. The `annotator` field records who labeled it (model name when bootstrapped, `human` after correction). See `eval/eval_config.yaml.example` for a sample.
+
+### Workflow
+
+The harness ships a `podcast-etl eval` CLI subcommand group that wraps the underlying scripts:
+
+```sh
+uv run podcast-etl eval annotate <podcast-slug> <episode-json>   # bootstrap (defaults annotator to recorded llm.model)
+uv run podcast-etl eval annotate <podcast-slug> <episode-json> --blank    # empty skeleton for manual labeling
+uv run podcast-etl eval validate eval/annotations/               # validate one file or a directory
+uv run podcast-etl eval review eval/annotations/<file>.json      # show transcript with ad highlights
+uv run podcast-etl eval run                                      # run the matrix; reads eval/eval_config.yaml
+```
+
+Typical flow:
+
+1. Run the production pipeline through `detect_ads` for the episodes you want to annotate. The `detect_ads` result records the whisper config and LLM model used, so the eval can later (a) skip re-transcribing when its whisper config matches production, and (b) default the bootstrap annotator to the recorded model name.
+2. Bootstrap annotations: `podcast-etl eval annotate <slug> <episode.json>`.
+3. Open each annotation, correct timestamps by ear, set `annotator: human`.
+4. Validate: `podcast-etl eval validate eval/annotations/`.
+5. (Optional) Review with transcript highlights: `podcast-etl eval review <ann>.json`.
+6. Configure `eval_config.yaml` with one or more (whisper, llm, prompt) configurations to compare. The top-level `allowed_annotators` field controls which annotations are scored; default `["human", "claude-sonnet-4-6"]` accepts both hand-corrected gold and sonnet-bootstrapped annotations. Override to `["human"]` explicitly when evaluating sonnet-4-6 itself (circular) or `[]` to score against all annotations.
+7. Run: `podcast-etl eval run`. Results land in `eval/results/<timestamp>-<config>.json` and a comparison table is printed to stdout.
+
+The underlying scripts (`eval/run.py`, etc.) still work as direct Python invocations — the CLI is just a thin wrapper.
+
+### Scoring
+
+A predicted segment matches a gold segment when their overlap exceeds 50% of the gold segment's duration (the matcher is pluggable). Each per-config aggregate reports:
+
+- Precision, recall, F1 on segment detection
+- Mean / median / p95 absolute boundary error for start and end
+- Total content incorrectly removed (false-positive duration)
+- Total ad duration missed (false-negative duration)
+
+Configurations sharing identical whisper settings reuse a single transcript per episode, so adding more LLM/prompt variants does not multiply transcription cost. The runner also reuses on-disk transcripts produced by a prior production `detect_ads` run when the recorded whisper config matches the eval's whisper config — so evaluating against episodes that have already gone through production skips whisper entirely.
+
 <details>
 <summary>Category IDs</summary>
 
