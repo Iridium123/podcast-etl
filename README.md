@@ -332,6 +332,33 @@ Steps run in the order listed in `pipeline`. Each step's result is stored per-ep
 | `upload` | `torrent` | Upload `.torrent` + metadata to UNIT3D tracker |
 | `audiobookshelf` | `download` | Copy audio to Audiobookshelf library; optionally trigger scan |
 
+## Ad Detection Eval
+
+A standalone harness for measuring ad-detection quality against gold-standard episodes. It reuses production's classifier and the on-disk `Labels` format, so "does prompt/model X beat Y?" is answered by running the real classifier and comparing outputs.
+
+**Datasets are directories of label files** — `eval/datasets/<name>/<podcast-slug>/labels/<stem>.json`, each a production-format `Labels` JSON. Production's own `output/<slug>/labels/` is a valid dataset, so you can score against it directly.
+
+```sh
+# 1. Generate predictions for some episodes with a given model/prompt/whisper
+podcast-etl eval label my-preds --podcast money-stuff-the-podcast \
+    --episode 2026-03-19-boaz-weinstein-edfb31cd.json --model claude-haiku-4-5-20251001
+
+# 2. Create / hand-correct a gold dataset (bootstrap from production, then edit
+#    the file and set provenance.annotator to "human")
+podcast-etl eval annotate money-stuff-the-podcast 2026-03-19-boaz-weinstein-edfb31cd.json --dataset gold
+podcast-etl eval validate gold        # structural checks
+podcast-etl eval review eval/datasets/gold/.../labels/<file>.json   # transcript with ad highlights
+
+# 3. Score predictions against gold
+podcast-etl eval score --predictions my-preds --gold gold --allowed-annotators human
+
+# Or run a whole matrix from a config file (copy the example first)
+cp eval/eval_config.yaml.example eval/eval_config.yaml
+podcast-etl eval run
+```
+
+`eval run` reads `eval/eval_config.yaml`: for each `(whisper, llm, prompt)` config it labels the gold episodes into its own predictions dataset, scores against the `gold` dataset, writes `eval/results/<ts>-<config>.json`, and prints a comparison table (precision/recall/F1, boundary error, content-lost, ads-missed). `allowed_annotators` controls which gold annotators count (default `["human"]`; the shipped `sonnet-4-6-bootstrap` gold dataset uses `claude-sonnet-4-6`). Configs sharing whisper settings transcribe once, and a matching production transcript is reused instead of re-transcribing.
+
 ## Docker
 
 A pre-built image is published to `ghcr.io/iridium123/podcast-etl:latest` on every push to `main`. It includes `mktorrent` and `ffmpeg` and defaults to `serve` mode (web UI + poll loop on port 8000).

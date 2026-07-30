@@ -1,0 +1,3 @@
+# Per-run results are not version controlled.
+*
+!.gitignore

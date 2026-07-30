@@ -13,6 +13,8 @@ uv run podcast-etl -v run --all              # run pipeline (verbose)
 uv run podcast-etl --log-level WARNING run --all
 uv run pytest tests/ -v                      # unit tests only
 uv run pytest tests/ -v -m ''               # all tests (including integration)
+uv run podcast-etl eval --help               # ad-detection eval harness (label, annotate, validate, score, review, run)
+uv run podcast-etl eval run                  # run eval matrix from eval/eval_config.yaml
 docker build --target test -t podcast-etl-test . && docker run --rm podcast-etl-test
 ```
 
@@ -51,6 +53,18 @@ Tests live in `tests/` and use pytest:
 - `test_integration.py` -- end-to-end: parse real RSS feed, download episode, tag MP3, stage file; torrent fetch phase with a real torf `.torrent` and real mutagen ID3 (marked `integration`)
 - `test_integration_torrent.py` -- stage + torrent steps with real disk I/O and mktorrent binary (marked `integration`)
 
+Eval harness tests live in `tests/test_eval/`:
+
+- `test_datasets.py` -- `ref_key`, `load_dataset` (keyed by `episode_ref`, ignores non-`labels/` dirs, missing-root error), `resolve_dataset_path` (literal path vs bare name)
+- `test_resolve.py` -- `resolve_episode` (audio/transcript path derivation; error branches: missing podcast/episode/audio/download-status/path)
+- `test_score.py` -- `overlap_fraction_matcher`, `match_segments` (greedy assignment), `score_episode`, `aggregate_scores` (precision/recall/F1, abs boundary errors), `format_report`
+- `test_validate.py` -- `validate_labels`/`validate_dataset` (negative, start>=end, exceeds duration, overlap; touching boundaries OK; empty annotator flagged only when segments present)
+- `test_review.py` -- `format_review`/`review_labels_file` (transcript with ad-segment highlighting via U+258C left half block)
+- `test_annotate.py` -- `create_blank` skeleton, `bootstrap_labels` (deep copy, annotator override, independence from source)
+- `test_label.py` -- `classify_to_segments` (production `classify` + `resolve_overlaps`), `make_labels` (provenance with normalized whisper, annotator defaulting to llm model)
+- `test_run.py` -- `load_run_config`, `group_configs_by_whisper`, `_reuse_production_transcript`, `score_datasets` (annotator filter, intersection scoring, missing-prediction skip), `label_dataset` (transcript reuse vs transcribe), `run_eval` (label-then-score per config, dup-name guard, results file)
+- `test_eval_cli.py` -- `podcast-etl eval` subcommands: `validate` (OK / failure exit), `score` (writes results + report), `annotate` (bootstrap from production, blank), `label` (writes predictions), `run` (missing-config error)
+
 **After making changes**, run tests and check whether new behaviour should be tested. Always update `README.md` and `CLAUDE.md` to reflect any changes to CLI commands, pipeline steps, architecture, or configuration.
 
 ## Architecture
@@ -84,7 +98,7 @@ Templates use Tailwind CSS (CDN) and HTMX (CDN) -- no JS build step.
 
 ### CLI (`cli.py`)
 
-Click commands: `add`, `fetch`, `run`, `reset`, `delete`, `status`, `poll`, `serve`. Calls service layer functions for all business logic.
+Click commands: `add`, `fetch`, `run`, `reset`, `delete`, `status`, `poll`, `serve`, and the `eval` group (see below). Calls service layer functions for all business logic. The `eval` group is defined in `eval_cli.py` and registered onto `main` via `main.add_command(eval_group)`.
 
 ### Core modules
 
@@ -117,7 +131,7 @@ Each step implements the `Step` protocol (`name: str`, `process(episode, context
 
 - `clients/` -- `TorrentClient` protocol (`add_torrent`, `has_torrent`, `is_complete`, `get_files`), `TorrentFileInfo`, and the shared `get_torrent_client` factory. `clients/qbittorrent.py` implements the protocol with session-based auth; `is_complete` checks `progress == 1` (never state names -- qBt renamed them across versions)
 - `trackers/unit3d.py` -- `ModifiedUnit3dTracker` implementing `Tracker` protocol; multipart upload to UNIT3D REST API
-- `detectors/` -- `AdSegment` dataclass (with optional `notes`), `Detector`/`LLMProvider` protocols, `resolve_overlaps` utility (greedy earliest-start-wins: snaps overlapping/near-adjacent segments — gap ≤ `ADJACENCY_BUFFER_SECONDS`, default 5s — to a contiguous, non-overlapping sequence while keeping each segment distinct; drops fully-contained segments). `transcription.py` owns the production classify code path: `load_prompt(name)` reads `prompts/<name>.txt`; `build_llm_client(llm_config)` makes one reusable client; `classify(transcript, prompt_text, llm_config, client=None)` is the single classify function (prompt sent as a cacheable `ephemeral` system block, transcript as the user message). `TranscriptionDetector` handles whisper + classification; `AnthropicProvider` resolves the prompt name and calls `classify`.
+- `detectors/` -- `AdSegment` dataclass (with optional `notes`), `Detector`/`LLMProvider` protocols, `resolve_overlaps` utility (greedy earliest-start-wins: snaps overlapping/near-adjacent segments — gap ≤ `ADJACENCY_BUFFER_SECONDS`, default 5s — to a contiguous, non-overlapping sequence while keeping each segment distinct; drops fully-contained segments). `transcription.py` owns the production classify code path: `load_prompt(name)` reads `prompts/<name>.txt`; `build_llm_client(llm_config)` makes one reusable client; `classify(transcript, prompt_text, llm_config, client=None)` is the single classify function (prompt sent as a cacheable `ephemeral` system block, transcript as the user message). `TranscriptionDetector` handles whisper + classification; `AnthropicProvider` resolves the prompt name and calls `classify`. `normalize_whisper_config(whisper)` returns only the transcript-content-affecting fields (`url`, `model`, `language`, `word_timestamps`), used to key transcript caches and decide when a cached/production transcript can be reused.
 
 ### Config format
 
@@ -159,6 +173,25 @@ feeds:
 
 The final image installs `mktorrent` and `ffmpeg` via `apt-get` and exposes port `8000`. Three volumes: `/config` (YAML config), `/output` (download/processing data), `/torrent-data` (staging dir shared with qBittorrent container). The default entrypoint runs `serve` (web UI + integrated poll loop). The `prompts/` directory (ad-detection prompts, resolved relative to the `/app` working directory) and `scripts/` (maintenance scripts such as `migrate_labels.py`, runnable against the live `/output` volume) are copied into the image.
 
+### Ad-detection eval harness (`eval/`)
+
+Standalone evaluation system for measuring ad-detection quality against gold-standard episodes. It is a thin scorer on top of production: it imports the production `Labels` type and the single production `classify()` function rather than reimplementing them.
+
+**Datasets are directories of `Labels` files.** A dataset is `eval/datasets/<name>/<podcast-slug>/labels/<stem>.json`, where each file is a production-format `Labels` JSON. This mirrors production's `output/<slug>/labels/` exactly, so a production output directory is a valid dataset out of the box (`--gold output` works). Scoring matches episodes across two datasets by each file's `episode_ref` (not its filename).
+
+- `eval/datasets.py` -- `load_dataset(root)` (globs `*/labels/*.json`, keyed by `ref_key`), `resolve_dataset_path(name_or_path)` (literal path, else under `eval/datasets/`)
+- `eval/resolve.py` -- `resolve_episode(ref, output_dir)` finds audio/transcript paths on disk
+- `eval/score.py` -- segment matching (`overlap_fraction_matcher`, pluggable), `score_episode`, `aggregate_scores`, `format_report`
+- `eval/label.py` -- `classify_to_segments` (production `classify` + `resolve_overlaps`), `make_labels` (assemble `Labels` with provenance)
+- `eval/annotate.py` -- `create_blank`, `bootstrap_labels` (copy a source `Labels` for hand correction)
+- `eval/validate.py` -- structural checks over a `Labels` / dataset
+- `eval/review.py` -- transcript display with ad-segment highlights
+- `eval/run.py` -- runner: `load_run_config`, `label_dataset`, `score_datasets`, `run_eval` (per-config label-then-score matrix). `main()` keeps `uv run python eval/run.py` working.
+
+CLI (`src/podcast_etl/eval_cli.py`, group `podcast-etl eval`): `label <dataset> --podcast --episode` (run production classify into a predictions dataset), `annotate <podcast> <episode_json> [--blank|--bootstrap-from]` (create a gold `Labels` for hand correction; set its `annotator` to `human` after editing), `validate <dataset>`, `score --predictions <d> --gold <d> [--allowed-annotators]`, `review <labels-file>`, `run [--config]`.
+
+Configs sharing identical whisper settings reuse one transcript per episode in-memory (cache key from `normalize_whisper_config`). Before transcribing, `label_dataset` checks `detect_ads.result['whisper']`: if it matches the eval whisper config, the on-disk production transcript is reused. `classify` puts the prompt in Anthropic's `system` with `cache_control: ephemeral` so prompt input cost is paid once per (config, cache window). `score_datasets` filters gold by `allowed_annotators` (default `["human"]`; `[]` accepts all) — the shipped `sonnet-4-6-bootstrap` gold dataset is annotated `claude-sonnet-4-6`, so score against it with `--allowed-annotators claude-sonnet-4-6` (or `""`).
+
 ### Adding a new pipeline step
 
 1. Create `src/podcast_etl/steps/your_step.py` implementing the `Step` protocol
@@ -170,3 +203,5 @@ The final image installs `mktorrent` and `ffmpeg` via `apt-get` and exposes port
 **Logging disable hack:** `cli.py` disables all logging at module import (`logging.disable(logging.ERROR)`) before dependencies load, to suppress pyenv hashlib blake2 errors. It re-enables logging in `setup_logging()`. Any code that runs before `setup_logging()` will not produce log output.
 
 **Web UI form/YAML split:** The sets `KNOWN_FEED_FIELDS` and `KNOWN_DEFAULTS_FIELDS` in `service.py` control which config keys get structured form controls vs. raw YAML editing. Promoting a field means adding it to the set and writing the template markup.
+
+**Eval pythonpath:** The `eval/` package lives at the project root, not under `src/`. `pyproject.toml` adds `pythonpath = ["."]` to `[tool.pytest.ini_options]` so `from eval.<module> import ...` works in pytest. The `eval_cli.py` commands insert the project root onto `sys.path` at call time for the same reason (the eval package isn't part of the installed wheel). The `eval` name shadows a builtin but only matters for `import eval` (which we never do); `from eval.X import Y` is unambiguous.

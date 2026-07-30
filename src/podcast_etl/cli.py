@@ -29,6 +29,7 @@ from podcast_etl.service import (
     save_config,
     validate_config,
 )
+from podcast_etl.eval_cli import eval_group
 
 logger = logging.getLogger(__name__)
 
@@ -361,3 +362,7 @@ def status(ctx: click.Context, feed_url: str | None) -> None:
                     statuses.append("pending")
             title_display = ep.title[:38] + ".." if len(ep.title) > 40 else ep.title
             click.echo(f"  {title_display:<40} " + " ".join(f"{s:<12}" for s in statuses))
+
+
+# Ad-detection eval harness subcommands (`podcast-etl eval ...`).
+main.add_command(eval_group)

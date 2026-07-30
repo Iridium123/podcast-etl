@@ -18,6 +18,7 @@ from podcast_etl.detectors.transcription import (
     classify,
     get_llm_provider,
     load_prompt,
+    normalize_whisper_config,
     transcribe,
 )
 
@@ -254,6 +255,40 @@ class TestBuildLlmClient:
 
     def test_returns_none_for_other_providers(self):
         assert build_llm_client({"provider": "other"}) is None
+
+
+# ---------------------------------------------------------------------------
+# normalize_whisper_config
+# ---------------------------------------------------------------------------
+
+class TestNormalizeWhisperConfig:
+    def test_keeps_only_content_affecting_fields(self):
+        normalized = normalize_whisper_config({
+            "model": "base",
+            "language": "en",
+            "url": "http://whisper:9000",
+            "word_timestamps": True,
+            "api_key": "secret",
+            "device": "cuda",
+            "compute_type": "float16",
+        })
+        assert normalized == {
+            "model": "base",
+            "language": "en",
+            "url": "http://whisper:9000",
+            "word_timestamps": True,
+        }
+
+    def test_omits_absent_fields(self):
+        assert normalize_whisper_config({"model": "base", "language": "en"}) == {
+            "model": "base",
+            "language": "en",
+        }
+
+    def test_equal_configs_normalize_equal_despite_noise(self):
+        a = {"model": "base", "language": "en", "api_key": "k1"}
+        b = {"model": "base", "language": "en", "api_key": "k2", "device": "cpu"}
+        assert normalize_whisper_config(a) == normalize_whisper_config(b)
 
 
 # ---------------------------------------------------------------------------
