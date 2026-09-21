@@ -20,15 +20,15 @@ docker build --target test -t podcast-etl-test . && docker run --rm podcast-etl-
 
 Tests live in `tests/` and use pytest:
 
-- `test_models.py` -- `slugify`, `episode_json_filename`, `StepStatus`, `Episode`, `Podcast`, `TorrentItem` (dict roundtrips, save/load, GUID filenames, `guid_hash` torrent-item filenames)
+- `test_models.py` -- `slugify`, `episode_json_filename`, `StepStatus`, `Episode`, `Podcast`, `TorrentItem` (dict roundtrips, save/load, GUID filenames, `guid_hash` torrent-item filenames, `episode_guid_hash` (8-char, distinct from `guid_hash`) determinism, `Episode.save` atomicity (skip-if-unchanged, leaves no temp files))
 - `test_pipeline.py` -- `Pipeline` step execution, skipping already-completed steps, step filters, `deep_merge`
-- `test_feed.py` -- `parse_feed` (audio extraction, slug dedup, status preservation, episode image extraction, episode number parsing, `raw_title` capture)
+- `test_feed.py` -- `parse_feed` (audio extraction, slug dedup, status preservation, episode image extraction, episode number parsing, `raw_title` capture, merging status from multiple on-disk JSON files sharing one GUID regardless of filename/iteration order)
 - `test_unit3d_feed.py` -- `parse_unit3d_feed` (torrent enclosure extraction, on-disk state preservation, orphan exclusion, all-on-disk-episode restoration, blacklist)
 - `test_torrent_fetch.py` -- `to_rfc2822`, ID3 extraction with fallbacks (including filename-parsed dates), episode spawning (slug dedup, collision-suffixed filenames, synthesized download status), three-state fetch machine (blob+local hash, re-add recovery, no-MP3 terminal, missing-source visibility check, partial-spawn idempotency, per-item failure isolation)
 - `test_cli.py` -- `parse_date_range`, `reset` command (single feed, --all, cancel, nonexistent, argument validation), `delete` command (config removal, on-disk cleanup, missing-feed exit, cancel)
 - `test_service.py` -- service layer: `load_config`, `save_config` (atomic writes), `validate_config`, `get_output_dir`, `find_feed_config`, `find_podcast_dir`, `get_pipeline_steps`, `filter_episodes`, `get_feed_status`, `split_config_fields`, `merge_config_fields`, `get_resolved_config_with_sources`, `reset_feed_data`, `delete_feed`, `source` validation/dispatch (per-check validators `_check_feed_source`/`_check_unit3d_pipeline`), `filter_torrent_items`, `select_torrent_items` (in-flight retention), `episodes_for_torrent_items`, `run_torrent_phase` (config-`last` fallback, step-filter fetch skip, episode scoping), fetch-phase ordering in `run_pipeline`
 - `test_download_step.py` -- `DownloadStep` filename construction, skip-existing, download
-- `test_tag_step.py` -- `TagStep` MP3 tagging, TRCK track number, APIC album art embedding, audio file discovery, error cases
+- `test_tag_step.py` -- `TagStep` MP3 tagging, TRCK track number, APIC album art embedding, audio file discovery from the download-recorded path (no slug-glob fallback), error cases
 - `test_qbittorrent_client.py` -- `QBittorrentClient` login, has_torrent, add_torrent (plain-text and JSON-summary responses), is_complete (progress-based), get_files, `get_torrent_client` factory
 - `test_unit3d_tracker.py` -- `ModifiedUnit3dTracker` upload, field construction, image handling, cover override precedence
 - `test_transcription_detector.py` -- `TranscriptionDetector` whisper API, local transcription, `load_prompt`, `build_llm_client`, `classify` (cached system prompt, client reuse), `AnthropicProvider` (prompt resolution + classify), `resolve_overlaps` (overlap/near-adjacent snapping, containment drop, buffer), `_parse_llm_response`
@@ -36,10 +36,12 @@ Tests live in `tests/` and use pytest:
 - `test_strip_ads_step.py` -- `StripAdsStep` ffmpeg args, idempotency, no-ads passthrough, reading segments from the labels file
 - `test_labels.py` -- `Labels`/`Provenance`/`EpisodeRef` to_dict/from_dict, save/load roundtrip, on-disk shape, `AdSegment.notes`
 - `test_migrate_labels.py` -- `scripts/migrate_labels.py` migration of embedded segments to label files, dry-run, idempotency, CLI entry
+- `test_checkpoints.py` -- `checkpoint_filename`, `find_checkpoint`/`write_checkpoint` (GUID-hash matching, payload guid verification, stale same-guid rename cleanup, invalid JSON/missing directory handling), `resolve_duplicate_statuses` (latest-`completed_at`-per-step merge, deterministic regardless of input order)
+- `test_migrate_checkpoints.py` -- `migrate_checkpoints`: healthy migration, poisoning via signal (b) (cross-guid seed-hash/upload-url reuse, chain of 3+ guids all-but-earliest flagged), signal (a) alone downgraded to `suspect` (status untouched, no checkpoint, still logged), duplicate same-guid files merging, conflicting-upload-URL guids skipped untouched, rename orphans, idempotency, dry-run, legacy classified by payload not filename shape; `scripts/migrate_checkpoints.py` CLI (dry-run, `--podcast` filter, prints poisoned/suspect/skipped_conflict entries by name)
 - `test_stage_step.py` -- `StageStep` copy, idempotency, client_path rebasing, strip_ads fallback
 - `test_torrent_step.py` -- `TorrentStep` mktorrent args, idempotency, error cases
-- `test_seed_step.py` -- `SeedStep` add_torrent, idempotency, client resolution
-- `test_upload_step.py` -- `UploadStep` tracker.upload call, tracker resolution, cover image override, error cases
+- `test_seed_step.py` -- `SeedStep` add_torrent, idempotency, client resolution, GUID-keyed checkpoint write/skip, hash-mismatch re-seed, legacy slug-keyed checkpoint not honoured
+- `test_upload_step.py` -- `UploadStep` tracker.upload call, tracker resolution, cover image override, error cases, GUID-keyed checkpoint write/skip (skips on GUID match despite info_hash mismatch), legacy slug-keyed checkpoint not honoured
 - `test_images.py` -- `download_image` (caching, extension extraction, fallback), `resolve_episode_image` (episode/feed fallback, dedup, error handling), `convert_image` (resize, format conversion, no upscale)
 - `test_title_clean.py` -- `strip_date`, `parse_inline_date`, `reorder_parts`, `prepend_episode_number`, `sanitize`, `clean_title` (date formats, bracket types, bare dates, calendar validation, part variants, episode number prepend, filesystem chars, separator collapsing, config flags)
 - `test_text.py` -- `clean_description` (HTML, entity-encoded, CDATA, plain text), `contains_blacklisted`, `apply_blacklist`
@@ -88,7 +90,9 @@ Click commands: `add`, `fetch`, `run`, `reset`, `delete`, `status`, `poll`, `ser
 
 ### Core modules
 
-- `models.py` -- `Podcast`, `Episode`, `StepStatus`, `TorrentItem` dataclasses with `save()`/`load()` methods. `Episode.raw_title` stores the original RSS title before cleaning. `episode_json_filename()` produces stable GUID-based filenames. `TorrentItem` lifecycle state derives from its fields (no `info_hash` = blob not fetched; `info_hash` without `fetched_at` = downloading; `fetched_at` = done); `Podcast.torrent_items` is populated only for torrent-source feeds.
+- `models.py` -- `Podcast`, `Episode`, `StepStatus`, `TorrentItem` dataclasses with `save()`/`load()` methods (atomic: temp file in the same dir + `os.replace`). `Episode.raw_title` stores the original RSS title before cleaning. `episode_json_filename()` produces stable GUID-based filenames from `episode_guid_hash()` (8-char, distinct from the 16-char `guid_hash()` used for torrent-item filenames). `TorrentItem` lifecycle state derives from its fields (no `info_hash` = blob not fetched; `info_hash` without `fetched_at` = downloading; `fetched_at` = done); `Podcast.torrent_items` is populated only for torrent-source feeds.
+- `checkpoints.py` -- `checkpoint_filename` (mirrors the episode JSON stem), `find_checkpoint`/`write_checkpoint` for the GUID-keyed `seeds/`/`uploads/` checkpoints (matches by `episode_guid_hash` in the filename, verifies the payload's own `guid` field, atomic write, cleans up a stale same-guid file left by a title rename), `resolve_duplicate_statuses` (merges per-step status from Episode objects sharing one GUID, latest `completed_at` wins, deterministic).
+- `checkpoint_migration.py` -- `migrate_checkpoints(podcast_dir)`: one-time-per-podcast healing of the old slug-keyed `seeds/<slug>.json`/`uploads/<slug>.json` checkpoints into GUID-keyed ones (see the Gotchas entry below for the on-disk healing behavior). Returns a `MigrationReport` (`migrated`, `poisoned`, `poisoned_guids`, `suspect`, `skipped_conflict`, `legacy_moved`).
 - `labels.py` -- `Labels`, `Provenance`, `EpisodeRef` dataclasses. `Labels` is the first-class on-disk ad-label artifact (`save`/`load`), written by `detect_ads` to `output/<slug>/labels/<stem>.json` and read by `strip_ads`.
 - `feed.py` -- fetches RSS via `feedparser`, parses into models, merges existing on-disk step status to preserve progress. Parses `itunes:episode` into `Episode.episode_number` and `itunes:image` into `Episode.image_url`.
 - `unit3d_feed.py` -- UNIT3D tracker RSS parser. Torrent enclosures become `TorrentItem`s (on-disk state merged; items missing from the feed become orphans and are dropped -- tracker-deletion abandonment). Loads ALL on-disk episodes into `Podcast.episodes` (torrent-spawned episodes are never feed-present, unlike `parse_feed`).
@@ -109,8 +113,8 @@ Each step implements the `Step` protocol (`name: str`, `process(episode, context
 - `strip_ads` -- remove ad segments via ffmpeg with crossfade; loads segments + audio duration from the `detect_ads` labels file (no embedded-segments fallback)
 - `stage` -- copy audio to `torrent_data_dir/`; prefers cleaned audio, falls back to download
 - `torrent` -- create `.torrent` via `mktorrent`, extract `info_hash` via `torf`
-- `seed` -- add torrent to qBittorrent via Web API
-- `upload` -- upload to UNIT3D tracker; uses episode artwork as cover (500x500 JPEG), falls back to `cover_image` config; supports banner images
+- `seed` -- add torrent to qBittorrent via Web API; checkpoint at `seeds/<episode-stem>.json` (same stem as the episode JSON, keyed by GUID hash), honoured only if its `hash` matches the episode's current torrent `info_hash` (a mismatch re-seeds instead of trusting a stale checkpoint)
+- `upload` -- upload to UNIT3D tracker; uses episode artwork as cover (500x500 JPEG), falls back to `cover_image` config; supports banner images; checkpoint at `uploads/<episode-stem>.json`, skipped on a GUID match alone (a differing `info_hash` only logs a warning -- a duplicate tracker upload is the costlier failure)
 - `audiobookshelf` -- copy audio to Audiobookshelf library dir; only `dir` is required. If `url`/`api_key`/`library_id` are all set, triggers a library scan via the ABS API after each copy; if all are absent, skips the scan (logged) and relies on ABS's folder watcher. A partial set of scan keys is a config error.
 
 ### External integrations
@@ -157,7 +161,7 @@ feeds:
 
 ### Docker
 
-The final image installs `mktorrent` and `ffmpeg` via `apt-get` and exposes port `8000`. Three volumes: `/config` (YAML config), `/output` (download/processing data), `/torrent-data` (staging dir shared with qBittorrent container). The default entrypoint runs `serve` (web UI + integrated poll loop). The `prompts/` directory (ad-detection prompts, resolved relative to the `/app` working directory) and `scripts/` (maintenance scripts such as `migrate_labels.py`, runnable against the live `/output` volume) are copied into the image.
+The final image installs `mktorrent` and `ffmpeg` via `apt-get` and exposes port `8000`. Three volumes: `/config` (YAML config), `/output` (download/processing data), `/torrent-data` (staging dir shared with qBittorrent container). The default entrypoint runs `serve` (web UI + integrated poll loop). The `prompts/` directory (ad-detection prompts, resolved relative to the `/app` working directory) and `scripts/` (maintenance scripts such as `migrate_labels.py` and `migrate_checkpoints.py`, runnable against the live `/output` volume) are copied into the image.
 
 ### Adding a new pipeline step
 
@@ -170,3 +174,5 @@ The final image installs `mktorrent` and `ffmpeg` via `apt-get` and exposes port
 **Logging disable hack:** `cli.py` disables all logging at module import (`logging.disable(logging.ERROR)`) before dependencies load, to suppress pyenv hashlib blake2 errors. It re-enables logging in `setup_logging()`. Any code that runs before `setup_logging()` will not produce log output.
 
 **Web UI form/YAML split:** The sets `KNOWN_FEED_FIELDS` and `KNOWN_DEFAULTS_FIELDS` in `service.py` control which config keys get structured form controls vs. raw YAML editing. Promoting a field means adding it to the set and writing the template markup.
+
+**Checkpoint migration:** `run_pipeline` runs `checkpoint_migration.migrate_checkpoints` automatically at the start of each feed's cycle, but only when legacy slug-named checkpoint files exist (cheap no-op otherwise). It trusts episode status: an episode whose seed hash or upload URL is also recorded under a *different*, earlier GUID is `poisoned` -- that later GUID's seed/upload status is cleared (both on disk and in the in-memory `Episode` objects passed to `run_pipeline`, so a same-cycle step-save can't resurrect it) and it will re-seed/re-upload on the next run. A GUID whose own seed hash merely disagrees with its own torrent's info_hash (no cross-guid reuse) is only `suspect` -- logged, left untouched, needs a manual look. Legacy files are moved under `.legacy/`, never deleted.

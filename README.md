@@ -312,6 +312,8 @@ The script ships in the Docker image too, so you can run it against the live `/o
 docker compose run --rm podcast-etl python scripts/migrate_labels.py --output-dir /output --dry-run
 ```
 
+`scripts/migrate_checkpoints.py` (see [Upgrading](#upgrading)) follows the same conventions and ships in the image the same way.
+
 ### Tracker Cookie
 
 To get the `remember_cookie` value: log in to the tracker in your browser, open DevTools, go to Application then Cookies, and copy the value of `remember_web_59ba36addc2b2f9401580f014c7f58ea4e30989d`. This works with 2FA-enabled accounts.
@@ -331,6 +333,16 @@ Steps run in the order listed in `pipeline`. Each step's result is stored per-ep
 | `seed` | `torrent` | Add torrent to qBittorrent via Web API |
 | `upload` | `torrent` | Upload `.torrent` + metadata to UNIT3D tracker |
 | `audiobookshelf` | `download` | Copy audio to Audiobookshelf library; optionally trigger scan |
+
+`seed` and `upload` record a checkpoint at `output/<slug>/seeds/<episode-stem>.json` / `output/<slug>/uploads/<episode-stem>.json` -- the same filename stem as the episode's own JSON, keyed by a hash of the episode GUID (not its title/slug, which can change). `seed` re-validates the cached hash against the episode's current torrent before trusting it; `upload` skips purely on a GUID match.
+
+## Upgrading
+
+If you're upgrading from a version that keyed `seed`/`upload` checkpoints by episode slug/title instead of GUID: the first poll after upgrading runs a one-time migration per feed automatically (see `checkpoint_migration.py` in the codebase). It heals episodes whose checkpoint was silently poisoned by a slug collision or a publisher title rename -- those episodes had been marked "already completed" without ever actually seeding/uploading, and **will upload/seed on the next run** now that the poisoning is detected and cleared. Old checkpoint files are preserved under `seeds/.legacy/` and `uploads/.legacy/`, never deleted. To preview what the migration would do without changing anything:
+
+```sh
+uv run python scripts/migrate_checkpoints.py --output-dir output/ --dry-run
+```
 
 ## Docker
 
