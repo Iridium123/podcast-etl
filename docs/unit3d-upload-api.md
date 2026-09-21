@@ -87,7 +87,7 @@ Content-Type: multipart/form-data
 
 ### Response
 
-**Success:** 301/302 redirect to `/torrents/<id>`. Extract the torrent ID from the `Location` header.
+**Success:** 301/302 redirect to `/torrents/<id>` or `/torrents/download_check/<id>`. Extract the torrent ID from the `Location` header.
 
 **Validation error:** 301/302 redirect back to `/torrents/create`. Follow the redirect and parse `<li>` elements in the error alert for messages.
 

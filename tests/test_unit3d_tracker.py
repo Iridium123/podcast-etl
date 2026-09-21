@@ -565,6 +565,9 @@ class TestExtractTorrentId:
     def test_extracts_id_from_full_url(self):
         assert _extract_torrent_id("https://tracker.example.com/torrents/123") == 123
 
+    def test_extracts_id_from_download_check_url(self):
+        assert _extract_torrent_id("https://tracker.example.com/torrents/download_check/6303") == 6303
+
     def test_returns_none_for_no_match(self):
         assert _extract_torrent_id("/other/page") is None
 
