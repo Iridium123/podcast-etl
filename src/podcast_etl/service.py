@@ -11,6 +11,7 @@ from pathlib import Path
 
 import yaml
 
+from podcast_etl.checkpoint_migration import migrate_checkpoints
 from podcast_etl.feed import parse_feed
 from podcast_etl.models import Episode, Podcast, TorrentItem
 from podcast_etl.pipeline import (
@@ -386,6 +387,25 @@ def run_pipeline(
     episode_filter: str | None = None,
     overwrite: bool = False,
 ) -> None:
+    podcast_dir = podcast.podcast_dir(output_dir)
+    if podcast_dir.is_dir():
+        try:
+            migration_report = migrate_checkpoints(podcast_dir)
+        except Exception:
+            # A failed migration is benign: completed status still short-circuits steps.
+            logger.exception("Checkpoint migration failed for %s", podcast_dir)
+        else:
+            # The loaded episodes still carry the poisoned status; a later episode.save() would write it back.
+            poisoned_guids = set(migration_report.poisoned_guids)
+            for episode in podcast.episodes:
+                if episode.guid in poisoned_guids:
+                    episode.status.pop("seed", None)
+                    episode.status.pop("upload", None)
+            if migration_report.poisoned or migration_report.suspect or migration_report.skipped_conflict:
+                logger.warning("Checkpoint migration for %s: %s", podcast_dir, migration_report)
+            elif not migration_report.is_empty():
+                logger.info("Checkpoint migration for %s: %s", podcast_dir, migration_report)
+
     step_names = get_pipeline_steps(resolved_config)
     steps = [get_step(name) for name in step_names]
     context = PipelineContext(output_dir=output_dir, podcast=podcast, config=resolved_config, overwrite=overwrite)
