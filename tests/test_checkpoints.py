@@ -211,3 +211,12 @@ def test_resolve_duplicate_statuses_deterministic_regardless_of_order():
 
 def test_resolve_duplicate_statuses_empty_list():
     assert resolve_duplicate_statuses([]) == {}
+
+
+def test_write_checkpoint_identity_keys_win_over_data(tmp_path):
+    ep = _make_episode()
+    payload = write_checkpoint(tmp_path, ep, data={"guid": "evil", "title": "x", "info_hash": "y", "url": "u"}, info_hash="abc")
+    assert payload["guid"] == ep.guid
+    assert payload["info_hash"] == "abc"
+    assert payload["url"] == "u"
+    assert find_checkpoint(tmp_path, ep) == payload

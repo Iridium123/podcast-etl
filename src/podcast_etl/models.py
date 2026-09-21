@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import Any
+
+from podcast_etl.atomic import atomic_write_text
 
 
 def slugify(text: str) -> str:
@@ -151,9 +152,7 @@ class Episode:
         content = json.dumps(self.to_dict(), indent=2) + "\n"
         if path.exists() and path.read_text(encoding="utf-8") == content:
             return
-        tmp = path.with_suffix(".tmp")
-        tmp.write_text(content, encoding="utf-8")
-        os.replace(tmp, path)
+        atomic_write_text(path, content)
 
     @classmethod
     def load(cls, path: Path) -> Episode:

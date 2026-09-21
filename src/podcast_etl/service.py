@@ -396,12 +396,13 @@ def run_pipeline(
             logger.exception("Checkpoint migration failed for %s", podcast_dir)
         else:
             # The loaded episodes still carry the poisoned status; a later episode.save() would write it back.
-            poisoned_guids = set(migration_report.poisoned_guids)
             for episode in podcast.episodes:
-                if episode.guid in poisoned_guids:
-                    episode.status.pop("seed", None)
-                    episode.status.pop("upload", None)
-            if migration_report.poisoned or migration_report.suspect or migration_report.skipped_conflict:
+                for step_name in migration_report.poisoned_steps.get(episode.guid, []):
+                    episode.status.pop(step_name, None)
+            if (
+                migration_report.poisoned or migration_report.suspect
+                or migration_report.skipped_conflict or migration_report.unclaimed
+            ):
                 logger.warning("Checkpoint migration for %s: %s", podcast_dir, migration_report)
             elif not migration_report.is_empty():
                 logger.info("Checkpoint migration for %s: %s", podcast_dir, migration_report)

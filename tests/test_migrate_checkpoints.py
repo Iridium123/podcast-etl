@@ -266,6 +266,200 @@ def test_signal_b_chain_of_three_poisons_all_but_earliest(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# Per-step poisoning: a guid can be poisoned for one step and healthy for
+# the other -- only the poisoned step is cleared/withheld.
+# ---------------------------------------------------------------------------
+
+def test_poisoning_is_per_step_not_per_guid(tmp_path):
+    """B shares A's seed hash (no torrent status on either -> earliest-wins
+    fallback poisons B's seed) but B's upload url is its own -- untouched."""
+    podcast_dir = tmp_path / "podcast"
+    episodes_dir = podcast_dir / "episodes"
+    shared_hash = "a" * 40
+    a = _episode(
+        guid="guid-a", title="Show", published="Mon, 01 Jan 2024 00:00:00 +0000",
+        status={
+            "seed": _status("2024-01-01T00:00:00", {"client": "qbittorrent", "hash": shared_hash}),
+            "upload": _status("2024-01-01T00:05:00", {"torrent_id": None, "url": "https://tracker/a"}),
+        },
+    )
+    b = _episode(
+        guid="guid-b", title="Show", published="Mon, 08 Jan 2024 00:00:00 +0000",
+        status={
+            "seed": _status("2024-01-08T00:00:00", {"client": "qbittorrent", "hash": shared_hash}),
+            "upload": _status("2024-01-08T00:05:00", {"torrent_id": None, "url": "https://tracker/b"}),
+        },
+    )
+    _write_episode(episodes_dir, a, filename="show-a.json")
+    b_path = _write_episode(episodes_dir, b, filename="show-b.json")
+    _write_legacy(podcast_dir / "seeds", "show.json", {"client": "qbittorrent", "hash": shared_hash})
+
+    report = migrate_checkpoints(podcast_dir)
+
+    b_data = json.loads(b_path.read_text())
+    assert "seed" not in b_data["status"]
+    assert "upload" in b_data["status"]
+    assert find_checkpoint(podcast_dir / "seeds", b) is None
+    assert find_checkpoint(podcast_dir / "uploads", b) is not None
+
+    assert len(report.poisoned) == 1
+    assert report.poisoned[0] == "Show (guid-b): seed"
+    assert report.poisoned_steps == {"guid-b": ["seed"]}
+    # A keeps both, and gets a seed checkpoint (it's the owner) plus its own upload checkpoint.
+    assert find_checkpoint(podcast_dir / "seeds", a) is not None
+    assert find_checkpoint(podcast_dir / "uploads", a) is not None
+
+
+# ---------------------------------------------------------------------------
+# Owner chosen by evidence (own torrent info_hash / self-consistency), not
+# blindly by earliest completed_at -- covers an --overwrite re-run on the
+# true owner producing a later completed_at than the poisoned inheritor.
+# ---------------------------------------------------------------------------
+
+def test_owner_chosen_by_evidence_even_with_later_timestamp(tmp_path):
+    podcast_dir = tmp_path / "podcast"
+    episodes_dir = podcast_dir / "episodes"
+    shared_hash = "c" * 40
+    shared_url = "https://tracker.example/torrents/download_check/77"
+
+    # A is the real owner: its own torrent info_hash matches the shared seed
+    # hash, and it's self-consistent (seed.hash == torrent.info_hash) for the
+    # upload-url signal too -- but its timestamps are LATER (simulating a
+    # --overwrite re-run), so naive earliest-wins would misidentify B.
+    a = _episode(
+        guid="guid-a", title="Show", published="Mon, 01 Jan 2024 00:00:00 +0000",
+        status={
+            "torrent": _status("2024-01-01T00:00:00", {"torrent_path": "a.torrent", "info_hash": shared_hash}),
+            "seed": _status("2024-02-01T00:00:00", {"client": "qbittorrent", "hash": shared_hash}),
+            "upload": _status("2024-02-01T00:05:00", {"torrent_id": None, "url": shared_url}),
+        },
+    )
+    b = _episode(
+        guid="guid-b", title="Show", published="Mon, 08 Jan 2024 00:00:00 +0000",
+        status={
+            "seed": _status("2024-01-05T00:00:00", {"client": "qbittorrent", "hash": shared_hash}),
+            "upload": _status("2024-01-05T00:05:00", {"torrent_id": None, "url": shared_url}),
+        },
+    )
+    _write_episode(episodes_dir, a, filename="show-a.json")
+    b_path = _write_episode(episodes_dir, b, filename="show-b.json")
+    _write_legacy(podcast_dir / "seeds", "show.json", {"client": "qbittorrent", "hash": shared_hash})
+    _write_legacy(podcast_dir / "uploads", "show.json", {"torrent_id": None, "url": shared_url})
+
+    report = migrate_checkpoints(podcast_dir)
+
+    b_data = json.loads(b_path.read_text())
+    assert "seed" not in b_data["status"]
+    assert "upload" not in b_data["status"]
+    assert find_checkpoint(podcast_dir / "seeds", b) is None
+    assert find_checkpoint(podcast_dir / "uploads", b) is None
+
+    assert set(report.poisoned_steps["guid-b"]) == {"seed", "upload"}
+    assert "guid-a" not in report.poisoned_steps
+
+    seed_checkpoint = find_checkpoint(podcast_dir / "seeds", a)
+    assert seed_checkpoint is not None and seed_checkpoint["hash"] == shared_hash
+    upload_checkpoint = find_checkpoint(podcast_dir / "uploads", a)
+    assert upload_checkpoint is not None and upload_checkpoint["url"] == shared_url
+
+
+# ---------------------------------------------------------------------------
+# Conflict-skipped guids still take part in reuse detection: they can poison
+# another guid, but are themselves never written/cleared.
+# ---------------------------------------------------------------------------
+
+def test_conflict_guid_still_poisons_another_guid_but_stays_untouched(tmp_path):
+    podcast_dir = tmp_path / "podcast"
+    episodes_dir = podcast_dir / "episodes"
+    # A has two files under the same guid disagreeing on the upload url --
+    # a same-guid conflict. Its merged (latest) status carries "url2".
+    a1 = _episode(
+        guid="guid-a", title="Show A", published="Mon, 01 Jan 2024 00:00:00 +0000",
+        status={"upload": _status("2024-01-01T00:00:00", {"torrent_id": None, "url": "https://tracker/url1"})},
+    )
+    a2 = _episode(
+        guid="guid-a", title="Show A", published="Mon, 01 Jan 2024 00:00:00 +0000",
+        status={"upload": _status("2024-01-05T00:00:00", {"torrent_id": None, "url": "https://tracker/url2"})},
+    )
+    a1_path = _write_episode(episodes_dir, a1, filename="show-a-1.json")
+    a2_path = _write_episode(episodes_dir, a2, filename="show-a-2.json")
+    before_a1, before_a2 = a1_path.read_text(), a2_path.read_text()
+
+    b = _episode(
+        guid="guid-b", title="Show B", published="Mon, 10 Jan 2024 00:00:00 +0000",
+        status={"upload": _status("2024-01-10T00:00:00", {"torrent_id": None, "url": "https://tracker/url2"})},
+    )
+    b_path = _write_episode(episodes_dir, b, filename="show-b.json")
+
+    _write_legacy(podcast_dir / "uploads", "show-a.json", {"torrent_id": None, "url": "https://tracker/url1"})
+
+    report = migrate_checkpoints(podcast_dir)
+
+    assert len(report.skipped_conflict) == 1
+    assert "guid-a" in report.skipped_conflict[0]
+    assert a1_path.read_text() == before_a1
+    assert a2_path.read_text() == before_a2
+    assert find_checkpoint(podcast_dir / "uploads", a1) is None
+
+    b_data = json.loads(b_path.read_text())
+    assert "upload" not in b_data["status"]
+    assert find_checkpoint(podcast_dir / "uploads", b) is None
+    assert any("guid-b" in label for label in report.poisoned)
+    assert not any("guid-a" in label for label in report.poisoned)
+    assert not any("guid-a" in label for label in report.migrated)
+
+
+# ---------------------------------------------------------------------------
+# Unclaimed legacy checkpoints: reported (but still swept) when no episode
+# status (pre-clearing, any guid) claims the legacy value.
+# ---------------------------------------------------------------------------
+
+def test_legacy_value_claimed_by_an_episode_is_not_reported_unclaimed(tmp_path):
+    podcast_dir = tmp_path / "podcast"
+    episodes_dir = podcast_dir / "episodes"
+    ep = _episode(
+        guid="guid-1", title="Episode One", published="Mon, 01 Jan 2024 00:00:00 +0000",
+        status={"seed": _status("t1", {"client": "qbittorrent", "hash": "1" * 40})},
+    )
+    _write_episode(episodes_dir, ep)
+    _write_legacy(podcast_dir / "seeds", "episode-one.json", {"client": "qbittorrent", "hash": "1" * 40})
+
+    report = migrate_checkpoints(podcast_dir)
+
+    assert report.unclaimed == []
+
+
+def test_legacy_value_matching_no_episode_status_is_reported_unclaimed(tmp_path):
+    podcast_dir = tmp_path / "podcast"
+    episodes_dir = podcast_dir / "episodes"
+    ep = _episode(guid="guid-1", title="Episode One", published="Mon, 01 Jan 2024 00:00:00 +0000", status={})
+    _write_episode(episodes_dir, ep)
+    _write_legacy(podcast_dir / "uploads", "orphaned.json", {"torrent_id": None, "url": "https://tracker/orphan"})
+
+    report = migrate_checkpoints(podcast_dir)
+
+    assert len(report.unclaimed) == 1
+    assert report.unclaimed[0] == "uploads/orphaned.json: https://tracker/orphan"
+    # still swept
+    assert (podcast_dir / "uploads" / ".legacy" / "orphaned.json").exists()
+
+
+def test_unreadable_legacy_file_is_reported_unclaimed_with_unreadable_value(tmp_path):
+    podcast_dir = tmp_path / "podcast"
+    episodes_dir = podcast_dir / "episodes"
+    ep = _episode(guid="guid-1", title="Episode One", published="Mon, 01 Jan 2024 00:00:00 +0000", status={})
+    _write_episode(episodes_dir, ep)
+    (podcast_dir / "seeds").mkdir(parents=True)
+    (podcast_dir / "seeds" / "broken.json").write_text("{not valid json")
+
+    report = migrate_checkpoints(podcast_dir)
+
+    assert len(report.unclaimed) == 1
+    assert report.unclaimed[0] == "seeds/broken.json: unreadable"
+    assert (podcast_dir / "seeds" / ".legacy" / "broken.json").exists()
+
+
+# ---------------------------------------------------------------------------
 # Duplicate JSONs, same guid, agreeing
 # ---------------------------------------------------------------------------
 
@@ -438,6 +632,9 @@ def test_dry_run_does_not_clear_poisoned_status(tmp_path):
 # ---------------------------------------------------------------------------
 
 def test_legacy_filename_ending_in_hex_digits_still_classified_legacy(tmp_path):
+    """A hash-shaped filename alone doesn't trigger a migration (Fix 5's cheap
+    trigger skips parsing it), but once a migration runs for another reason,
+    step 5 still classifies and sweeps it by payload, not filename shape."""
     podcast_dir = tmp_path / "podcast"
     episodes_dir = podcast_dir / "episodes"
     ep = _episode(guid="guid-1", title="Episode One", published="Mon, 01 Jan 2024 00:00:00 +0000", status={})
@@ -448,10 +645,12 @@ def test_legacy_filename_ending_in_hex_digits_still_classified_legacy(tmp_path):
         podcast_dir / "seeds", "2024-01-01-episode-one-deadbeef.json",
         {"client": "qbittorrent", "hash": "9" * 40},
     )
+    # An unambiguously legacy-named file elsewhere triggers the migration.
+    _write_legacy(podcast_dir / "uploads", "unrelated.json", {"torrent_id": None, "url": "https://tracker/x"})
 
     report = migrate_checkpoints(podcast_dir)
 
-    assert len(report.legacy_moved) == 1
+    assert len(report.legacy_moved) == 2
     assert (podcast_dir / "seeds" / ".legacy" / "2024-01-01-episode-one-deadbeef.json").exists()
 
 
@@ -464,6 +663,45 @@ def test_no_legacy_files_returns_empty_report_immediately(tmp_path):
     report = migrate_checkpoints(podcast_dir)
 
     assert report.is_empty()
+
+
+# ---------------------------------------------------------------------------
+# Cheap trigger: new-style filenames (ending in an 8-hex-char guid suffix)
+# are never parsed by the trigger; only ambiguously-named files are.
+# ---------------------------------------------------------------------------
+
+def test_trigger_reads_nothing_when_only_new_style_filenames_present(tmp_path, monkeypatch):
+    import podcast_etl.checkpoint_migration as migration_module
+
+    podcast_dir = tmp_path / "podcast"
+    seeds_dir = podcast_dir / "seeds"
+    seeds_dir.mkdir(parents=True)
+    (seeds_dir / "2024-01-01-show-deadbeef.json").write_text(
+        json.dumps({"guid": "guid-1", "title": "Show", "info_hash": None, "hash": "a" * 40})
+    )
+
+    calls = []
+    original = migration_module.load_json_dict
+
+    def spy(path):
+        calls.append(path)
+        return original(path)
+
+    monkeypatch.setattr(migration_module, "load_json_dict", spy)
+
+    assert migration_module._has_legacy_checkpoints(podcast_dir) is False
+    assert calls == []
+
+
+def test_trigger_detects_legacy_named_file(tmp_path):
+    import podcast_etl.checkpoint_migration as migration_module
+
+    podcast_dir = tmp_path / "podcast"
+    seeds_dir = podcast_dir / "seeds"
+    seeds_dir.mkdir(parents=True)
+    (seeds_dir / "legacy-slug.json").write_text(json.dumps({"client": "qbittorrent", "hash": "a" * 40}))
+
+    assert migration_module._has_legacy_checkpoints(podcast_dir) is True
 
 
 # ---------------------------------------------------------------------------
