@@ -122,17 +122,18 @@ def test_tag_step_finds_audio_from_download_status(tmp_path: Path):
     assert result.data["release_date"] == "2024-01-01"
 
 
-def test_tag_step_falls_back_to_scanning_audio_dir(tmp_path: Path):
+def test_tag_step_no_download_status_raises_even_if_audio_present(tmp_path: Path):
+    """No glob fallback: an audio file sitting in audio/ is not enough without a
+    recorded download path -- guards against picking up another episode's file."""
     ctx = _make_context(tmp_path)
     _make_audio_file(ctx, "ep-1", ".mp3")
     ep = _make_episode()  # No download status
 
-    result = TagStep().process(ep, ctx)
+    with pytest.raises(FileNotFoundError, match="Audio file not found"):
+        TagStep().process(ep, ctx)
 
-    assert result.data["release_date"] == "2024-01-01"
 
-
-def test_tag_step_download_status_missing_path_falls_back(tmp_path: Path):
+def test_tag_step_download_status_missing_path_raises(tmp_path: Path):
     ctx = _make_context(tmp_path)
     _make_audio_file(ctx, "ep-1", ".mp3")
     # Download status exists but has no 'path' key
@@ -140,9 +141,8 @@ def test_tag_step_download_status_missing_path_falls_back(tmp_path: Path):
         status={"download": StepStatus(completed_at="2024-01-01T00:00:00", result={})}
     )
 
-    result = TagStep().process(ep, ctx)
-
-    assert result.data["release_date"] == "2024-01-01"
+    with pytest.raises(FileNotFoundError, match="Audio file not found"):
+        TagStep().process(ep, ctx)
 
 
 # --- Error cases ---
@@ -150,7 +150,7 @@ def test_tag_step_download_status_missing_path_falls_back(tmp_path: Path):
 def test_tag_step_raises_if_no_published_date(tmp_path: Path):
     ctx = _make_context(tmp_path)
     _make_audio_file(ctx, "ep-1", ".mp3")
-    ep = _make_episode(published=None)
+    ep = _make_episode(published=None, status=_download_status("audio/ep-1.mp3"))
 
     with pytest.raises(ValueError, match="No published date"):
         TagStep().process(ep, ctx)
@@ -167,7 +167,7 @@ def test_tag_step_raises_if_file_not_found(tmp_path: Path):
 def test_tag_step_raises_for_unparseable_date(tmp_path: Path):
     ctx = _make_context(tmp_path)
     _make_audio_file(ctx, "ep-1", ".mp3")
-    ep = _make_episode(published="not a valid date")
+    ep = _make_episode(published="not a valid date", status=_download_status("audio/ep-1.mp3"))
 
     with pytest.raises(ValueError, match="Cannot parse published date"):
         TagStep().process(ep, ctx)
