@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 import yaml
 
+from podcast_etl.checkpoint_migration import MigrationReport
 from podcast_etl.models import Episode, Podcast, StepStatus, TorrentItem
 from podcast_etl.service import (
     _check_feed_source,
@@ -1310,6 +1311,102 @@ def test_run_pipeline_rss_does_not_run_fetch_phase(tmp_path: Path):
     ):
         run_pipeline(podcast, tmp_path, {"pipeline": ["download"]})
     mock_fetch.assert_not_called()
+
+
+def test_run_pipeline_calls_migrate_checkpoints_when_podcast_dir_exists(tmp_path: Path):
+    podcast = Podcast(title="T", url="u", description=None, image_url=None, slug="t")
+    podcast_dir = tmp_path / "t"
+    podcast_dir.mkdir()
+
+    with (
+        patch("podcast_etl.service.migrate_checkpoints", return_value=MigrationReport()) as mock_migrate,
+        patch("podcast_etl.service.Pipeline", MagicMock()),
+    ):
+        run_pipeline(podcast, tmp_path, {"pipeline": ["download"]})
+
+    mock_migrate.assert_called_once_with(podcast_dir)
+
+
+def test_run_pipeline_skips_migrate_checkpoints_when_podcast_dir_missing(tmp_path: Path):
+    """Before the feed's first fetch there's no podcast dir yet -- nothing to migrate."""
+    podcast = Podcast(title="T", url="u", description=None, image_url=None, slug="t")
+
+    with (
+        patch("podcast_etl.service.migrate_checkpoints") as mock_migrate,
+        patch("podcast_etl.service.Pipeline", MagicMock()),
+    ):
+        run_pipeline(podcast, tmp_path, {"pipeline": ["download"]})
+
+    mock_migrate.assert_not_called()
+
+
+def test_run_pipeline_swallows_migrate_checkpoints_exception(tmp_path: Path):
+    """A failed migration must not block the pipeline run: completed status still skips steps."""
+    podcast = Podcast(title="T", url="u", description=None, image_url=None, slug="t")
+    (tmp_path / "t").mkdir()
+
+    with (
+        patch("podcast_etl.service.migrate_checkpoints", side_effect=RuntimeError("boom")),
+        patch("podcast_etl.service.Pipeline", MagicMock()),
+    ):
+        run_pipeline(podcast, tmp_path, {"pipeline": ["download"]})
+
+
+def test_run_pipeline_reconciles_in_memory_status_for_poisoned_episodes(tmp_path: Path):
+    """Regression: migrate_checkpoints only heals disk. Without also clearing the
+    in-memory Episode.status, a poisoned episode's seed/upload step would be
+    skipped this cycle, and a later step's episode.save() would write the
+    stale poisoned status straight back to disk, undoing the migration forever
+    (legacy files are already swept, so it never runs again)."""
+    import json
+
+    from podcast_etl.models import episode_json_filename
+    from podcast_etl.pipeline import STEP_REGISTRY, StepResult
+
+    podcast_dir = tmp_path / "t"
+    episodes_dir = podcast_dir / "episodes"
+    episodes_dir.mkdir(parents=True)
+
+    old = Episode(
+        title="Show", guid="guid-old", published="Mon, 01 Jan 2024 00:00:00 +0000",
+        audio_url="https://x/old.mp3", duration="1:00:00", description="d", slug="show-old",
+        status={"upload": StepStatus("2024-01-01T00:00:00", {"torrent_id": None, "url": "https://tracker/1"})},
+    )
+    new = Episode(
+        title="Show", guid="guid-new", published="Mon, 08 Jan 2024 00:00:00 +0000",
+        audio_url="https://x/new.mp3", duration="1:00:00", description="d", slug="show-new",
+        status={"upload": StepStatus("2024-01-08T00:00:00", {"torrent_id": None, "url": "https://tracker/1"})},
+    )
+    for ep in (old, new):
+        filename = episode_json_filename(ep.guid, ep.raw_title or ep.title, ep.published) + ".json"
+        (episodes_dir / filename).write_text(json.dumps(ep.to_dict(), indent=2))
+    (podcast_dir / "uploads").mkdir()
+    (podcast_dir / "uploads" / "show.json").write_text(
+        json.dumps({"torrent_id": None, "url": "https://tracker/1"})
+    )
+
+    podcast = Podcast(title="T", url="u", description=None, image_url=None, slug="t")
+    podcast.episodes = [old, new]
+
+    upload_calls = []
+
+    class DummyUploadStep:
+        name = "upload"
+
+        def process(self, episode, context):
+            upload_calls.append(episode.guid)
+            return StepResult(data={"torrent_id": 99, "url": f"https://tracker/{episode.guid}"})
+
+    with patch.dict(STEP_REGISTRY, {"upload": DummyUploadStep()}):
+        run_pipeline(podcast, tmp_path, {"pipeline": ["upload"]})
+
+    # (i) status was cleared before Pipeline.run, so the step actually ran for guid-new.
+    assert "guid-new" in upload_calls
+
+    # (ii) the on-disk episode does not regain the poisoned URL via episode.save().
+    new_filename = episode_json_filename(new.guid, new.raw_title or new.title, new.published) + ".json"
+    new_on_disk = json.loads((episodes_dir / new_filename).read_text())
+    assert new_on_disk["status"]["upload"]["result"]["url"] == "https://tracker/guid-new"
 
 
 def test_run_pipeline_unit3d_last_falls_back_to_config(tmp_path: Path):
