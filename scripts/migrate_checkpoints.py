@@ -54,6 +54,8 @@ def migrate(output_dir: Path, dry_run: bool, podcast: str | None = None) -> int:
             logger.info("  suspect: %s", label)
         for label in report.skipped_conflict:
             logger.info("  skipped_conflict: %s", label)
+        for label in report.unclaimed:
+            logger.info("  unclaimed: %s", label)
     return touched
 
 
