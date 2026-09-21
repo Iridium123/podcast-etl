@@ -348,7 +348,7 @@ uv run python scripts/migrate_checkpoints.py --output-dir output/ --dry-run
 
 ## Docker
 
-A pre-built image is published to `ghcr.io/iridium123/podcast-etl:latest` on every push to `main`. It includes `mktorrent` and `ffmpeg` and defaults to `serve` mode (web UI + poll loop on port 8000).
+A pre-built image is published to `ghcr.io/iridium123/podcast-etl:latest` on every push to `main`. Pull requests opened from a branch in this repository (not forks) also publish a `pr-<number>` tag (e.g. `ghcr.io/iridium123/podcast-etl:pr-78`) for testing before merge. It includes `mktorrent` and `ffmpeg` and defaults to `serve` mode (web UI + poll loop on port 8000).
 
 ### Docker Compose (recommended)
 
