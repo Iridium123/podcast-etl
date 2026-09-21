@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from podcast_etl.models import Episode, Podcast, StepStatus, TorrentItem, sanitize_filename, slugify
-from podcast_etl.models import episode_json_filename, guid_hash
+from podcast_etl.models import episode_guid_hash, episode_json_filename, guid_hash
 
 
 # --- slugify ---
@@ -201,6 +201,22 @@ def test_episode_dict_roundtrip_without_raw_title():
     assert roundtripped.raw_title is None
 
 
+# --- episode_guid_hash ---
+
+def test_guid_hash_is_8_hex_chars():
+    h = episode_guid_hash("guid-123")
+    assert len(h) == 8
+    assert all(c in "0123456789abcdef" for c in h)
+
+
+def test_guid_hash_deterministic():
+    assert episode_guid_hash("guid-123") == episode_guid_hash("guid-123")
+
+
+def test_guid_hash_different_guids_differ():
+    assert episode_guid_hash("guid-1") != episode_guid_hash("guid-2")
+
+
 # --- episode_json_filename ---
 
 def test_episode_json_filename_basic():
@@ -301,6 +317,14 @@ def test_episode_save_writes_when_changed(tmp_path: Path):
     # Verify the new status is persisted
     loaded = Episode.load(files[0])
     assert "download" in loaded.status
+
+
+def test_episode_save_leaves_no_temp_files(tmp_path: Path):
+    ep = _make_episode()
+    ep.save(tmp_path, "My Podcast")
+    ep.status["download"] = StepStatus(completed_at="2024-06-01T00:00:00", result={})
+    ep.save(tmp_path, "My Podcast")
+    assert list((tmp_path / "episodes").glob("*.tmp")) == []
 
 
 def test_podcast_load_no_duplicates_unchanged(tmp_path: Path):

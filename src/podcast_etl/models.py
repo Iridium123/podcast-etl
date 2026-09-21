@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -51,6 +52,16 @@ def episode_basename(podcast_title: str, episode_title: str, published: str | No
     return f"{sanitize_filename(podcast_title)} - {date_prefix} - {sanitize_filename(episode_title)}"
 
 
+def episode_guid_hash(guid: str) -> str:
+    """Return the 8-char GUID hash that suffixes episode JSON and checkpoint filenames."""
+    return hashlib.sha256(guid.encode()).hexdigest()[:8]
+
+
+def guid_hash(guid: str) -> str:
+    """Return a filesystem-safe 16-char hash of a GUID (torrent-item filenames)."""
+    return hashlib.sha256(guid.encode()).hexdigest()[:16]
+
+
 def episode_json_filename(guid: str, raw_title: str | None, published: str | None) -> str:
     """Return the base filename (no extension) for an episode's JSON state file.
 
@@ -62,15 +73,10 @@ def episode_json_filename(guid: str, raw_title: str | None, published: str | Non
     if len(slug) > 60:
         cut = slug.rfind("-", 0, 61)
         slug = slug[:cut] if cut > 0 else slug[:60]
-    guid_hash = hashlib.sha256(guid.encode()).hexdigest()[:8]
+    hash_suffix = episode_guid_hash(guid)
     if slug:
-        return f"{date_prefix}-{slug}-{guid_hash}"
-    return f"{date_prefix}-{guid_hash}"
-
-
-def guid_hash(guid: str) -> str:
-    """Return a filesystem-safe 16-char hash of a GUID (torrent-item filenames)."""
-    return hashlib.sha256(guid.encode()).hexdigest()[:16]
+        return f"{date_prefix}-{slug}-{hash_suffix}"
+    return f"{date_prefix}-{hash_suffix}"
 
 
 @dataclass
@@ -145,7 +151,9 @@ class Episode:
         content = json.dumps(self.to_dict(), indent=2) + "\n"
         if path.exists() and path.read_text(encoding="utf-8") == content:
             return
-        path.write_text(content, encoding="utf-8")
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(content, encoding="utf-8")
+        os.replace(tmp, path)
 
     @classmethod
     def load(cls, path: Path) -> Episode:
