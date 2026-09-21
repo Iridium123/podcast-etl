@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-import json
 import logging
 from dataclasses import dataclass
 from pathlib import Path
 
+from podcast_etl.checkpoints import find_checkpoint, write_checkpoint
 from podcast_etl.clients import get_torrent_client
 from podcast_etl.models import Episode
 from podcast_etl.pipeline import PipelineContext, StepResult
@@ -17,16 +17,6 @@ class SeedStep:
     name: str = "seed"
 
     def process(self, episode: Episode, context: PipelineContext) -> StepResult:
-        checkpoint = _checkpoint_path(context, episode)
-        if checkpoint.exists() and not context.overwrite:
-            try:
-                cached = json.loads(checkpoint.read_text())
-            except (json.JSONDecodeError, OSError):
-                logger.warning("Checkpoint for %s is unreadable, re-seeding", episode.slug)
-            else:
-                logger.info("Seed already completed for %s: %s", episode.slug, cached.get("hash"))
-                return StepResult(data=cached)
-
         torrent_status = episode.status.get("torrent")
         if not torrent_status:
             raise ValueError(f"Episode {episode.slug} has no completed 'torrent' step")
@@ -35,6 +25,18 @@ class SeedStep:
         info_hash = torrent_status.result.get("info_hash")
         if not torrent_path or not info_hash:
             raise ValueError(f"Episode {episode.slug} torrent result missing 'torrent_path' or 'info_hash'")
+
+        seeds_dir = context.podcast_dir / "seeds"
+        # Honoured only if its hash matches this episode's current torrent info_hash.
+        cached = None if context.overwrite else find_checkpoint(seeds_dir, episode)
+        if cached is not None:
+            if cached.get("hash") == info_hash:
+                logger.info("Seed already completed for %s: %s", episode.slug, cached.get("hash"))
+                return StepResult(data=cached)
+            logger.warning(
+                "Seed checkpoint hash mismatch for %s (cached %s, current %s); re-seeding",
+                episode.slug, cached.get("hash"), info_hash,
+            )
 
         stage_status = episode.status.get("stage")
         if not stage_status:
@@ -45,7 +47,6 @@ class SeedStep:
             raise ValueError(f"Episode {episode.slug} stage result missing 'client_path'")
 
         client = get_torrent_client(context.config.get("client", {}))
-        result_data = {"client": "qbittorrent", "hash": info_hash}
 
         if client.has_torrent(info_hash):
             logger.info("Torrent already in client: %s", info_hash)
@@ -54,11 +55,7 @@ class SeedStep:
             client.add_torrent(Path(torrent_path), save_path)
             logger.info("Added torrent to client: %s", info_hash)
 
-        checkpoint.parent.mkdir(parents=True, exist_ok=True)
-        checkpoint.write_text(json.dumps(result_data))
-
-        return StepResult(data=result_data)
-
-
-def _checkpoint_path(context: PipelineContext, episode: Episode) -> Path:
-    return context.podcast_dir / "seeds" / f"{episode.slug}.json"
+        payload = write_checkpoint(
+            seeds_dir, episode, data={"client": "qbittorrent", "hash": info_hash}, info_hash=info_hash
+        )
+        return StepResult(data=payload)

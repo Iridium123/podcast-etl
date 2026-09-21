@@ -52,18 +52,11 @@ class TagStep:
         return StepResult(data={"release_date": date_str, "path": str(audio_path.relative_to(context.podcast_dir))})
 
     def _find_audio(self, episode: Episode, context: PipelineContext) -> Path:
-        # Prefer the path recorded by the download step
         download_status = episode.status.get("download")
         if download_status and download_status.result.get("path"):
             candidate = context.podcast_dir / download_status.result["path"]
             if candidate.exists():
                 return candidate
-
-        # Fall back to scanning the audio directory
-        audio_dir = context.podcast_dir / "audio"
-        if audio_dir.exists():
-            for f in audio_dir.glob(f"*{episode.slug}.*"):
-                return f
 
         raise FileNotFoundError(f"Audio file not found for episode {episode.slug}")
 
