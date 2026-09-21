@@ -5,6 +5,7 @@ from pathlib import Path
 
 import feedparser
 
+from podcast_etl.checkpoints import resolve_duplicate_statuses
 from podcast_etl.models import Episode, Podcast, slugify
 from podcast_etl.text import apply_blacklist, clean_description
 from podcast_etl.title_clean import clean_title
@@ -56,14 +57,23 @@ def parse_feed(
     feed = fetch_and_check(url)
     podcast_title, podcast_slug, image_url, podcast_description = parse_feed_head(feed)
 
-    # Load existing episode data to preserve step status
-    existing_episodes: dict[str, Episode] = {}
+    # Load existing episode data to preserve step status. Duplicate JSON files for
+    # one GUID (renamed episode orphaning its old file, or a slug-collision bug)
+    # are merged deterministically rather than letting glob order pick a "winner".
+    existing_by_guid: dict[str, list[Episode]] = {}
     if output_dir:
         podcast_dir = output_dir / podcast_slug / "episodes"
         if podcast_dir.exists():
-            for ep_path in podcast_dir.glob("*.json"):
+            for ep_path in sorted(podcast_dir.glob("*.json")):
                 ep = Episode.load(ep_path)
-                existing_episodes[ep.guid] = ep
+                existing_by_guid.setdefault(ep.guid, []).append(ep)
+
+    existing_episodes: dict[str, Episode] = {}
+    for guid, eps in existing_by_guid.items():
+        episode = eps[0]
+        if len(eps) > 1:
+            episode.status = resolve_duplicate_statuses(eps)
+        existing_episodes[guid] = episode
 
     episodes = []
     for entry in feed.entries:

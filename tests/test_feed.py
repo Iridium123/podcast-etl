@@ -530,3 +530,42 @@ def test_parse_feed_preserves_raw_title_from_rss_over_disk(tmp_path: Path):
     ep = podcast.episodes[0]
     assert ep.raw_title == "New Raw Title"
     assert "download" in ep.status  # status still preserved
+
+
+def test_parse_feed_merges_duplicate_guid_status_across_files(tmp_path: Path):
+    """Two on-disk JSON files sharing one GUID (e.g. a rename orphaned the old file) merge
+    their status per-step by latest completed_at, not by whichever file glob visits last."""
+    podcast_dir = tmp_path / "test-podcast"
+
+    # This file's name sorts first alphabetically but holds the NEWER download status —
+    # proves the merge picks by timestamp, not by glob/sort order.
+    first_by_name = Episode(
+        title="AAA Title", guid="guid-dup", published="Mon, 01 Jan 2024 00:00:00 +0000",
+        audio_url="https://example.com/ep.mp3", duration=None, description=None,
+        slug="aaa-title", raw_title="AAA Title",
+        status={"download": StepStatus(completed_at="2024-06-01T00:00:00", result={"size_bytes": 2})},
+    )
+    last_by_name = Episode(
+        title="ZZZ Title", guid="guid-dup", published="Mon, 01 Jan 2024 00:00:00 +0000",
+        audio_url="https://example.com/ep.mp3", duration=None, description=None,
+        slug="zzz-title", raw_title="ZZZ Title",
+        status={
+            "download": StepStatus(completed_at="2024-01-01T00:00:00", result={"size_bytes": 1}),
+            "tag": StepStatus(completed_at="2024-01-02T00:00:00", result={}),
+        },
+    )
+    first_by_name.save(podcast_dir, "Test Podcast")
+    last_by_name.save(podcast_dir, "Test Podcast")
+
+    files = sorted((podcast_dir / "episodes").glob("*.json"))
+    assert len(files) == 2  # sanity: they really landed in two separate files
+    assert files[0].name < files[1].name
+
+    entry = _Entry(title="Current RSS Title", guid="guid-dup", links=[_audio_link()])
+    feed = _make_parsed_feed(entries=[entry], feed=_FeedMeta(title="Test Podcast"))
+    with patch("podcast_etl.feed.feedparser.parse", return_value=feed):
+        podcast = parse_feed("https://example.com/feed.xml", output_dir=tmp_path)
+
+    ep = podcast.episodes[0]
+    assert ep.status["download"].result["size_bytes"] == 2  # later completed_at wins
+    assert "tag" in ep.status  # disjoint step from the other file is preserved
