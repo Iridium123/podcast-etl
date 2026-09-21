@@ -204,8 +204,8 @@ def _extract_csrf_token(html: str) -> str:
 
 
 def _extract_torrent_id(url: str) -> int | None:
-    """Extract torrent ID from a redirect URL like /torrents/123."""
-    match = re.search(r"/torrents/(\d+)", url)
+    """Extract torrent ID from a redirect URL like /torrents/123 or /torrents/download_check/123."""
+    match = re.search(r"/torrents/(?:download_check/)?(\d+)", url)
     return int(match.group(1)) if match else None
 
 
