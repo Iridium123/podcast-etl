@@ -20,8 +20,8 @@ def _make_labels():
         ],
         provenance=Provenance(
             whisper={"model": "base", "language": "en"},
-            llm={"provider": "anthropic", "model": "claude-haiku-4-5-20251001", "prompt": "default"},
-            annotator="claude-haiku-4-5-20251001",
+            llm={"provider": "anthropic", "model": "claude-haiku-5-5", "prompt": "default"},
+            annotator="claude-haiku-5-5",
             created_at="2026-05-31T12:00:00",
         ),
     )
@@ -59,7 +59,7 @@ class TestLabelsRoundtrip:
         }
         assert data["audio_duration"] == 1944.0
         assert data["segments"][0]["notes"] == "checked by hand"
-        assert data["provenance"]["annotator"] == "claude-haiku-4-5-20251001"
+        assert data["provenance"]["annotator"] == "claude-haiku-5-5"
         assert data["provenance"]["llm"]["prompt"] == "default"
 
     def test_notes_default_empty(self):

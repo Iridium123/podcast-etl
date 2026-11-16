@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 # The Docker image copies this directory into its WORKDIR.
 PROMPTS_DIR = Path("prompts")
 
-DEFAULT_LLM_MODEL = "claude-haiku-4-5-20251001"
+DEFAULT_LLM_MODEL = "claude-haiku-5-5"
 
 
 def load_prompt(name: str, prompts_dir: Path | None = None) -> str:
