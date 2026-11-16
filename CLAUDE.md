@@ -31,7 +31,7 @@ Tests live in `tests/` and use pytest:
 - `test_tag_step.py` -- `TagStep` MP3 tagging, TRCK track number, APIC album art embedding, audio file discovery from the download-recorded path (no slug-glob fallback), error cases
 - `test_qbittorrent_client.py` -- `QBittorrentClient` login, has_torrent, add_torrent (plain-text and JSON-summary responses), is_complete (progress-based), get_files, `get_torrent_client` factory
 - `test_unit3d_tracker.py` -- `ModifiedUnit3dTracker` upload, field construction, image handling, cover override precedence
-- `test_transcription_detector.py` -- `TranscriptionDetector` whisper API, local transcription, `load_prompt`, `build_llm_client`, `classify` (cached system prompt, client reuse), `AnthropicProvider` (prompt resolution + classify), `resolve_overlaps` (overlap/near-adjacent snapping, containment drop, buffer), `_parse_llm_response`
+- `test_transcription_detector.py` -- `TranscriptionDetector` whisper API, local transcription, `load_prompt`, `build_llm_client`, `classify` (cached system prompt, client reuse, text extraction past leading thinking blocks), `AnthropicProvider` (prompt resolution + classify), `resolve_overlaps` (overlap/near-adjacent snapping, containment drop, buffer), `_parse_llm_response`
 - `test_detect_ads_step.py` -- `DetectAdsStep` orchestration, config merging, transcript saving/reuse, overlap resolution, standalone labels-file output
 - `test_strip_ads_step.py` -- `StripAdsStep` ffmpeg args, idempotency, no-ads passthrough, reading segments from the labels file
 - `test_labels.py` -- `Labels`/`Provenance`/`EpisodeRef` to_dict/from_dict, save/load roundtrip, on-disk shape, `AdSegment.notes`
@@ -140,7 +140,7 @@ defaults:
   blacklist: ["John Doe"]
   pipeline: [download, tag, detect_ads, strip_ads, stage, torrent, seed, upload]
   title_cleaning: {strip_date: false, reorder_parts: false, prepend_episode_number: false, sanitize: false}
-  ad_detection: {whisper: {model: base, language: en}, llm: {provider: anthropic, model: claude-sonnet-4-20250514, prompt: default}, min_confidence: 0.5}
+  ad_detection: {whisper: {model: base, language: en}, llm: {provider: anthropic, model: claude-sonnet-5-5, prompt: default}, min_confidence: 0.5}
   audiobookshelf: {dir: /podcasts}  # url/api_key/library_id optional (all-or-none): set to trigger API scan after copy
   client: {url: ..., username: ..., password: ..., save_path: /data}
   tracker: {url: ..., remember_cookie: ..., announce_url: ..., anonymous: 0, personal_release: 0, mod_queue_opt_in: 0}
