@@ -162,7 +162,7 @@ defaults:
       # url: http://localhost:8080   # optional: remote whisper server
     llm:
       provider: anthropic
-      model: claude-sonnet-4-20250514
+      model: claude-sonnet-5-5
       prompt: default          # name of a file in prompts/<name>.txt
     min_confidence: 0.5
 
@@ -208,7 +208,7 @@ feeds:
       mod_queue_opt_in: 1
     ad_detection:
       llm:
-        model: claude-sonnet-4-20250514
+        model: claude-sonnet-5-5
     title_cleaning:
       strip_date: true
       reorder_parts: true

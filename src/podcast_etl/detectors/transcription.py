@@ -174,14 +174,20 @@ def classify(
     logger.info("Classifying ads via Anthropic (%s)", model)
     message = client.messages.create(
         model=model,
-        max_tokens=4096,
+        # Thinking tokens count against max_tokens on always-thinking models.
+        max_tokens=16000,
         system=[{"type": "text", "text": prompt_text, "cache_control": {"type": "ephemeral"}}],
         messages=[{"role": "user", "content": f"Transcript:\n{formatted}"}],
     )
 
-    if not message.content or not hasattr(message.content[0], "text"):
+    # Thinking blocks precede the text block on models that think by default.
+    text = next(
+        (b.text for b in message.content or [] if isinstance(getattr(b, "text", None), str)),
+        None,
+    )
+    if text is None:
         raise ValueError(f"Unexpected Anthropic response content: {message.content!r}")
-    return _parse_llm_response(message.content[0].text)
+    return _parse_llm_response(text)
 
 
 @dataclass

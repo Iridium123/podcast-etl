@@ -287,6 +287,36 @@ class TestClassify:
         assert user_content.startswith("Transcript:")
         assert "brought to you by Acme Corp" in user_content
 
+    def test_skips_leading_thinking_block(self):
+        from types import SimpleNamespace
+
+        mock_message = MagicMock()
+        mock_message.content = [
+            SimpleNamespace(type="thinking", thinking=""),
+            SimpleNamespace(type="text", text=_llm_response_json([
+                {"start": 0.0, "end": 30.0, "confidence": 0.85, "label": "Pre-roll ad"},
+            ])),
+        ]
+        mock_client = MagicMock()
+        mock_client.messages.create.return_value = mock_message
+
+        result = classify(
+            _whisper_segments(), "P", {"model": "claude-sonnet-5-5"}, client=mock_client,
+        )
+
+        assert [s.label for s in result] == ["Pre-roll ad"]
+
+    def test_raises_when_no_text_block(self):
+        from types import SimpleNamespace
+
+        mock_message = MagicMock()
+        mock_message.content = [SimpleNamespace(type="thinking", thinking="")]
+        mock_client = MagicMock()
+        mock_client.messages.create.return_value = mock_message
+
+        with pytest.raises(ValueError, match="Unexpected Anthropic response"):
+            classify(_whisper_segments(), "P", {"model": "m"}, client=mock_client)
+
     def test_empty_transcript_returns_early_without_api_call(self):
         mock_client = MagicMock()
         with patch.dict("sys.modules", {"anthropic": MagicMock()}) as mods:

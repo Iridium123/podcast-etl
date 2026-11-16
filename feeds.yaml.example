@@ -18,7 +18,7 @@ feeds:
   banner_image: /config/banner.jpg  # optional; uploaded as torrent banner (16:9, JPEG)
   ad_detection:             # optional per-feed overrides
     llm:
-      model: claude-sonnet-4-20250514
+      model: claude-sonnet-5-5
 
 settings:
   poll_interval: 3600
@@ -40,7 +40,7 @@ settings:
     llm:
       provider: anthropic             # "anthropic" (or "openai" in future)
       api_key: ""                     # optional; falls back to ANTHROPIC_API_KEY env var
-      model: claude-sonnet-4-20250514
+      model: claude-sonnet-5-5
     min_confidence: 0.5
 
   audiobookshelf:
