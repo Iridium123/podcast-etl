@@ -99,10 +99,10 @@ class TestGetAdDetectionConfig:
     def test_feed_overrides_global(self, tmp_path):
         context = _make_context(
             tmp_path,
-            ad_detection_config={"llm": {"model": "claude-haiku-4-5-20251001", "provider": "anthropic"}},
+            ad_detection_config={"llm": {"model": "claude-haiku-5-5", "provider": "anthropic"}},
         )
         config = _get_ad_detection_config(context)
-        assert config["llm"]["model"] == "claude-haiku-4-5-20251001"
+        assert config["llm"]["model"] == "claude-haiku-5-5"
         assert config["llm"]["provider"] == "anthropic"
 
     def test_empty_config(self, tmp_path):
@@ -119,7 +119,7 @@ class TestDetectAdsStep:
     def test_process_writes_labels_file(self, tmp_path):
         context = _make_context(tmp_path, ad_detection_config={
             "whisper": {"url": "http://localhost:9000", "model": "base", "language": "en"},
-            "llm": {"provider": "anthropic", "model": "claude-haiku-4-5-20251001"},
+            "llm": {"provider": "anthropic", "model": "claude-haiku-5-5"},
         })
         episode = _make_episode()
         _create_audio_file(context)
@@ -142,7 +142,7 @@ class TestDetectAdsStep:
         assert result.data["total_ad_duration"] == 30.0
         assert "transcription" in result.data["detectors_used"]
         assert result.data["whisper"] == {"model": "base", "language": "en"}
-        assert result.data["llm"]["model"] == "claude-haiku-4-5-20251001"
+        assert result.data["llm"]["model"] == "claude-haiku-5-5"
         assert result.data["llm"]["prompt"] == "default"
 
         # The standalone labels file holds the segments + audio_duration.
@@ -151,7 +151,7 @@ class TestDetectAdsStep:
         assert labels.segments[0].label == "Pre-roll ad"
         assert labels.audio_duration == 3600.0
         assert labels.episode_ref.podcast_slug == "my-podcast"
-        assert labels.provenance.annotator == "claude-haiku-4-5-20251001"
+        assert labels.provenance.annotator == "claude-haiku-5-5"
 
     def test_process_saves_transcript(self, tmp_path):
         context = _make_context(tmp_path, ad_detection_config={

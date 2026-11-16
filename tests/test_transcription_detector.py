@@ -271,13 +271,13 @@ class TestClassify:
 
         result = classify(
             _whisper_segments(), "PROMPT TEXT",
-            {"model": "claude-haiku-4-5-20251001"}, client=mock_client,
+            {"model": "claude-haiku-5-5"}, client=mock_client,
         )
 
         assert len(result) == 1
         assert result[0].label == "Pre-roll ad"
         call_kwargs = mock_client.messages.create.call_args.kwargs
-        assert call_kwargs["model"] == "claude-haiku-4-5-20251001"
+        assert call_kwargs["model"] == "claude-haiku-5-5"
         # Prompt goes in a cacheable system block...
         assert call_kwargs["system"] == [
             {"type": "text", "text": "PROMPT TEXT", "cache_control": {"type": "ephemeral"}}
